@@ -86,10 +86,7 @@ export function AcceptInvite({
           </p>
         </CardContent>
         <CardFooter className="flex flex-col gap-2 pt-2">
-          <Button
-            asChild
-            className="h-[46px] w-full rounded-lg text-base font-normal"
-          >
+          <Button asChild size="form" className="w-full">
             <Link href="/login">Ir para o login</Link>
           </Button>
         </CardFooter>
@@ -113,7 +110,7 @@ export function AcceptInvite({
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4 pt-4">
-          <div className="rounded-lg border border-border bg-muted/40 p-4 space-y-2.5 text-sm">
+          <div className="space-y-2.5 rounded-lg bg-muted/40 p-4 text-sm">
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Função / Perfil:</span>
               <Badge variant="secondary" className="font-normal text-xs">
@@ -133,19 +130,12 @@ export function AcceptInvite({
           </p>
         </CardContent>
         <CardFooter className="flex flex-col gap-3 pt-2">
-          <Button
-            asChild
-            className="h-[46px] w-full rounded-lg text-base font-normal"
-          >
+          <Button asChild size="form" className="w-full">
             <Link href={`/login?returnTo=${encodeURIComponent(returnTo)}`}>
               Entrar na minha conta
             </Link>
           </Button>
-          <Button
-            asChild
-            variant="outline"
-            className="h-[46px] w-full rounded-lg text-base font-normal"
-          >
+          <Button asChild variant="secondary" size="form" className="w-full">
             <Link href={`/register?returnTo=${encodeURIComponent(returnTo)}`}>
               Criar nova conta
             </Link>
@@ -172,7 +162,7 @@ export function AcceptInvite({
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4 pt-4">
-          <div className="rounded-lg border border-border bg-muted/40 p-4 space-y-2.5 text-sm">
+          <div className="space-y-2.5 rounded-lg bg-muted/40 p-4 text-sm">
             <div>
               <span className="text-xs text-muted-foreground block">
                 Clínica
@@ -189,7 +179,7 @@ export function AcceptInvite({
                 {invite.email}
               </span>
             </div>
-            <div className="pt-2 border-t border-border">
+            <div>
               <span className="text-xs text-muted-foreground block">
                 Sua sessão atual
               </span>
@@ -206,10 +196,10 @@ export function AcceptInvite({
         <CardFooter className="flex flex-col gap-2 pt-2">
           <Button
             type="button"
-            variant="outline"
+            size="form"
             onClick={handleSwitchAccount}
             disabled={isPending}
-            className="h-[46px] w-full rounded-lg text-base font-normal"
+            className="w-full"
           >
             {isPending && <Spinner className="size-4 mr-2" />}
             Trocar de conta
@@ -234,7 +224,7 @@ export function AcceptInvite({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 pt-4">
-        <div className="rounded-lg border border-border bg-muted/40 p-4 space-y-2.5 text-sm">
+        <div className="space-y-2.5 rounded-lg bg-muted/40 p-4 text-sm">
           <div className="flex items-center justify-between">
             <span className="text-muted-foreground">Função / Perfil:</span>
             <Badge variant="secondary" className="font-normal text-xs">
@@ -256,9 +246,10 @@ export function AcceptInvite({
       <CardFooter className="flex flex-col gap-2 pt-2">
         <Button
           type="button"
+          size="form"
           onClick={handleAccept}
           disabled={isPending}
-          className="h-[46px] w-full rounded-lg text-base font-normal"
+          className="w-full"
         >
           {isPending ? (
             <>
