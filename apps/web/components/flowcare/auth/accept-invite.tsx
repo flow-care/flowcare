@@ -30,9 +30,21 @@ function initialLetter(value: string) {
   return value.trim().charAt(0).toUpperCase() || "?";
 }
 
-function ClinicHeader({ organizationName }: { organizationName: string }) {
+function ClinicHeader({
+  organizationName,
+  inviterName,
+  description,
+}: {
+  organizationName: string;
+  inviterName?: string;
+  description: string;
+}) {
+  const title = inviterName
+    ? `${inviterName} convidou você para a clínica '${organizationName}'`
+    : `Convite para a clínica '${organizationName}'`;
+
   return (
-    <div className="flex flex-col items-center justify-center gap-2 py-1 text-center">
+    <div className="flex flex-col items-center justify-center gap-3 py-1 text-center">
       <Avatar className="size-20">
         <AvatarImage
           src={dicebearInitialUrl(organizationName)}
@@ -43,9 +55,12 @@ function ClinicHeader({ organizationName }: { organizationName: string }) {
           {initialLetter(organizationName)}
         </AvatarFallback>
       </Avatar>
-      <h3 className="text-2xl font-semibold tracking-tight text-foreground">
-        {organizationName}
-      </h3>
+      <div className="space-y-2">
+        <h2 className="text-2xl font-semibold tracking-tight text-foreground">
+          {title}
+        </h2>
+        <p className="text-sm text-muted-foreground">{description}</p>
+      </div>
     </div>
   );
 }
@@ -56,32 +71,28 @@ function CurrentSessionBadge({
   currentUser: CurrentUserProfile;
 }) {
   return (
-    <div className="space-y-1.5">
+    <div className="flex flex-col items-center justify-center space-y-1.5 text-center">
       <span className="text-xs font-medium text-muted-foreground">
         Sua sessão atual
       </span>
-      <div className="flex">
-        <Badge
-          variant="outline"
-          className="inline-flex items-center gap-2 px-3 py-1.5 font-normal"
-        >
-          <Avatar className="size-5">
-            <AvatarImage
-              src={
-                currentUser.photoUrl || dicebearInitialUrl(currentUser.email)
-              }
-              alt=""
-              referrerPolicy="no-referrer"
-            />
-            <AvatarFallback className="text-[10px]">
-              {initialLetter(currentUser.email)}
-            </AvatarFallback>
-          </Avatar>
-          <span className="truncate text-xs font-medium text-foreground">
-            {currentUser.email}
-          </span>
-        </Badge>
-      </div>
+      <Badge
+        variant="outline"
+        className="inline-flex h-9 items-center gap-2.5 px-3.5 font-normal"
+      >
+        <Avatar className="size-5">
+          <AvatarImage
+            src={currentUser.photoUrl || dicebearInitialUrl(currentUser.email)}
+            alt=""
+            referrerPolicy="no-referrer"
+          />
+          <AvatarFallback className="text-[10px]">
+            {initialLetter(currentUser.email)}
+          </AvatarFallback>
+        </Avatar>
+        <span className="truncate text-xs font-medium text-foreground">
+          {currentUser.email}
+        </span>
+      </Badge>
     </div>
   );
 }
@@ -152,15 +163,11 @@ export function AcceptInvite({
   if (!currentUser) {
     return (
       <div className="space-y-6">
-        <div className="space-y-2 text-center">
-          <h2 className="text-2xl font-semibold tracking-tight text-foreground">
-            Convite para equipe
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            Você recebeu um link de convite para entrar na organização.
-          </p>
-        </div>
-        <ClinicHeader organizationName={invite.organizationName} />
+        <ClinicHeader
+          organizationName={invite.organizationName}
+          inviterName={invite.inviterName}
+          description="Você recebeu um link de convite para entrar na organização."
+        />
         <div className="flex items-center gap-3 rounded-lg bg-card p-3 shadow-none">
           <Avatar className="size-10">
             <AvatarImage
@@ -207,15 +214,11 @@ export function AcceptInvite({
   if (isEmailMismatch) {
     return (
       <div className="space-y-6">
-        <div className="space-y-2 text-center">
-          <h2 className="text-2xl font-semibold tracking-tight text-foreground">
-            E-mail incompatível
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            Sua conta conectada não corresponde ao destinatário do convite.
-          </p>
-        </div>
-        <ClinicHeader organizationName={invite.organizationName} />
+        <ClinicHeader
+          organizationName={invite.organizationName}
+          inviterName={invite.inviterName}
+          description="Você não pode acessar a clínica porque não foi convidado."
+        />
         <div className="space-y-4">
           <div className="flex items-center gap-3 rounded-lg bg-card p-3 shadow-none">
             <Avatar className="size-10">
@@ -258,15 +261,11 @@ export function AcceptInvite({
   // Estado 4: Usuário autenticado com e-mail correto — pronto para aceitar
   return (
     <div className="space-y-6">
-      <div className="space-y-2 text-center">
-        <h2 className="text-2xl font-semibold tracking-tight text-foreground">
-          Convite para equipe
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          Você recebeu um link de convite para entrar na organização.
-        </p>
-      </div>
-      <ClinicHeader organizationName={invite.organizationName} />
+      <ClinicHeader
+        organizationName={invite.organizationName}
+        inviterName={invite.inviterName}
+        description="Você recebeu um link de convite para entrar na organização."
+      />
       <div className="space-y-4">
         <CurrentSessionBadge currentUser={currentUser} />
       </div>

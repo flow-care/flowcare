@@ -41,6 +41,7 @@ export const acceptResponse = t.Object({ organizationSlug: t.String() });
 export const inviteDetailsResponse = t.Object({
   organizationName: t.String(),
   organizationSlug: t.String(),
+  inviterName: t.String(),
   email: t.String(),
   role: t.String(),
   expiresAt: t.String(),

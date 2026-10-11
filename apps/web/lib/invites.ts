@@ -38,6 +38,7 @@ export type PendingInvite = z.infer<
 export const inviteDetailsSchema = z.object({
   organizationName: z.string(),
   organizationSlug: z.string(),
+  inviterName: z.string().optional(),
   email: z.string().email(),
   role: z.string(),
   expiresAt: z.string(),

@@ -94,7 +94,15 @@ export class InviteService {
   async getDetails(token: string): Promise<InviteDetailsResponse> {
     const invite = await this.deps.prisma.organizationInvite.findUnique({
       where: { tokenHash: hashToken(token) },
-      include: { organization: true },
+      include: {
+        organization: {
+          include: {
+            owner: {
+              select: { fullName: true },
+            },
+          },
+        },
+      },
     });
     if (
       !invite ||
@@ -111,6 +119,7 @@ export class InviteService {
     return {
       organizationName: invite.organization.name,
       organizationSlug: invite.organization.slug,
+      inviterName: invite.organization.owner?.fullName ?? "Administrador",
       email: invite.email,
       role: invite.role,
       expiresAt: invite.expiresAt.toISOString(),
