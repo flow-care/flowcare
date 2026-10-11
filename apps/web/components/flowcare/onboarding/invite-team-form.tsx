@@ -23,6 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
 import {
   formatInviteRole,
@@ -210,6 +211,7 @@ export function InviteTeamForm({
         </form>
       )}
 
+      <Separator className="border-t border-dashed border-border bg-transparent" />
       <section aria-labelledby="pending-invites-title" className="space-y-3">
         <h2 id="pending-invites-title" className="text-base font-medium">
           Convites pendentes
