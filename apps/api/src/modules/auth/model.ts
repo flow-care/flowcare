@@ -61,6 +61,7 @@ export const loginResponse = t.Object({
   availableOrganizations: t.Array(organizationSummary),
   onboardingCompleted: t.Boolean(),
   onboardingCurrentStep: t.String(),
+  pendingInviteId: t.Optional(t.Nullable(t.String())),
 });
 
 export const errorResponse = t.Object({

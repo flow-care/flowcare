@@ -2,30 +2,118 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import {
   acceptInviteAction,
+  declineInviteAction,
   switchAccountAction,
 } from "@/app/(auth)/accept-invite/actions";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
-import { formatInviteRole, type InviteDetails } from "@/lib/invites";
+import type { InviteDetails } from "@/lib/invites";
 import type { CurrentUserProfile } from "@/server/invites";
 
 interface AcceptInviteProps {
   token: string;
   invite: InviteDetails | null;
   currentUser: CurrentUserProfile | null;
+}
+
+function dicebearInitialUrl(value: string) {
+  const seed = value.includes("@") ? value.split("@")[0] : value.trim();
+  return `https://api.dicebear.com/10.x/initials/svg?seed=${encodeURIComponent(seed || value)}&lettersVariant=single`;
+}
+
+function maskEmail(email: string) {
+  const [local, domain] = email.trim().split("@");
+  if (!local || !domain) return email;
+  if (local.length <= 2) return `${local.charAt(0)}**@${domain}`;
+  if (local.length === 3) return `${local.slice(0, 2)}**@${domain}`;
+  return `${local.slice(0, 3)}${"*".repeat(Math.min(4, local.length - 3))}@${domain}`;
+}
+
+function ClinicHeader({
+  organizationName,
+  inviterName,
+  isEmailMismatch = false,
+  isAlreadyMember = false,
+}: {
+  organizationName: string;
+  inviterName?: string;
+  isEmailMismatch?: boolean;
+  isAlreadyMember?: boolean;
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-3 py-1 text-center">
+      <Avatar className="size-20 after:hidden">
+        <AvatarImage
+          src={dicebearInitialUrl(organizationName)}
+          alt={organizationName}
+          referrerPolicy="no-referrer"
+        />
+        <AvatarFallback className="bg-transparent p-0">
+          <Skeleton className="size-full rounded-full" />
+        </AvatarFallback>
+      </Avatar>
+      <h2 className="text-2xl font-semibold tracking-tight text-foreground">
+        {isAlreadyMember ? (
+          <>
+            <span className="font-normal">Você já faz parte da clínica</span> '
+            {organizationName}'
+          </>
+        ) : isEmailMismatch ? (
+          "Você não pode acessar a clínica porque não foi convidado."
+        ) : inviterName ? (
+          <>
+            {inviterName}{" "}
+            <span className="font-normal">convidou você para a clínica</span> '
+            {organizationName}'
+          </>
+        ) : (
+          <>
+            <span className="font-normal">Convite para a clínica</span> '
+            {organizationName}'
+          </>
+        )}
+      </h2>
+    </div>
+  );
+}
+
+function CurrentSessionBadge({
+  currentUser,
+}: {
+  currentUser: CurrentUserProfile;
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center space-y-1.5 text-center">
+      <span className="text-xs font-medium text-muted-foreground">
+        Sua sessão atual
+      </span>
+      <Badge
+        variant="outline"
+        className="inline-flex h-9 items-center gap-2.5 px-3.5 font-normal"
+      >
+        <Avatar className="size-5 after:hidden">
+          <AvatarImage
+            src={currentUser.photoUrl || dicebearInitialUrl(currentUser.email)}
+            alt=""
+            referrerPolicy="no-referrer"
+          />
+          <AvatarFallback className="bg-transparent p-0">
+            <Skeleton className="size-full rounded-full" />
+          </AvatarFallback>
+        </Avatar>
+        <span className="truncate text-xs font-medium text-foreground">
+          {currentUser.email}
+        </span>
+      </Badge>
+    </div>
+  );
 }
 
 export function AcceptInvite({
@@ -35,11 +123,15 @@ export function AcceptInvite({
 }: AcceptInviteProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const [activeAction, setActiveAction] = useState<
+    "accept" | "decline" | "switch" | null
+  >(null);
 
   const returnTo = `/accept-invite/${token}`;
 
   function handleAccept() {
     if (isPending) return;
+    setActiveAction("accept");
     startTransition(async () => {
       try {
         const result = await acceptInviteAction(token);
@@ -60,8 +152,30 @@ export function AcceptInvite({
     });
   }
 
+  function handleDecline() {
+    if (isPending) return;
+    setActiveAction("decline");
+    startTransition(async () => {
+      try {
+        const result = await declineInviteAction(token);
+        if (!result.ok) {
+          toast.error(result.error.message);
+          return;
+        }
+        toast.success("Convite recusado.");
+        router.push("/");
+        router.refresh();
+      } catch {
+        toast.error(
+          "Não foi possível recusar o convite no momento. Tente novamente.",
+        );
+      }
+    });
+  }
+
   function handleSwitchAccount() {
     if (isPending) return;
+    setActiveAction("switch");
     startTransition(async () => {
       await switchAccountAction(returnTo);
     });
@@ -70,206 +184,197 @@ export function AcceptInvite({
   // Estado 1: Convite inválido, revogado ou expirado
   if (!invite) {
     return (
-      <Card className="rounded-xl border border-border bg-card">
-        <CardHeader className="text-center pb-2">
-          <CardTitle className="text-xl font-semibold tracking-tight text-foreground">
+      <div className="space-y-6">
+        <div className="space-y-2 text-center">
+          <h2 className="text-2xl font-semibold tracking-tight text-foreground">
             Convite indisponível
-          </CardTitle>
-          <CardDescription className="text-sm text-muted-foreground mt-2">
+          </h2>
+          <p className="text-sm text-muted-foreground">
             Este link de convite é inválido, expirou ou já foi aceito.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4 pt-2 text-center text-sm text-muted-foreground">
-          <p>
-            Caso você precise de acesso à clínica, solicite um novo convite ao
-            administrador responsável.
           </p>
-        </CardContent>
-        <CardFooter className="flex flex-col gap-2 pt-2">
-          <Button
-            asChild
-            className="h-[46px] w-full rounded-lg text-base font-normal"
-          >
-            <Link href="/login">Ir para o login</Link>
-          </Button>
-        </CardFooter>
-      </Card>
+        </div>
+        <p className="text-center text-sm text-muted-foreground">
+          Caso você precise de acesso à clínica, solicite um novo convite ao
+          administrador responsável.
+        </p>
+        <Button asChild size="form" className="w-full">
+          <Link href="/login">Ir para o login</Link>
+        </Button>
+      </div>
     );
   }
 
   // Estado 2: Usuário não autenticado
   if (!currentUser) {
+    const maskedEmail = maskEmail(invite.email);
     return (
-      <Card className="rounded-xl border border-border bg-card">
-        <CardHeader className="text-center pb-2">
-          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            Convite para clínica
-          </p>
-          <CardTitle className="text-2xl font-semibold tracking-tight text-foreground mt-1">
-            {invite.organizationName}
-          </CardTitle>
-          <CardDescription className="text-sm text-muted-foreground mt-2">
-            Você foi convidado para integrar a equipe desta clínica no Flowcare.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4 pt-4">
-          <div className="rounded-lg border border-border bg-muted/40 p-4 space-y-2.5 text-sm">
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Função / Perfil:</span>
-              <Badge variant="secondary" className="font-normal text-xs">
-                {formatInviteRole(invite.role)}
-              </Badge>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">E-mail convidado:</span>
-              <span className="font-medium text-foreground">
-                {invite.email}
-              </span>
-            </div>
+      <div className="space-y-6">
+        <ClinicHeader
+          organizationName={invite.organizationName}
+          inviterName={invite.inviterName}
+        />
+        <div className="flex items-center gap-3 rounded-lg bg-card p-3 shadow-none">
+          <Avatar className="size-10 after:hidden">
+            <AvatarImage
+              src={dicebearInitialUrl(invite.email)}
+              alt=""
+              referrerPolicy="no-referrer"
+            />
+            <AvatarFallback className="bg-transparent p-0">
+              <Skeleton className="size-full rounded-full" />
+            </AvatarFallback>
+          </Avatar>
+          <div className="min-w-0 flex-1">
+            <span className="block text-xs text-muted-foreground">
+              Convite emitido para
+            </span>
+            <p className="truncate font-medium text-foreground">
+              {maskedEmail}
+            </p>
           </div>
-          <p className="text-xs text-muted-foreground text-center">
-            Para aceitar o convite, acesse sua conta existente ou crie uma conta
-            com o e-mail indicado acima.
-          </p>
-        </CardContent>
-        <CardFooter className="flex flex-col gap-3 pt-2">
-          <Button
-            asChild
-            className="h-[46px] w-full rounded-lg text-base font-normal"
-          >
+        </div>
+        <p className="text-center text-xs text-muted-foreground">
+          Faça login ou cadastre-se no Flowcare para responder a este convite.
+        </p>
+        <div className="flex flex-col gap-3">
+          <Button asChild size="form" className="w-full">
             <Link href={`/login?returnTo=${encodeURIComponent(returnTo)}`}>
               Entrar na minha conta
             </Link>
           </Button>
-          <Button
-            asChild
-            variant="outline"
-            className="h-[46px] w-full rounded-lg text-base font-normal"
-          >
+          <Button asChild variant="secondary" size="form" className="w-full">
             <Link href={`/register?returnTo=${encodeURIComponent(returnTo)}`}>
               Criar nova conta
             </Link>
           </Button>
-        </CardFooter>
-      </Card>
+        </div>
+      </div>
     );
   }
 
-  // Estado 3: Usuário autenticado com e-mail diferente do convite
+  const isAlreadyMember = Boolean(
+    currentUser.organizationSlugs?.includes(invite.organizationSlug),
+  );
+
+  // Estado 3: Usuário autenticado com e-mail diferente do convite (ou já membro da clínica)
   const isEmailMismatch =
     currentUser.email.trim().toLowerCase() !==
     invite.email.trim().toLowerCase();
 
-  if (isEmailMismatch) {
+  if (isEmailMismatch || isAlreadyMember) {
     return (
-      <Card className="rounded-xl border border-border bg-card">
-        <CardHeader className="text-center pb-2">
-          <CardTitle className="text-xl font-semibold tracking-tight text-foreground">
-            E-mail incompatível
-          </CardTitle>
-          <CardDescription className="text-sm text-muted-foreground mt-2">
-            Sua conta conectada não corresponde ao destinatário do convite.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4 pt-4">
-          <div className="rounded-lg border border-border bg-muted/40 p-4 space-y-2.5 text-sm">
-            <div>
-              <span className="text-xs text-muted-foreground block">
-                Clínica
-              </span>
-              <span className="font-medium text-foreground">
-                {invite.organizationName}
-              </span>
-            </div>
-            <div>
-              <span className="text-xs text-muted-foreground block">
+      <div className="space-y-6">
+        <ClinicHeader
+          organizationName={invite.organizationName}
+          inviterName={invite.inviterName}
+          isEmailMismatch={isEmailMismatch}
+          isAlreadyMember={isAlreadyMember}
+        />
+        <div className="space-y-4">
+          <div className="flex items-center gap-3 rounded-lg bg-card p-3 shadow-none">
+            <Avatar className="size-10 after:hidden">
+              <AvatarImage
+                src={dicebearInitialUrl(invite.email)}
+                alt=""
+                referrerPolicy="no-referrer"
+              />
+              <AvatarFallback className="bg-transparent p-0">
+                <Skeleton className="size-full rounded-full" />
+              </AvatarFallback>
+            </Avatar>
+            <div className="min-w-0 flex-1">
+              <span className="block text-xs text-muted-foreground">
                 Convite emitido para
               </span>
-              <span className="font-medium text-foreground">
-                {invite.email}
-              </span>
-            </div>
-            <div className="pt-2 border-t border-border">
-              <span className="text-xs text-muted-foreground block">
-                Sua sessão atual
-              </span>
-              <span className="font-medium text-foreground">
-                {currentUser.email}
-              </span>
+              <p className="truncate font-medium text-foreground">
+                {isAlreadyMember ? invite.email : maskEmail(invite.email)}
+              </p>
             </div>
           </div>
-          <p className="text-xs text-muted-foreground text-center">
-            Para aceitar este convite, saia da conta atual e entre utilizando o
-            e-mail indicado no convite.
-          </p>
-        </CardContent>
-        <CardFooter className="flex flex-col gap-2 pt-2">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={handleSwitchAccount}
-            disabled={isPending}
-            className="h-[46px] w-full rounded-lg text-base font-normal"
-          >
-            {isPending && <Spinner className="size-4 mr-2" />}
-            Trocar de conta
-          </Button>
-        </CardFooter>
-      </Card>
+          <CurrentSessionBadge currentUser={currentUser} />
+        </div>
+        <p className="text-center text-xs text-muted-foreground">
+          {isAlreadyMember && isEmailMismatch
+            ? "Sua conta atual já possui acesso a esta clínica. Para aceitar o convite enviado ao e-mail acima, troque de conta."
+            : isAlreadyMember
+              ? "Sua conta já está vinculada a esta clínica."
+              : "Para aceitar este convite, saia da conta atual e entre utilizando o e-mail indicado no convite."}
+        </p>
+        <div className="flex flex-col gap-3">
+          {isAlreadyMember && (
+            <Button asChild size="form" className="w-full">
+              <Link
+                href={`/app/${encodeURIComponent(invite.organizationSlug)}/dashboard`}
+              >
+                Ir para a clínica
+              </Link>
+            </Button>
+          )}
+          {isEmailMismatch && (
+            <Button
+              type="button"
+              variant={isAlreadyMember ? "secondary" : "default"}
+              size="form"
+              onClick={handleSwitchAccount}
+              disabled={isPending}
+              className="w-full"
+            >
+              {isPending && activeAction === "switch" && (
+                <Spinner className="mr-2 size-4" />
+              )}
+              Trocar de conta
+            </Button>
+          )}
+        </div>
+      </div>
     );
   }
 
   // Estado 4: Usuário autenticado com e-mail correto — pronto para aceitar
   return (
-    <Card className="rounded-xl border border-border bg-card">
-      <CardHeader className="text-center pb-2">
-        <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-          Convite para clínica
-        </p>
-        <CardTitle className="text-2xl font-semibold tracking-tight text-foreground mt-1">
-          {invite.organizationName}
-        </CardTitle>
-        <CardDescription className="text-sm text-muted-foreground mt-2">
-          Você foi convidado para integrar a equipe desta clínica.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4 pt-4">
-        <div className="rounded-lg border border-border bg-muted/40 p-4 space-y-2.5 text-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">Função / Perfil:</span>
-            <Badge variant="secondary" className="font-normal text-xs">
-              {formatInviteRole(invite.role)}
-            </Badge>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">Conectado como:</span>
-            <span className="font-medium text-foreground">
-              {currentUser.fullName}
-            </span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">E-mail:</span>
-            <span className="text-foreground">{currentUser.email}</span>
-          </div>
-        </div>
-      </CardContent>
-      <CardFooter className="flex flex-col gap-2 pt-2">
+    <div className="space-y-6">
+      <ClinicHeader
+        organizationName={invite.organizationName}
+        inviterName={invite.inviterName}
+      />
+      <div className="space-y-4">
+        <CurrentSessionBadge currentUser={currentUser} />
+      </div>
+      <div className="flex flex-col gap-3">
         <Button
           type="button"
+          size="form"
           onClick={handleAccept}
           disabled={isPending}
-          className="h-[46px] w-full rounded-lg text-base font-normal"
+          className="w-full"
         >
-          {isPending ? (
+          {isPending && activeAction === "accept" ? (
             <>
-              <Spinner className="size-4 mr-2" />
+              <Spinner className="mr-2 size-4" />
               Aceitando convite...
             </>
           ) : (
             "Aceitar convite"
           )}
         </Button>
-      </CardFooter>
-    </Card>
+        <Button
+          type="button"
+          variant="secondary"
+          size="form"
+          onClick={handleDecline}
+          disabled={isPending}
+          className="w-full"
+        >
+          {isPending && activeAction === "decline" ? (
+            <>
+              <Spinner className="mr-2 size-4" />
+              Recusando convite...
+            </>
+          ) : (
+            "Recusar convite"
+          )}
+        </Button>
+      </div>
+    </div>
   );
 }

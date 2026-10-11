@@ -29,6 +29,7 @@ export const progressResponse = t.Object({
   completed: t.Boolean(),
   draftData: t.Record(t.String(), t.Unknown()),
   version: t.Number(),
+  pendingInviteId: t.Optional(t.Nullable(t.String())),
 });
 
 export const professionalRole = t.Union([

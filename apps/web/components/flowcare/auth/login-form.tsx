@@ -137,7 +137,14 @@ export function LoginForm({ returnTo }: { returnTo?: string | null }) {
       </form.Subscribe>
       <p className="pt-1 text-center text-sm text-muted-foreground">
         Não tem uma conta?{" "}
-        <Link href="/register" className={authLinkClass}>
+        <Link
+          href={
+            returnTo
+              ? `/register?returnTo=${encodeURIComponent(returnTo)}`
+              : "/register"
+          }
+          className={authLinkClass}
+        >
           Criar Conta
         </Link>
       </p>

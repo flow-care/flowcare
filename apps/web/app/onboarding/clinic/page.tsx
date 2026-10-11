@@ -24,8 +24,11 @@ export default async function OnboardingClinicPage() {
   }
 
   if (unauthenticated) redirect("/login");
-  if (profile && !profile.completed) redirect("/onboarding/profile");
   const progress = await getOnboardingProgress();
+  if (progress?.pendingInviteId) {
+    redirect(`/accept-invite/${encodeURIComponent(progress.pendingInviteId)}`);
+  }
+  if (profile && !profile.completed) redirect("/onboarding/profile");
   if (progress?.completed) redirect("/app");
   if (progress && progress.currentStep !== "ORGANIZATION_SETUP") {
     redirect(onboardingStepPath(progress.currentStep));
