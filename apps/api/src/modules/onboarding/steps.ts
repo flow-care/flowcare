@@ -23,8 +23,16 @@ export function resolveOnboardingState(
   steps: readonly string[] = onboardingSteps,
 ) {
   // Membros convidados já têm acesso à clínica sem passar pelo cadastro do dono.
-  if (input.hasOrganization && !input.savedProgress) {
-    return { currentStep: "ORGANIZATION_SETUP", completed: true };
+  if (
+    input.hasOrganization &&
+    (!input.savedProgress ||
+      (input.savedProgress.completed &&
+        input.savedProgress.currentStep === finalOnboardingStep))
+  ) {
+    return {
+      currentStep: input.savedProgress?.currentStep ?? "ORGANIZATION_SETUP",
+      completed: true,
+    };
   }
   if (!input.profileCompleted) {
     return { currentStep: "PROFILE_SETUP", completed: false };
