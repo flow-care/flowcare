@@ -1,5 +1,5 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
+import { OrganizationSelector } from "@/components/flowcare/organizations/organization-selector";
 import { onboardingStepPath } from "@/lib/onboarding-steps";
 import { getOnboardingProgress } from "@/server/onboarding";
 import { getAvailableOrganizations } from "@/server/organizations";
@@ -34,17 +34,7 @@ export default async function SelectOrganizationPage() {
       <h1 className="text-3xl font-semibold tracking-tight">
         Escolha uma clínica
       </h1>
-      <div className="mt-8 space-y-3">
-        {organizations.map((organization) => (
-          <Link
-            key={organization.id}
-            href={`/app/${encodeURIComponent(organization.slug)}/dashboard`}
-            className="block rounded-lg bg-card px-5 py-4 font-medium hover:bg-accent"
-          >
-            {organization.name}
-          </Link>
-        ))}
-      </div>
+      <OrganizationSelector organizations={organizations} />
     </main>
   );
 }

@@ -42,6 +42,10 @@ const loginResponse = z.object({
       isOwner: z.boolean(),
     }),
   ),
+  activeOrganization: z
+    .object({ id: z.string().min(1), slug: z.string().min(1) })
+    .nullable()
+    .optional(),
   onboardingCompleted: z.boolean(),
   onboardingCurrentStep: z.string(),
   pendingInviteId: z.string().nullable().optional(),
@@ -96,6 +100,7 @@ export async function loginAction(
           isOwner: organization.isOwner,
         }),
       ),
+      activeOrganization: result.activeOrganization ?? null,
       onboardingCompleted: result.onboardingCompleted,
       onboardingCurrentStep: result.onboardingCurrentStep,
       ...(result.pendingInviteId
@@ -132,6 +137,7 @@ export async function verifyEmailAction(input: { token: string }) {
     return {
       user: result.user,
       availableOrganizations: result.availableOrganizations,
+      activeOrganization: result.activeOrganization ?? null,
       onboardingCompleted: result.onboardingCompleted,
       onboardingCurrentStep: result.onboardingCurrentStep,
       ...(result.pendingInviteId

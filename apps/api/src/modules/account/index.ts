@@ -53,6 +53,11 @@ export function accountModule(deps: AccountModuleDeps) {
     .get("/me/profile", ({ auth }) => service.getProfile(auth.userId), {
       response: { 200: m.profileResponse },
     })
+    .get(
+      "/account/active-organization",
+      ({ auth }) => service.getActiveOrganization(auth.userId),
+      { response: { 200: m.currentActiveOrganizationResponse } },
+    )
     .patch(
       "/account/active-organization",
       ({ auth, body }) => service.setActiveOrganization(auth.userId, body),

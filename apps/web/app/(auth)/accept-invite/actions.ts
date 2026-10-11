@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import type { ActionResult } from "@/lib/auth";
 import { acceptInvite, declineInvite } from "@/server/invites";
+import { setActiveOrganization } from "@/server/organizations";
 import { clearSession } from "@/server/session";
 
 const tokenSchema = z.string().trim().min(20).max(200);
@@ -24,6 +25,7 @@ export async function acceptInviteAction(
 
   try {
     const result = await acceptInvite(parsed.data);
+    await setActiveOrganization(result.organizationSlug);
     return { ok: true, data: result };
   } catch (error) {
     const message =

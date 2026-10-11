@@ -11,6 +11,7 @@ export type OrganizationSummary = {
 export type LoginResult = {
   user: { id: string; email: string; fullName: string };
   availableOrganizations: OrganizationSummary[];
+  activeOrganization?: { id: string; slug: string } | null;
   onboardingCompleted: boolean;
   onboardingCurrentStep: string;
   pendingInviteId?: string | null;
@@ -65,6 +66,12 @@ export function destinationAfterLogin(
   if (result.availableOrganizations.length === 1) {
     return `/app/${encodeURIComponent(result.availableOrganizations[0].slug)}/dashboard`;
   }
+  const active = result.availableOrganizations.find(
+    (organization) =>
+      organization.id === result.activeOrganization?.id &&
+      organization.slug === result.activeOrganization.slug,
+  );
+  if (active) return `/app/${encodeURIComponent(active.slug)}/dashboard`;
   return "/select-organization";
 }
 

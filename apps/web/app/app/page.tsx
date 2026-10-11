@@ -1,5 +1,8 @@
 import { redirect } from "next/navigation";
-import { getAvailableOrganizations } from "@/server/organizations";
+import {
+  getActiveOrganization,
+  getAvailableOrganizations,
+} from "@/server/organizations";
 import { getSessionToken } from "@/server/session";
 
 export default async function AppIndexPage() {
@@ -19,7 +22,15 @@ export default async function AppIndexPage() {
     );
   }
   if (organizations.length === 0) redirect("/onboarding/clinic");
-  if (organizations.length > 1) redirect("/select-organization");
-
-  redirect(`/app/${encodeURIComponent(organizations[0].slug)}/dashboard`);
+  if (organizations.length === 1) {
+    redirect(`/app/${encodeURIComponent(organizations[0].slug)}/dashboard`);
+  }
+  const activeOrganization = await getActiveOrganization();
+  const active = organizations.find(
+    (organization) =>
+      organization.id === activeOrganization?.id &&
+      organization.slug === activeOrganization.slug,
+  );
+  if (active) redirect(`/app/${encodeURIComponent(active.slug)}/dashboard`);
+  redirect("/select-organization");
 }

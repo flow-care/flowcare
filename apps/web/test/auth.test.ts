@@ -36,6 +36,7 @@ const session = {
       isOwner: true,
     },
   ],
+  activeOrganization: null,
   onboardingCompleted: false,
   onboardingCurrentStep: "PROFILE_SETUP",
 };
@@ -131,6 +132,32 @@ test("login escolhe onboarding, clínica única ou seleção", () => {
   expect(
     destinationAfterLogin(
       { ...session, onboardingCompleted: true, availableOrganizations: [] },
+      null,
+    ),
+  ).toBe("/select-organization");
+  const multiple = [
+    ...session.availableOrganizations,
+    { ...session.availableOrganizations[0], id: "o2", slug: "outra" },
+  ];
+  expect(
+    destinationAfterLogin(
+      {
+        ...session,
+        onboardingCompleted: true,
+        availableOrganizations: multiple,
+        activeOrganization: { id: "o2", slug: "outra" },
+      },
+      null,
+    ),
+  ).toBe("/app/outra/dashboard");
+  expect(
+    destinationAfterLogin(
+      {
+        ...session,
+        onboardingCompleted: true,
+        availableOrganizations: multiple,
+        activeOrganization: { id: "o2", slug: "clinica" },
+      },
       null,
     ),
   ).toBe("/select-organization");
