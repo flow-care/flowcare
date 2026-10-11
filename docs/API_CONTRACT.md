@@ -239,6 +239,10 @@ Em caso de falha (códigos HTTP 4xx e 5xx), a API responde com a seguinte estrut
 * **Respostas:** `200 OK` com `{ "activeOrganization": { "id": "...", "slug": "pet-saude" } }`; `400 VALIDATION_ERROR`; `401 UNAUTHENTICATED`; `403 FORBIDDEN` quando não há vínculo ativo.
 * **Restauração:** A resposta de login inclui `activeOrganization` com `id` e `slug` quando a última clínica salva ainda possui vínculo ativo; caso contrário retorna `null`. O frontend pode usar esse valor para restaurar a navegação, mas deve continuar validando cada chamada pelo `orgSlug` da URL.
 
+#### `GET /account/active-organization`
+* **Descrição:** Retorna a última clínica escolhida somente enquanto o vínculo da conta com ela estiver ativo. É uma preferência de navegação, sem substituir a autorização por clínica.
+* **Respostas:** `200 OK` com `{ "activeOrganization": { "id": "...", "slug": "pet-saude" } }` ou `{ "activeOrganization": null }`; `401 UNAUTHENTICATED`.
+
 #### `GET /organizations/:orgSlug`
 * **Descrição:** Obtém os dados e preferências da clínica especificada pelo slug.
 * **Permissão:** Autenticado + Pertencer à clínica (`organizations:read`).

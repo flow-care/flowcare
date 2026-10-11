@@ -86,6 +86,11 @@ export const activeOrganizationBody = t.Object(
 export const activeOrganizationResponse = t.Object({
   activeOrganization: t.Object({ id: t.String(), slug: t.String() }),
 });
+export const currentActiveOrganizationResponse = t.Object({
+  activeOrganization: t.Nullable(
+    t.Object({ id: t.String(), slug: t.String() }),
+  ),
+});
 export type ActiveOrganizationBody = typeof activeOrganizationBody.static;
 
 export const accountModels = {

@@ -62,10 +62,15 @@ function setup() {
         where: {
           userId: string;
           status: string;
-          organization: { slug: string };
+          organizationId?: string;
+          organization?: { slug: string };
         };
       }) => {
-        const org = organizations.get(where.organization.slug);
+        const org = where.organization
+          ? organizations.get(where.organization.slug)
+          : [...organizations.values()].find(
+              (item) => item.id === where.organizationId,
+            );
         const membership = org && memberships.get(org.id);
         return org &&
           membership?.userId === where.userId &&
@@ -76,6 +81,8 @@ function setup() {
     },
     subscription: { create: async () => ({}) },
     user: {
+      findUnique: async ({ where }: { where: { id: string } }) =>
+        users.get(where.id) ?? null,
       update: async ({
         where,
         data,
@@ -122,8 +129,15 @@ function setup() {
         body: JSON.stringify(body),
       }),
     );
+  const getActive = (authorized = true) =>
+    app.handle(
+      new Request("http://localhost/api/account/active-organization", {
+        headers: authorized ? bearer : {},
+      }),
+    );
   return {
     request,
+    getActive,
     organizations,
     memberships,
     users,
@@ -164,7 +178,14 @@ test("creation is atomic when membership provisioning fails", async () => {
 
 test("switches only to active own membership; rejects foreign, suspended and anonymous access", async () => {
   const state = setup();
+  expect((await state.getActive()).status).toBe(200);
+  expect(await (await state.getActive()).json()).toEqual({
+    activeOrganization: null,
+  });
   await state.request("/organizations", { name: "Pet Saúde" });
+  expect(await (await state.getActive()).json()).toEqual({
+    activeOrganization: { id: "org-1", slug: "pet-saude" },
+  });
   const selected = await state.request("/account/active-organization", {
     orgSlug: "pet-saude",
   });
@@ -182,6 +203,9 @@ test("switches only to active own membership; rejects foreign, suspended and ano
   ).toBe(403);
   const membership = state.memberships.get("org-1");
   if (membership) membership.status = "SUSPENDED";
+  expect(await (await state.getActive()).json()).toEqual({
+    activeOrganization: null,
+  });
   expect(
     (
       await state.request("/account/active-organization", {
@@ -201,6 +225,7 @@ test("switches only to active own membership; rejects foreign, suspended and ano
       )
     ).status,
   ).toBe(401);
+  expect((await state.getActive(false)).status).toBe(401);
 });
 
 test("login returns saved organization only while its membership remains active", async () => {

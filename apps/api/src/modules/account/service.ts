@@ -37,6 +37,25 @@ export interface AccountDeps {
 export class AccountService {
   constructor(private readonly deps: AccountDeps) {}
 
+  async getActiveOrganization(userId: string) {
+    const user = await this.deps.prisma.user.findUnique({
+      where: { id: userId },
+      select: { activeOrganizationId: true },
+    });
+    if (!user) throw UserNotFound();
+    if (!user.activeOrganizationId) return { activeOrganization: null };
+
+    const membership = await this.deps.prisma.membership.findFirst({
+      where: {
+        userId,
+        organizationId: user.activeOrganizationId,
+        status: "ACTIVE",
+      },
+      select: { organization: { select: { id: true, slug: true } } },
+    });
+    return { activeOrganization: membership?.organization ?? null };
+  }
+
   async setActiveOrganization(userId: string, body: ActiveOrganizationBody) {
     return this.deps.prisma.$transaction(async (tx) => {
       const membership = await tx.membership.findFirst({
