@@ -75,6 +75,8 @@ model User {
   memberships        Membership[]
   onboarding         OnboardingProgress?
   ownedOrganizations Organization[]      @relation("OrganizationOwner")
+  activeOrganizationId String? @db.Uuid
+  activeOrganization Organization? @relation("ActiveOrganization", fields: [activeOrganizationId], references: [id], onDelete: SetNull)
 
   @@index([email])
 }
@@ -151,6 +153,7 @@ model Organization {
   invites       OrganizationInvite[]
   storageObjects StorageObject[]
   weeklyScheduleRules WeeklyScheduleRule[]
+  activeUsers User[] @relation("ActiveOrganization")
 }
 
 model WeeklyScheduleRule {

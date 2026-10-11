@@ -1,6 +1,7 @@
 import { hash, verify as verifyHash } from "argon2";
 import { fileType } from "elysia";
 import type { PrismaClient } from "../../generated/prisma/client";
+import { ApiError } from "../../lib/api-error";
 import {
   safeSessionIpAddress,
   summarizeUserAgent,
@@ -17,6 +18,7 @@ import {
   UserNotFound,
 } from "./errors";
 import type {
+  ActiveOrganizationBody,
   ChangePasswordBody,
   ChangePasswordResponse,
   ProfilePhotoUrlResponse,
@@ -34,6 +36,31 @@ export interface AccountDeps {
 
 export class AccountService {
   constructor(private readonly deps: AccountDeps) {}
+
+  async setActiveOrganization(userId: string, body: ActiveOrganizationBody) {
+    return this.deps.prisma.$transaction(async (tx) => {
+      const membership = await tx.membership.findFirst({
+        where: {
+          userId,
+          status: "ACTIVE",
+          organization: { slug: body.orgSlug },
+        },
+        select: { organization: { select: { id: true, slug: true } } },
+      });
+      if (!membership) {
+        throw new ApiError(
+          "FORBIDDEN",
+          403,
+          "Você não possui vínculo ativo nesta clínica.",
+        );
+      }
+      await tx.user.update({
+        where: { id: userId },
+        data: { activeOrganizationId: membership.organization.id },
+      });
+      return { activeOrganization: membership.organization };
+    });
+  }
 
   /**
    * Altera a senha do usuário após validar a senha atual via Argon2id.

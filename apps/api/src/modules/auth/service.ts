@@ -233,6 +233,14 @@ export class AuthService {
         role: m.role,
         isOwner: m.organization.ownerId === user.id,
       })),
+      activeOrganization: (() => {
+        const active = user.memberships.find(
+          (m) => m.organizationId === user.activeOrganizationId,
+        );
+        return active
+          ? { id: active.organization.id, slug: active.organization.slug }
+          : null;
+      })(),
       onboardingCompleted: onboarding.completed,
       onboardingCurrentStep: onboarding.currentStep,
     };

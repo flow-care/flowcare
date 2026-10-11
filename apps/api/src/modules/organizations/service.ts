@@ -1,9 +1,11 @@
 import type { PrismaClient } from "../../generated/prisma/client";
 import { ApiError } from "../../lib/api-error";
+import { slugify } from "../../lib/slug";
 import type {
   ClinicAddressBody,
   ClinicContactBody,
   ClinicDetailsResponse,
+  CreateAdditionalOrganizationBody,
   OrganizationsResponse,
 } from "./model";
 
@@ -47,6 +49,73 @@ function canSaveClinicStep(
 
 export class OrganizationsService {
   constructor(private readonly prisma: PrismaClient) {}
+
+  async createAdditional(
+    userId: string,
+    body: CreateAdditionalOrganizationBody,
+  ) {
+    const name = body.name.trim();
+    const slug = slugify(name).slice(0, 60).replace(/-+$/, "");
+    if (slug.length < 2) {
+      throw new ApiError(
+        "VALIDATION_ERROR",
+        400,
+        "Nome inválido para gerar o endereço da clínica.",
+      );
+    }
+    for (let attempt = 1; attempt <= 100; attempt++) {
+      const suffix = attempt === 1 ? "" : `-${attempt}`;
+      const candidate = `${slug.slice(0, 60 - suffix.length).replace(/-+$/, "")}${suffix}`;
+      try {
+        const org = await this.prisma.$transaction(async (tx) => {
+          const created = await tx.organization.create({
+            data: { name, slug: candidate, ownerId: userId },
+          });
+          await tx.membership.create({
+            data: {
+              userId,
+              organizationId: created.id,
+              role: "ADMIN",
+              status: "ACTIVE",
+            },
+          });
+          await tx.subscription.create({
+            data: { organizationId: created.id },
+          });
+          await tx.user.update({
+            where: { id: userId },
+            data: { activeOrganizationId: created.id },
+          });
+          return created;
+        });
+        return {
+          organization: {
+            id: org.id,
+            name: org.name,
+            slug: org.slug,
+            role: "ADMIN" as const,
+            isOwner: true as const,
+          },
+          activeOrganization: { id: org.id, slug: org.slug },
+        };
+      } catch (error) {
+        if (
+          typeof error === "object" &&
+          error !== null &&
+          "code" in error &&
+          error.code === "P2002"
+        ) {
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw new ApiError(
+      "ALREADY_EXISTS",
+      409,
+      "Não foi possível gerar um endereço único para esta clínica.",
+    );
+  }
 
   async listForUser(userId: string): Promise<OrganizationsResponse> {
     const memberships = await this.prisma.membership.findMany({
