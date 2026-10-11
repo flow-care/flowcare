@@ -8,6 +8,7 @@ export class ApiError extends Error {
     readonly code: string,
     readonly httpStatus: number,
     message: string,
+    readonly details?: Record<string, string>,
   ) {
     super(message);
   }

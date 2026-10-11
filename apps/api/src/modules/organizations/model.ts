@@ -1,6 +1,16 @@
 import { t } from "elysia";
+import { FormatRegistry } from "elysia/type-system";
+import { isValidOptionalCnpj } from "../../lib/cnpj";
 
-export const slugParams = t.Object({
+if (!FormatRegistry.Has("cnpj")) {
+  FormatRegistry.Set("cnpj", isValidOptionalCnpj);
+}
+
+const NON_BLANK_MIN_2_PATTERN = "^\\s*\\S[\\s\\S]*\\S\\s*$";
+const NON_BLANK_MIN_1_PATTERN = "\\S";
+const BR_PHONE_PATTERN = "^(?:\\D*\\d){10,13}\\D*$";
+
+export const orgSlugParams = t.Object({
   orgSlug: t.String({ minLength: 2, maxLength: 60 }),
 });
 
@@ -25,32 +35,36 @@ export const clinicDetailsBody = t.Object({
   legalName: t.String({
     minLength: 2,
     maxLength: 160,
-    pattern: "^\\s*\\S.*\\S\\s*$",
+    pattern: NON_BLANK_MIN_2_PATTERN,
   }),
-  taxId: t.String({ maxLength: 18 }),
+  taxId: t.String({ maxLength: 18, format: "cnpj" }),
   contactEmail: t.String({ format: "email", maxLength: 254 }),
-  contactPhone: t.String({ minLength: 10, maxLength: 20 }),
+  contactPhone: t.String({
+    minLength: 10,
+    maxLength: 20,
+    pattern: BR_PHONE_PATTERN,
+  }),
   postalCode: t.String({ pattern: "^[0-9]{8}$" }),
   state: t.String({ pattern: "^[A-Za-z]{2}$" }),
   city: t.String({
     minLength: 2,
     maxLength: 100,
-    pattern: "^\\s*\\S.*\\S\\s*$",
+    pattern: NON_BLANK_MIN_2_PATTERN,
   }),
   district: t.String({
     minLength: 2,
     maxLength: 100,
-    pattern: "^\\s*\\S.*\\S\\s*$",
+    pattern: NON_BLANK_MIN_2_PATTERN,
   }),
   street: t.String({
     minLength: 2,
     maxLength: 160,
-    pattern: "^\\s*\\S.*\\S\\s*$",
+    pattern: NON_BLANK_MIN_2_PATTERN,
   }),
   streetNumber: t.String({
     minLength: 1,
     maxLength: 20,
-    pattern: "^\\s*\\S.*$",
+    pattern: NON_BLANK_MIN_1_PATTERN,
   }),
   addressComplement: t.String({ maxLength: 100 }),
 });
@@ -91,7 +105,7 @@ export const clinicDetailsResponse = t.Object({
   addressComplement: t.String(),
 });
 
-export type SlugParams = typeof slugParams.static;
+export type OrgSlugParams = typeof orgSlugParams.static;
 export type OrganizationItem = typeof organizationItem.static;
 export type OrganizationsResponse = typeof organizationsResponse.static;
 export type ClinicDetailsBody = typeof clinicDetailsBody.static;

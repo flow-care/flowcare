@@ -106,7 +106,11 @@ export function createApp(env: Env, deps: AppDeps) {
       // registradas depois deste hook.
       if (error instanceof ApiError) {
         return status(error.httpStatus, {
-          error: { code: error.code, message: error.message },
+          error: {
+            code: error.code,
+            message: error.message,
+            ...(error.details ? { details: error.details } : {}),
+          },
         });
       }
       // §1 do contrato — envelope { error: { code, message } }, stack nunca vaza
@@ -116,13 +120,22 @@ export function createApp(env: Env, deps: AppDeps) {
             error: { code: "NOT_FOUND", message: "Recurso não encontrado." },
           });
         case "VALIDATION":
-        case "PARSE":
+        case "PARSE": {
+          const path =
+            code === "VALIDATION" && error.type === "body"
+              ? error.all.find((issue) =>
+                  /^\/[A-Za-z][A-Za-z0-9]*$/.test(issue.path),
+                )?.path
+              : undefined;
+          const field = path?.slice(1);
           return status(400, {
             error: {
               code: "VALIDATION_ERROR",
               message: "Dados inválidos.",
+              ...(field ? { details: { field } } : {}),
             },
           });
+        }
         default:
           return status(500, {
             error: {

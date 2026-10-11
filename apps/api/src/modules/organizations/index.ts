@@ -6,7 +6,7 @@ import {
   clinicContactBody,
   clinicDetailsResponse,
   organizationsResponse,
-  slugParams,
+  orgSlugParams,
 } from "./model";
 import { OrganizationsService } from "./service";
 
@@ -18,36 +18,39 @@ export function organizationsModule(deps: {
 
   return new Elysia({ name: "organizations" })
     .use(authPlugin(deps))
-    .get("/organizations", ({ auth }) => service.listForUser(auth.userId), {
-      response: { 200: organizationsResponse },
-    })
-    .get(
-      "/organizations/:orgSlug/onboarding-details",
-      ({ auth, params }) =>
-        service.getClinicDetails(auth.userId, params.orgSlug),
-      {
-        params: slugParams,
-        response: { 200: clinicDetailsResponse },
-      },
-    )
-    .put(
-      "/organizations/:orgSlug/onboarding-contact",
-      ({ auth, params, body }) =>
-        service.saveClinicContact(auth.userId, params.orgSlug, body),
-      {
-        params: slugParams,
-        body: clinicContactBody,
-        response: { 200: clinicDetailsResponse },
-      },
-    )
-    .put(
-      "/organizations/:orgSlug/onboarding-address",
-      ({ auth, params, body }) =>
-        service.saveClinicAddress(auth.userId, params.orgSlug, body),
-      {
-        params: slugParams,
-        body: clinicAddressBody,
-        response: { 200: clinicDetailsResponse },
-      },
+    .group("/organizations", (group) =>
+      group
+        .get("", ({ auth }) => service.listForUser(auth.userId), {
+          response: { 200: organizationsResponse },
+        })
+        .get(
+          "/:orgSlug/onboarding-details",
+          ({ auth, params }) =>
+            service.getClinicDetails(auth.userId, params.orgSlug),
+          {
+            params: orgSlugParams,
+            response: { 200: clinicDetailsResponse },
+          },
+        )
+        .put(
+          "/:orgSlug/onboarding-contact",
+          ({ auth, params, body }) =>
+            service.saveClinicContact(auth.userId, params.orgSlug, body),
+          {
+            params: orgSlugParams,
+            body: clinicContactBody,
+            response: { 200: clinicDetailsResponse },
+          },
+        )
+        .put(
+          "/:orgSlug/onboarding-address",
+          ({ auth, params, body }) =>
+            service.saveClinicAddress(auth.userId, params.orgSlug, body),
+          {
+            params: orgSlugParams,
+            body: clinicAddressBody,
+            response: { 200: clinicDetailsResponse },
+          },
+        ),
     );
 }
