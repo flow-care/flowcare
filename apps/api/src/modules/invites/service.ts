@@ -92,18 +92,30 @@ export class InviteService {
   }
 
   async getDetails(token: string): Promise<InviteDetailsResponse> {
-    const invite = await this.deps.prisma.organizationInvite.findUnique({
-      where: { tokenHash: hashToken(token) },
-      include: {
-        organization: {
-          include: {
-            owner: {
-              select: { fullName: true },
-            },
+    const includeOrg = {
+      organization: {
+        include: {
+          owner: {
+            select: { fullName: true },
           },
         },
       },
+    } as const;
+    let invite = await this.deps.prisma.organizationInvite.findUnique({
+      where: { tokenHash: hashToken(token) },
+      include: includeOrg,
     });
+    if (
+      !invite &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        token,
+      )
+    ) {
+      invite = await this.deps.prisma.organizationInvite.findUnique({
+        where: { id: token },
+        include: includeOrg,
+      });
+    }
     if (
       !invite ||
       invite.revokedAt ||
@@ -134,10 +146,21 @@ export class InviteService {
     if (!user)
       throw new ApiError("UNAUTHENTICATED", 401, "Autenticação necessária.");
     const result = await this.deps.prisma.$transaction(async (tx) => {
-      const invite = await tx.organizationInvite.findUnique({
+      let invite = await tx.organizationInvite.findUnique({
         where: { tokenHash: hashToken(token) },
         include: { organization: true },
       });
+      if (
+        !invite &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          token,
+        )
+      ) {
+        invite = await tx.organizationInvite.findUnique({
+          where: { id: token },
+          include: { organization: true },
+        });
+      }
       if (
         !invite ||
         invite.revokedAt ||
@@ -173,6 +196,17 @@ export class InviteService {
           status: "ACTIVE",
         },
         update: { role: invite.role, status: "ACTIVE" },
+      });
+      await tx.onboardingProgress?.updateMany?.({
+        where: {
+          userId,
+          completed: false,
+          currentStep: { in: ["PROFILE_SETUP", "ORGANIZATION_SETUP"] },
+        },
+        data: {
+          currentStep: "TEAM_INVITES",
+          completed: true,
+        },
       });
       return invite.organization.slug;
     });

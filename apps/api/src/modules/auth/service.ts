@@ -222,6 +222,18 @@ export class AuthService {
       hasOrganization: user.memberships.length > 0,
       savedProgress: user.onboarding,
     });
+    const pendingInvite = await db.organizationInvite
+      ?.findFirst({
+        where: {
+          email: user.email.toLowerCase(),
+          acceptedAt: null,
+          revokedAt: null,
+          expiresAt: { gt: new Date() },
+        },
+        orderBy: { createdAt: "desc" },
+        select: { id: true },
+      })
+      .catch(() => null);
 
     return {
       token,
@@ -235,6 +247,7 @@ export class AuthService {
       })),
       onboardingCompleted: onboarding.completed,
       onboardingCurrentStep: onboarding.currentStep,
+      ...(pendingInvite?.id ? { pendingInviteId: pendingInvite.id } : {}),
     };
   }
 

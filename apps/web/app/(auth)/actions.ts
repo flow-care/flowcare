@@ -44,6 +44,7 @@ const loginResponse = z.object({
   ),
   onboardingCompleted: z.boolean(),
   onboardingCurrentStep: z.string(),
+  pendingInviteId: z.string().nullable().optional(),
 });
 
 function validate<T>(schema: z.ZodType<T>, input: unknown): T {
@@ -97,6 +98,9 @@ export async function loginAction(
       ),
       onboardingCompleted: result.onboardingCompleted,
       onboardingCurrentStep: result.onboardingCurrentStep,
+      ...(result.pendingInviteId
+        ? { pendingInviteId: result.pendingInviteId }
+        : {}),
     };
   });
 }
@@ -130,6 +134,9 @@ export async function verifyEmailAction(input: { token: string }) {
       availableOrganizations: result.availableOrganizations,
       onboardingCompleted: result.onboardingCompleted,
       onboardingCurrentStep: result.onboardingCurrentStep,
+      ...(result.pendingInviteId
+        ? { pendingInviteId: result.pendingInviteId }
+        : {}),
     };
   });
 }

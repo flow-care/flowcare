@@ -8,6 +8,7 @@ const progressSchema = z.object({
   currentStep: z.string(),
   completed: z.boolean(),
   draftData: z.record(z.string(), z.unknown()),
+  pendingInviteId: z.string().nullable().optional(),
 });
 
 export type OnboardingProgress = z.infer<typeof progressSchema>;
