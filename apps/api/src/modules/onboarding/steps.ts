@@ -5,6 +5,9 @@ export const onboardingSteps = [
   "CLINIC_ADDRESS",
 ] as const;
 
+export const finalOnboardingStep: (typeof onboardingSteps)[number] =
+  "CLINIC_ADDRESS";
+
 type SavedProgress = {
   currentStep: string;
   completed: boolean;

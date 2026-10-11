@@ -203,12 +203,12 @@ Em caso de falha (códigos HTTP 4xx e 5xx), a API responde com a seguinte estrut
     ]
   }
   ```
-* **Respostas:** `200 OK`.
+* **Respostas:** `200 OK` com `{ "weeklySchedule": [...] }`; `400 VALIDATION_ERROR` para intervalos inválidos ou sobrepostos; `403 ACCOUNT_NOT_VERIFIED`; `409 ONBOARDING_INCOMPLETE` sem clínica criada e vínculo ADMIN ativo. A lista vazia remove os horários iniciais. O envio substitui os horários da clínica.
 
 #### `POST /onboarding/complete`
 * **Descrição:** Finaliza a jornada de onboarding após confirmação de e-mail e criação da clínica. Perfil complementar, horários e convites não bloqueiam a conclusão.
 * **Permissão:** Autenticado.
-* **Respostas:** `200 OK` (`{ "redirectUrl": "/app/vida-e-saude/dashboard" }`).
+* **Respostas:** `200 OK` (`{ "redirectUrl": "/app/vida-e-saude/dashboard" }`), inclusive em chamadas repetidas; `403 ACCOUNT_NOT_VERIFIED`; `409 ONBOARDING_INCOMPLETE` sem clínica criada e vínculo ADMIN ativo.
 
 ---
 

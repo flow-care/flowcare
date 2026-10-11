@@ -133,6 +133,21 @@ model Organization {
   subscription Subscription?
   invites       OrganizationInvite[]
   storageObjects StorageObject[]
+  weeklyScheduleRules WeeklyScheduleRule[]
+}
+
+model WeeklyScheduleRule {
+  id                  String       @id @default(uuid()) @db.Uuid
+  organizationId      String       @db.Uuid
+  dayOfWeek           String
+  startTime           String
+  endTime             String
+  slotDurationMinutes Int
+  createdAt           DateTime     @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, dayOfWeek])
 }
 
 model StorageObject {

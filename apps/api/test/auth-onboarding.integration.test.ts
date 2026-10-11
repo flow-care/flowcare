@@ -409,7 +409,7 @@ describe.skipIf(!dbUp)("Integração: auth + onboarding (Postgres real)", () => 
         true,
       );
       const repeated = await post("/onboarding/profile", body, token);
-      expect(repeated.status).toBe(200);
+      expect(repeated.status).toBe(409);
       expect(await prisma.onboardingProgress.count()).toBe(1);
       const progress = await get("/onboarding/progress", token);
       expect(
@@ -445,6 +445,82 @@ describe.skipIf(!dbUp)("Integração: auth + onboarding (Postgres real)", () => 
       expect(org?.subscription?.priceCents).toBe(8900);
       expect(org?.memberships.length).toBe(1);
       expect(org?.memberships[0]?.role).toBe("ADMIN");
+    });
+
+    test("horários opcionais e conclusão repetida preservam o mesmo destino", async () => {
+      const token = await loginToken();
+      const before = await post("/onboarding/complete", {}, token);
+      expect(before.status).toBe(409);
+
+      await post("/onboarding/organization", { name: "Clínica Alfa" }, token);
+      const schedule = await post(
+        "/onboarding/schedule-rules",
+        {
+          weeklySchedule: [
+            {
+              dayOfWeek: "MONDAY",
+              startTime: "08:00",
+              endTime: "12:00",
+              slotDurationMinutes: 30,
+            },
+            {
+              dayOfWeek: "MONDAY",
+              startTime: "12:00",
+              endTime: "18:00",
+              slotDurationMinutes: 30,
+            },
+          ],
+        },
+        token,
+      );
+      expect(schedule.status).toBe(200);
+      expect(await prisma.weeklyScheduleRule.count()).toBe(2);
+
+      const overlap = await post(
+        "/onboarding/schedule-rules",
+        {
+          weeklySchedule: [
+            {
+              dayOfWeek: "MONDAY",
+              startTime: "08:00",
+              endTime: "12:00",
+              slotDurationMinutes: 30,
+            },
+            {
+              dayOfWeek: "MONDAY",
+              startTime: "11:00",
+              endTime: "13:00",
+              slotDurationMinutes: 30,
+            },
+          ],
+        },
+        token,
+      );
+      expect(overlap.status).toBe(400);
+      expect(await prisma.weeklyScheduleRule.count()).toBe(2);
+
+      const first = await post("/onboarding/complete", {}, token);
+      expect(first.status).toBe(200);
+      expect(await first.json()).toEqual({
+        redirectUrl: "/app/clinica-alfa/dashboard",
+      });
+      const progress = await prisma.onboardingProgress.findFirstOrThrow();
+      const repeated = await post("/onboarding/complete", {}, token);
+      expect(await repeated.json()).toEqual({
+        redirectUrl: "/app/clinica-alfa/dashboard",
+      });
+      expect((await prisma.onboardingProgress.findFirstOrThrow()).version).toBe(
+        progress.version,
+      );
+      expect(await prisma.onboardingProgress.count()).toBe(1);
+
+      const clear = await post(
+        "/onboarding/schedule-rules",
+        { weeklySchedule: [] },
+        token,
+      );
+      expect(clear.status).toBe(200);
+      expect(await prisma.weeklyScheduleRule.count()).toBe(0);
     });
 
     test("repetir a mesma criação → 409, sem clínica duplicada", async () => {
