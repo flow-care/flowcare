@@ -11,7 +11,6 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
 import { formatInviteRole, type InviteDetails } from "@/lib/invites";
 import type { CurrentUserProfile } from "@/server/invites";
@@ -39,24 +38,63 @@ function ClinicHeader({
   role: string;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-2 py-2 text-center">
-      <Avatar className="size-16 ring-2 ring-border/50">
+    <div className="flex flex-col items-center justify-center gap-2 py-1 text-center">
+      <Avatar className="size-20">
         <AvatarImage
           src={dicebearInitialUrl(organizationName)}
           alt={organizationName}
           referrerPolicy="no-referrer"
         />
-        <AvatarFallback className="text-xl font-semibold">
+        <AvatarFallback className="text-2xl font-semibold">
           {initialLetter(organizationName)}
         </AvatarFallback>
       </Avatar>
       <div className="space-y-1">
-        <h3 className="text-xl font-semibold tracking-tight text-foreground">
+        <h3 className="text-2xl font-bold tracking-tight text-foreground">
           {organizationName}
         </h3>
         <Badge variant="secondary" className="font-medium">
           {formatInviteRole(role)}
         </Badge>
+      </div>
+    </div>
+  );
+}
+
+function CurrentSessionBadge({
+  currentUser,
+}: {
+  currentUser: CurrentUserProfile;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <span className="text-xs font-medium text-muted-foreground">
+        Sua sessão atual
+      </span>
+      <div className="flex">
+        <div className="inline-flex items-center gap-2.5 rounded-full bg-secondary/60 px-3 py-1.5 text-secondary-foreground">
+          <Avatar className="size-6">
+            <AvatarImage
+              src={
+                currentUser.photoUrl ||
+                dicebearInitialUrl(currentUser.fullName || currentUser.email)
+              }
+              alt=""
+              referrerPolicy="no-referrer"
+            />
+            <AvatarFallback className="text-xs">
+              {initialLetter(currentUser.fullName || currentUser.email)}
+            </AvatarFallback>
+          </Avatar>
+          <span className="truncate text-sm font-medium">
+            {currentUser.fullName || currentUser.email}
+          </span>
+          {currentUser.fullName && (
+            <span className="truncate text-xs text-muted-foreground">
+              ({currentUser.email})
+            </span>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -128,10 +166,6 @@ export function AcceptInvite({
   if (!currentUser) {
     return (
       <div className="space-y-6">
-        <ClinicHeader
-          organizationName={invite.organizationName}
-          role={invite.role}
-        />
         <div className="space-y-2 text-center">
           <h2 className="text-2xl font-semibold tracking-tight text-foreground">
             Convite para equipe
@@ -140,28 +174,28 @@ export function AcceptInvite({
             Você foi convidado para integrar a equipe desta clínica no Flowcare.
           </p>
         </div>
-        <Card size="sm">
-          <CardContent className="flex items-center justify-between gap-3">
-            <div className="flex min-w-0 flex-1 items-center gap-3">
-              <Avatar>
-                <AvatarImage
-                  src={dicebearInitialUrl(invite.email)}
-                  alt=""
-                  referrerPolicy="no-referrer"
-                />
-                <AvatarFallback>{initialLetter(invite.email)}</AvatarFallback>
-              </Avatar>
-              <div className="min-w-0 flex-1">
-                <span className="block text-xs text-muted-foreground">
-                  Convite emitido para
-                </span>
-                <p className="truncate font-medium text-foreground">
-                  {invite.email}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <ClinicHeader
+          organizationName={invite.organizationName}
+          role={invite.role}
+        />
+        <div className="flex items-center gap-3 rounded-lg bg-card p-3 shadow-none">
+          <Avatar className="size-10">
+            <AvatarImage
+              src={dicebearInitialUrl(invite.email)}
+              alt=""
+              referrerPolicy="no-referrer"
+            />
+            <AvatarFallback>{initialLetter(invite.email)}</AvatarFallback>
+          </Avatar>
+          <div className="min-w-0 flex-1">
+            <span className="block text-xs text-muted-foreground">
+              Convite emitido para
+            </span>
+            <p className="truncate font-medium text-foreground">
+              {invite.email}
+            </p>
+          </div>
+        </div>
         <p className="text-center text-xs text-muted-foreground">
           Para aceitar o convite, acesse sua conta existente ou crie uma conta
           com o e-mail indicado acima.
@@ -190,10 +224,6 @@ export function AcceptInvite({
   if (isEmailMismatch) {
     return (
       <div className="space-y-6">
-        <ClinicHeader
-          organizationName={invite.organizationName}
-          role={invite.role}
-        />
         <div className="space-y-2 text-center">
           <h2 className="text-2xl font-semibold tracking-tight text-foreground">
             E-mail incompatível
@@ -202,61 +232,30 @@ export function AcceptInvite({
             Sua conta conectada não corresponde ao destinatário do convite.
           </p>
         </div>
-        <div className="space-y-3">
-          <Card size="sm">
-            <CardContent className="flex items-center justify-between gap-3">
-              <div className="flex min-w-0 flex-1 items-center gap-3">
-                <Avatar>
-                  <AvatarImage
-                    src={dicebearInitialUrl(invite.email)}
-                    alt=""
-                    referrerPolicy="no-referrer"
-                  />
-                  <AvatarFallback>{initialLetter(invite.email)}</AvatarFallback>
-                </Avatar>
-                <div className="min-w-0 flex-1">
-                  <span className="block text-xs text-muted-foreground">
-                    Convite emitido para
-                  </span>
-                  <p className="truncate font-medium text-foreground">
-                    {invite.email}
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card size="sm">
-            <CardContent className="flex items-center justify-between gap-3">
-              <div className="flex min-w-0 flex-1 items-center gap-3">
-                <Avatar>
-                  <AvatarImage
-                    src={
-                      currentUser.photoUrl ||
-                      dicebearInitialUrl(
-                        currentUser.fullName || currentUser.email,
-                      )
-                    }
-                    alt=""
-                    referrerPolicy="no-referrer"
-                  />
-                  <AvatarFallback>
-                    {initialLetter(currentUser.fullName || currentUser.email)}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-medium text-foreground">
-                    {currentUser.fullName || currentUser.email}
-                  </p>
-                  {currentUser.fullName && (
-                    <p className="truncate text-xs text-muted-foreground">
-                      {currentUser.email}
-                    </p>
-                  )}
-                </div>
-              </div>
-              <Badge variant="outline">Sua sessão atual</Badge>
-            </CardContent>
-          </Card>
+        <ClinicHeader
+          organizationName={invite.organizationName}
+          role={invite.role}
+        />
+        <div className="space-y-4">
+          <div className="flex items-center gap-3 rounded-lg bg-card p-3 shadow-none">
+            <Avatar className="size-10">
+              <AvatarImage
+                src={dicebearInitialUrl(invite.email)}
+                alt=""
+                referrerPolicy="no-referrer"
+              />
+              <AvatarFallback>{initialLetter(invite.email)}</AvatarFallback>
+            </Avatar>
+            <div className="min-w-0 flex-1">
+              <span className="block text-xs text-muted-foreground">
+                Convite emitido para
+              </span>
+              <p className="truncate font-medium text-foreground">
+                {invite.email}
+              </p>
+            </div>
+          </div>
+          <CurrentSessionBadge currentUser={currentUser} />
         </div>
         <p className="text-center text-xs text-muted-foreground">
           Para aceitar este convite, saia da conta atual e entre utilizando o
@@ -279,10 +278,6 @@ export function AcceptInvite({
   // Estado 4: Usuário autenticado com e-mail correto — pronto para aceitar
   return (
     <div className="space-y-6">
-      <ClinicHeader
-        organizationName={invite.organizationName}
-        role={invite.role}
-      />
       <div className="space-y-2 text-center">
         <h2 className="text-2xl font-semibold tracking-tight text-foreground">
           Convite para equipe
@@ -291,39 +286,12 @@ export function AcceptInvite({
           Confirme para ingressar na equipe com sua sessão atual.
         </p>
       </div>
-      <div className="space-y-3">
-        <Card size="sm">
-          <CardContent className="flex items-center justify-between gap-3">
-            <div className="flex min-w-0 flex-1 items-center gap-3">
-              <Avatar>
-                <AvatarImage
-                  src={
-                    currentUser.photoUrl ||
-                    dicebearInitialUrl(
-                      currentUser.fullName || currentUser.email,
-                    )
-                  }
-                  alt=""
-                  referrerPolicy="no-referrer"
-                />
-                <AvatarFallback>
-                  {initialLetter(currentUser.fullName || currentUser.email)}
-                </AvatarFallback>
-              </Avatar>
-              <div className="min-w-0 flex-1">
-                <p className="truncate font-medium text-foreground">
-                  {currentUser.fullName || currentUser.email}
-                </p>
-                {currentUser.fullName && (
-                  <p className="truncate text-xs text-muted-foreground">
-                    {currentUser.email}
-                  </p>
-                )}
-              </div>
-            </div>
-            <Badge variant="outline">Sua sessão atual</Badge>
-          </CardContent>
-        </Card>
+      <ClinicHeader
+        organizationName={invite.organizationName}
+        role={invite.role}
+      />
+      <div className="space-y-4">
+        <CurrentSessionBadge currentUser={currentUser} />
       </div>
       <Button
         type="button"
