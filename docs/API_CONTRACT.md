@@ -233,10 +233,15 @@ Em caso de falha (códigos HTTP 4xx e 5xx), a API responde com a seguinte estrut
 * **Permissão:** `Membership` ativo com papel `ADMIN` na clínica indicada pelo slug.
 * **Respostas:** `200 OK` com `name`, `slug`, `version`, `completed`, `legalName`, `taxId`, `contactEmail`, `contactPhone`, `postalCode`, `state`, `city`, `district`, `street`, `streetNumber` e `addressComplement`; `404 NOT_FOUND` para vínculo inexistente ou sem permissão.
 
-#### `PUT /organizations/:orgSlug/onboarding-details`
-* **Descrição:** Salva os dados institucionais e conclui `CLINIC_DETAILS` no progresso do onboarding. `version` deve corresponder à versão carregada; cada atualização a incrementa para impedir perda de alterações simultâneas.
-* **Body:** Os campos do GET, exceto `name`, `slug` e `completed`. `legalName`, e-mail, telefone e endereço são obrigatórios; `taxId` e complemento podem ficar vazios. `postalCode` contém oito dígitos e `state` contém a sigla de duas letras.
-* **Respostas:** `200 OK` com os dados atualizados, `400 VALIDATION_ERROR`, `404 NOT_FOUND`, `409 CONFLICT` quando outra sessão já salvou uma versão mais recente.
+#### `PUT /organizations/:orgSlug/onboarding-contact`
+* **Descrição:** Salva os dados institucionais e o contato, concluindo `CLINIC_DETAILS` no progresso do onboarding.
+* **Body:** `{ "version": 0, "legalName": "Clínica Exemplo Ltda", "taxId": "", "contactEmail": "contato@exemplo.com", "contactPhone": "85999999999" }`. `taxId` pode ficar vazio; quando informado, deve ser um CNPJ válido.
+* **Respostas:** `200 OK` com o mesmo DTO do GET; `400 VALIDATION_ERROR` com `error.details.field` quando um campo é inválido; `404 NOT_FOUND` para clínica sem vínculo administrativo ativo; `409 VERSION_CONFLICT` para versão desatualizada; `409 STEP_ALREADY_COMPLETED` se a etapa já foi concluída.
+
+#### `PUT /organizations/:orgSlug/onboarding-address`
+* **Descrição:** Salva o endereço e conclui `CLINIC_ADDRESS` no progresso do onboarding.
+* **Body:** `{ "version": 1, "postalCode": "60000000", "state": "CE", "city": "Fortaleza", "district": "Centro", "street": "Rua Exemplo", "streetNumber": "10", "addressComplement": "" }`. `postalCode` contém oito dígitos; `state` contém duas letras. O complemento pode ficar vazio.
+* **Respostas:** Os mesmos códigos da atualização de contato. Cada atualização bem-sucedida incrementa `version`; a comparação de versão e a gravação ocorrem na mesma transação.
 
 #### `POST /organizations/:orgSlug/switch-context`
 * **Descrição:** Valida a seleção feita no frontend e pode registrar a última clínica escolhida como preferência de navegação. A URL continua sendo a fonte canônica do contexto e a preferência nunca autoriza acesso.

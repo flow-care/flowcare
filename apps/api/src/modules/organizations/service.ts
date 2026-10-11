@@ -29,80 +29,20 @@ type ClinicAddressStepData = {
 
 type ClinicStepData = ClinicContactStepData | ClinicAddressStepData;
 
-function validCnpj(value: string) {
-  if (!value) return true;
-  if (!/^\d{14}$/.test(value) || /^(\d)\1{13}$/.test(value)) return false;
-  const digit = (length: number) => {
-    const weights =
-      length === 12
-        ? [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
-        : [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
-    const remainder =
-      weights.reduce(
-        (sum, weight, index) => sum + Number(value[index]) * weight,
-        0,
-      ) % 11;
-    return remainder < 2 ? 0 : 11 - remainder;
-  };
-  return Number(value[12]) === digit(12) && Number(value[13]) === digit(13);
-}
+type ClinicStep = "CLINIC_DETAILS" | "CLINIC_ADDRESS";
 
-function normalizeContactStep(
-  contact: ClinicContactBody,
-): ClinicContactStepData {
-  const legalName = contact.legalName.trim();
-  const taxId = contact.taxId.replace(/\D/g, "");
-  const contactPhone = contact.contactPhone.replace(/\D/g, "");
-  if (
-    legalName.length < 2 ||
-    !validCnpj(taxId) ||
-    contactPhone.length < 10 ||
-    contactPhone.length > 13
-  ) {
-    throw new ApiError(
-      "VALIDATION_ERROR",
-      400,
-      "Confira os dados da clínica e o endereço.",
+function canSaveClinicStep(
+  step: ClinicStep,
+  progress: { currentStep: string; completed: boolean } | null,
+): boolean {
+  if (!progress) return false;
+  if (step === "CLINIC_DETAILS") {
+    return (
+      (progress.currentStep === "ORGANIZATION_SETUP" && progress.completed) ||
+      (progress.currentStep === "CLINIC_DETAILS" && !progress.completed)
     );
   }
-  return {
-    legalName,
-    taxId: taxId || null,
-    contactEmail: contact.contactEmail.trim().toLowerCase(),
-    contactPhone,
-  };
-}
-
-function normalizeAddressStep(
-  address: ClinicAddressBody,
-): ClinicAddressStepData {
-  const city = address.city.trim();
-  const district = address.district.trim();
-  const street = address.street.trim();
-  const streetNumber = address.streetNumber.trim();
-  if (
-    city.length < 2 ||
-    district.length < 2 ||
-    street.length < 2 ||
-    !streetNumber ||
-    !/^\d{8}$/.test(address.postalCode)
-  ) {
-    throw new ApiError(
-      "VALIDATION_ERROR",
-      400,
-      "Confira os dados da clínica e o endereço.",
-    );
-  }
-  return {
-    postalCode: address.postalCode,
-    state: address.state.toUpperCase(),
-    city,
-    district,
-    street,
-    streetNumber,
-    addressComplement: address.addressComplement.trim() || null,
-    detailsCompletedAt: new Date(),
-  };
+  return progress.currentStep === "CLINIC_DETAILS" && progress.completed;
 }
 
 export class OrganizationsService {
@@ -176,13 +116,13 @@ export class OrganizationsService {
     slug: string,
     body: ClinicContactBody,
   ): Promise<ClinicDetailsResponse> {
-    return this.saveClinicStep(
-      userId,
-      slug,
-      "CLINIC_DETAILS",
-      body.version,
-      () => normalizeContactStep(body),
-    );
+    const taxId = body.taxId.replace(/\D/g, "");
+    return this.saveClinicStep(userId, slug, "CLINIC_DETAILS", body.version, {
+      legalName: body.legalName.trim(),
+      taxId: taxId || null,
+      contactEmail: body.contactEmail.trim().toLowerCase(),
+      contactPhone: body.contactPhone.replace(/\D/g, ""),
+    });
   }
 
   async saveClinicAddress(
@@ -190,21 +130,24 @@ export class OrganizationsService {
     slug: string,
     body: ClinicAddressBody,
   ): Promise<ClinicDetailsResponse> {
-    return this.saveClinicStep(
-      userId,
-      slug,
-      "CLINIC_ADDRESS",
-      body.version,
-      () => normalizeAddressStep(body),
-    );
+    return this.saveClinicStep(userId, slug, "CLINIC_ADDRESS", body.version, {
+      postalCode: body.postalCode,
+      state: body.state.toUpperCase(),
+      city: body.city.trim(),
+      district: body.district.trim(),
+      street: body.street.trim(),
+      streetNumber: body.streetNumber.trim(),
+      addressComplement: body.addressComplement.trim() || null,
+      detailsCompletedAt: new Date(),
+    });
   }
 
   private async saveClinicStep(
     userId: string,
     slug: string,
-    step: "CLINIC_DETAILS" | "CLINIC_ADDRESS",
+    step: ClinicStep,
     version: number,
-    buildStepData: () => ClinicStepData,
+    stepData: ClinicStepData,
   ): Promise<ClinicDetailsResponse> {
     const org = await this.editableClinic(userId, slug);
     const savedProgress = await this.prisma.onboardingProgress.findUnique({
@@ -220,23 +163,20 @@ export class OrganizationsService {
     ) {
       throw new ApiError("NOT_FOUND", 404, "Clínica não encontrada.");
     }
-    const canSave = (
-      progress: { currentStep: string; completed: boolean } | null,
-    ) =>
-      !!progress &&
-      (step === "CLINIC_DETAILS"
-        ? (progress.currentStep === "ORGANIZATION_SETUP" &&
-            progress.completed) ||
-          (progress.currentStep === "CLINIC_DETAILS" && !progress.completed)
-        : progress.currentStep === "CLINIC_DETAILS" && progress.completed);
-    if (!canSave(savedProgress)) {
+    if (version !== org.detailsVersion) {
+      throw new ApiError(
+        "VERSION_CONFLICT",
+        409,
+        "A clínica foi alterada em outra sessão. Recarregue os dados.",
+      );
+    }
+    if (!canSaveClinicStep(step, savedProgress)) {
       throw new ApiError(
         "STEP_ALREADY_COMPLETED",
         409,
         "Esta etapa não está disponível.",
       );
     }
-    const stepData = buildStepData();
     await this.prisma.$transaction(async (tx) => {
       const stillAdmin = await tx.membership.findFirst({
         where: {
@@ -252,7 +192,7 @@ export class OrganizationsService {
       const currentProgress = await tx.onboardingProgress.findUnique({
         where: { userId },
       });
-      if (!canSave(currentProgress)) {
+      if (!canSaveClinicStep(step, currentProgress)) {
         throw new ApiError(
           "STEP_ALREADY_COMPLETED",
           409,
@@ -268,7 +208,7 @@ export class OrganizationsService {
       });
       if (!updated.count)
         throw new ApiError(
-          "CONFLICT",
+          "VERSION_CONFLICT",
           409,
           "A clínica foi alterada em outra sessão. Recarregue os dados.",
         );
