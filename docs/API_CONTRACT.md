@@ -228,6 +228,17 @@ Em caso de falha (códigos HTTP 4xx e 5xx), a API responde com a seguinte estrut
 * **Permissão:** Autenticado.
 * **Respostas:** `200 OK` (`{ "data": [ { "id": "org_1", "name": "...", "slug": "vida-e-saude", "role": "ADMIN", "status": "ACTIVE" } ] }`), `401 UNAUTHENTICATED`. A lista retorna no máximo 100 vínculos ativos, em ordem de criação; uma conta sem vínculos recebe `data: []`.
 
+#### `POST /organizations`
+* **Descrição:** Cria uma clínica adicional após o onboarding. O nome é normalizado; o slug é derivado do nome e colisões recebem sufixo numérico (`-2`, `-3`, ...). A criação da clínica, do vínculo `ADMIN` ativo do proprietário, da assinatura pendente e da preferência ativa é transacional. No modelo atual, `Organization.ownerId` identifica o proprietário; `MembershipRole` não possui `OWNER`.
+* **Body:** `{ "name": "Pet Saúde" }`.
+* **Respostas:** `201 Created` com `{ "organization": { "id": "...", "name": "Pet Saúde", "slug": "pet-saude", "role": "ADMIN", "isOwner": true }, "activeOrganization": { "id": "...", "slug": "pet-saude" } }`; `400 VALIDATION_ERROR`; `401 UNAUTHENTICATED`; `409 ALREADY_EXISTS` se não for possível reservar um slug após as tentativas permitidas.
+
+#### `PATCH /account/active-organization`
+* **Descrição:** Guarda a última clínica escolhida pela conta. A preferência é usada apenas para navegação, nunca como prova de autorização; toda rota organizacional continua validando o vínculo. Vínculo suspenso, convidado, inexistente ou de terceiro não pode ser selecionado.
+* **Body:** `{ "orgSlug": "pet-saude" }`.
+* **Respostas:** `200 OK` com `{ "activeOrganization": { "id": "...", "slug": "pet-saude" } }`; `400 VALIDATION_ERROR`; `401 UNAUTHENTICATED`; `403 FORBIDDEN` quando não há vínculo ativo.
+* **Restauração:** A resposta de login inclui `activeOrganization` com `id` e `slug` quando a última clínica salva ainda possui vínculo ativo; caso contrário retorna `null`. O frontend pode usar esse valor para restaurar a navegação, mas deve continuar validando cada chamada pelo `orgSlug` da URL.
+
 #### `GET /organizations/:orgSlug`
 * **Descrição:** Obtém os dados e preferências da clínica especificada pelo slug.
 * **Permissão:** Autenticado + Pertencer à clínica (`organizations:read`).
