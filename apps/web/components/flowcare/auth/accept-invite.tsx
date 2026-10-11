@@ -33,11 +33,11 @@ function initialLetter(value: string) {
 function ClinicHeader({
   organizationName,
   inviterName,
-  description,
+  isEmailMismatch = false,
 }: {
   organizationName: string;
   inviterName?: string;
-  description: string;
+  isEmailMismatch?: boolean;
 }) {
   return (
     <div className="flex flex-col items-center justify-center gap-3 py-1 text-center">
@@ -51,23 +51,22 @@ function ClinicHeader({
           {initialLetter(organizationName)}
         </AvatarFallback>
       </Avatar>
-      <div className="space-y-2">
-        <h2 className="text-2xl font-semibold tracking-tight text-foreground">
-          {inviterName ? (
-            <>
-              {inviterName}{" "}
-              <span className="font-normal">convidou você para a clínica</span>{" "}
-              '{organizationName}'
-            </>
-          ) : (
-            <>
-              <span className="font-normal">Convite para a clínica</span> '
-              {organizationName}'
-            </>
-          )}
-        </h2>
-        <p className="text-sm text-muted-foreground">{description}</p>
-      </div>
+      <h2 className="text-2xl font-semibold tracking-tight text-foreground">
+        {isEmailMismatch ? (
+          "Você não pode acessar a clínica porque não foi convidado."
+        ) : inviterName ? (
+          <>
+            {inviterName}{" "}
+            <span className="font-normal">convidou você para a clínica</span> '
+            {organizationName}'
+          </>
+        ) : (
+          <>
+            <span className="font-normal">Convite para a clínica</span> '
+            {organizationName}'
+          </>
+        )}
+      </h2>
     </div>
   );
 }
@@ -173,7 +172,6 @@ export function AcceptInvite({
         <ClinicHeader
           organizationName={invite.organizationName}
           inviterName={invite.inviterName}
-          description="Você recebeu um link de convite para entrar na organização."
         />
         <div className="flex items-center gap-3 rounded-lg bg-card p-3 shadow-none">
           <Avatar className="size-10">
@@ -224,7 +222,7 @@ export function AcceptInvite({
         <ClinicHeader
           organizationName={invite.organizationName}
           inviterName={invite.inviterName}
-          description="Você não pode acessar a clínica porque não foi convidado."
+          isEmailMismatch
         />
         <div className="space-y-4">
           <div className="flex items-center gap-3 rounded-lg bg-card p-3 shadow-none">
@@ -271,7 +269,6 @@ export function AcceptInvite({
       <ClinicHeader
         organizationName={invite.organizationName}
         inviterName={invite.inviterName}
-        description="Você recebeu um link de convite para entrar na organização."
       />
       <div className="space-y-4">
         <CurrentSessionBadge currentUser={currentUser} />
