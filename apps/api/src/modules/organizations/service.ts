@@ -1,17 +1,22 @@
 import type { PrismaClient } from "../../generated/prisma/client";
 import { ApiError } from "../../lib/api-error";
-import type { ClinicAddressBody, ClinicContactBody } from "./model";
+import type {
+  ClinicAddressBody,
+  ClinicContactBody,
+  ClinicDetailsResponse,
+  OrganizationsResponse,
+} from "./model";
 
-type ClinicStep = "CLINIC_DETAILS" | "CLINIC_ADDRESS";
+const MAX_USER_ORGANIZATIONS = 100;
 
-type ClinicContactUpdateData = {
+type ClinicContactStepData = {
   legalName: string;
   taxId: string | null;
   contactEmail: string;
   contactPhone: string;
 };
 
-type ClinicAddressUpdateData = {
+type ClinicAddressStepData = {
   postalCode: string;
   state: string;
   city: string;
@@ -22,7 +27,9 @@ type ClinicAddressUpdateData = {
   detailsCompletedAt: Date;
 };
 
-type ClinicStepData = ClinicContactUpdateData | ClinicAddressUpdateData;
+type ClinicStepData = ClinicContactStepData | ClinicAddressStepData;
+
+type ClinicStep = "CLINIC_DETAILS" | "CLINIC_ADDRESS";
 
 function canSaveClinicStep(
   step: ClinicStep,
@@ -41,7 +48,7 @@ function canSaveClinicStep(
 export class OrganizationsService {
   constructor(private readonly prisma: PrismaClient) {}
 
-  async listForUser(userId: string) {
+  async listForUser(userId: string): Promise<OrganizationsResponse> {
     const memberships = await this.prisma.membership.findMany({
       where: { userId, status: "ACTIVE" },
       select: {
@@ -51,12 +58,16 @@ export class OrganizationsService {
         },
       },
       orderBy: { createdAt: "asc" },
+      take: MAX_USER_ORGANIZATIONS,
     });
 
     return {
       data: memberships.map(({ role, organization }) => ({
-        ...organization,
+        id: organization.id,
+        name: organization.name,
+        slug: organization.slug,
         role,
+        status: "ACTIVE",
       })),
     };
   }
@@ -76,7 +87,10 @@ export class OrganizationsService {
     return membership.organization;
   }
 
-  async getClinicDetails(userId: string, slug: string) {
+  async getClinicDetails(
+    userId: string,
+    slug: string,
+  ): Promise<ClinicDetailsResponse> {
     const org = await this.editableClinic(userId, slug);
     return {
       name: org.name,
@@ -101,7 +115,7 @@ export class OrganizationsService {
     userId: string,
     slug: string,
     body: ClinicContactBody,
-  ) {
+  ): Promise<ClinicDetailsResponse> {
     const taxId = body.taxId.replace(/\D/g, "");
     return this.saveClinicStep(userId, slug, "CLINIC_DETAILS", body.version, {
       legalName: body.legalName.trim(),
@@ -115,7 +129,7 @@ export class OrganizationsService {
     userId: string,
     slug: string,
     body: ClinicAddressBody,
-  ) {
+  ): Promise<ClinicDetailsResponse> {
     return this.saveClinicStep(userId, slug, "CLINIC_ADDRESS", body.version, {
       postalCode: body.postalCode,
       state: body.state.toUpperCase(),
@@ -134,7 +148,7 @@ export class OrganizationsService {
     step: ClinicStep,
     version: number,
     stepData: ClinicStepData,
-  ) {
+  ): Promise<ClinicDetailsResponse> {
     const org = await this.editableClinic(userId, slug);
     const savedProgress = await this.prisma.onboardingProgress.findUnique({
       where: { userId },

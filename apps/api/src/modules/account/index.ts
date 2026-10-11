@@ -13,6 +13,7 @@ export function accountModule(deps: AccountModuleDeps) {
   const service = new AccountService({ prisma: deps.prisma });
 
   return new Elysia({ name: "account" })
+    .model(m.accountModels)
     .use(authPlugin({ prisma: deps.prisma, jwtSecret: deps.jwtSecret }))
     .post(
       "/me/change-password",
@@ -28,6 +29,20 @@ export function accountModule(deps: AccountModuleDeps) {
       ({ auth }) => service.listSessions(auth.userId, auth.sessionId),
       {
         response: { 200: m.sessionsResponse },
+      },
+    )
+    .delete(
+      "/me/sessions/other",
+      ({ auth }) => service.revokeOtherSessions(auth.userId, auth.sessionId),
+      { response: { 200: m.revokeSessionResponse } },
+    )
+    .delete(
+      "/me/sessions/:sessionId",
+      ({ auth, params }) =>
+        service.revokeSession(auth.userId, auth.sessionId, params.sessionId),
+      {
+        params: m.sessionIdParams,
+        response: { 200: m.revokeSessionResponse },
       },
     )
     .get("/me/profile", ({ auth }) => service.getProfile(auth.userId), {

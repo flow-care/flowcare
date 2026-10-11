@@ -25,7 +25,7 @@ Este documento é a fonte de verdade para o contrato HTTP entre a API (`apps/api
 | **Tipagem e Contrato** | Os tipos de entrada e saída são derivados estritamente dos schemas Elysia/TypeBox e OpenAPI gerados. |
 
 > [!NOTE]
-> **Decisão #192 para o MVP:** A API usa `Authorization: Bearer <JWT>`. O JWT expira em 12 horas e exige uma `Session` ativa no banco. O Next.js guarda o token em cookie `HttpOnly`, `SameSite=Lax` e `Secure` em produção. Não há renovação automática; depois de 12 horas a pessoa faz login novamente. Logout da API e revogação manual ainda estão pendentes.
+> **Decisão #192 para o MVP:** A API usa `Authorization: Bearer <JWT>`. O JWT expira em 12 horas e exige uma `Session` ativa no banco. O Next.js guarda o token em cookie `HttpOnly`, `SameSite=Lax` e `Secure` em produção. Não há renovação automática; depois de 12 horas a pessoa faz login novamente. Logout da API ainda está pendente; revogação manual está disponível em `/me/sessions`.
 
 ### Contexto Organizacional Ativo
 
@@ -203,12 +203,12 @@ Em caso de falha (códigos HTTP 4xx e 5xx), a API responde com a seguinte estrut
     ]
   }
   ```
-* **Respostas:** `200 OK`.
+* **Respostas:** `200 OK` com `{ "weeklySchedule": [...] }`; `400 VALIDATION_ERROR` para intervalos inválidos ou sobrepostos; `403 ACCOUNT_NOT_VERIFIED`; `409 ONBOARDING_INCOMPLETE` sem clínica criada e vínculo ADMIN ativo. A lista vazia remove os horários iniciais. O envio substitui os horários da clínica.
 
 #### `POST /onboarding/complete`
 * **Descrição:** Finaliza a jornada de onboarding após confirmação de e-mail e criação da clínica. Perfil complementar, horários e convites não bloqueiam a conclusão.
 * **Permissão:** Autenticado.
-* **Respostas:** `200 OK` (`{ "redirectUrl": "/app/vida-e-saude/dashboard" }`).
+* **Respostas:** `200 OK` (`{ "redirectUrl": "/app/vida-e-saude/dashboard" }`), inclusive em chamadas repetidas; `403 ACCOUNT_NOT_VERIFIED`; `409 ONBOARDING_INCOMPLETE` sem clínica criada e vínculo ADMIN ativo.
 
 ---
 
@@ -221,7 +221,7 @@ Em caso de falha (códigos HTTP 4xx e 5xx), a API responde com a seguinte estrut
 #### `GET /organizations`
 * **Descrição:** Lista somente as clínicas nas quais a pessoa possui `Membership` ativo. Vínculos suspensos ou ainda `INVITED` não autorizam acesso e não aparecem na seleção.
 * **Permissão:** Autenticado.
-* **Respostas:** `200 OK` (`{ "data": [ { "id": "org_1", "name": "...", "slug": "vida-e-saude", "role": "ADMIN" } ] }`), `401 UNAUTHENTICATED`.
+* **Respostas:** `200 OK` (`{ "data": [ { "id": "org_1", "name": "...", "slug": "vida-e-saude", "role": "ADMIN", "status": "ACTIVE" } ] }`), `401 UNAUTHENTICATED`. A lista retorna no máximo 100 vínculos ativos, em ordem de criação; uma conta sem vínculos recebe `data: []`.
 
 #### `GET /organizations/:orgSlug`
 * **Descrição:** Obtém os dados e preferências da clínica especificada pelo slug.
@@ -644,12 +644,13 @@ O fluxo obrigatório é:
 #### `DELETE /me/sessions/:sessionId`
 * **Descrição:** Revoga uma sessão específica.
 * **Permissão:** Autenticado.
-* **Respostas:** `200 OK`.
+* **Respostas:** `200 OK` (`{ "revokedCount": 1 }`); `404 NOT_FOUND` para sessão inexistente, expirada, já revogada ou de outra conta. Revogar a sessão atual invalida o token na próxima requisição.
 
 #### `DELETE /me/sessions/other`
 * **Descrição:** Revoga todas as outras sessões ativas, exceto a atual.
 * **Permissão:** Autenticado.
 * **Respostas:** `200 OK` (`{ "revokedCount": 2 }`).
+* **Auditoria:** Os dois comandos registram conta, sessão autora, alvo quando aplicável, quantidade e horário na mesma transação da revogação. O comando `other` é auditado mesmo quando a quantidade é zero.
 
 ---
 

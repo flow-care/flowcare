@@ -14,19 +14,20 @@ export const orgSlugParams = t.Object({
   orgSlug: t.String({ minLength: 2, maxLength: 60 }),
 });
 
+export const organizationItem = t.Object({
+  id: t.String(),
+  name: t.String(),
+  slug: t.String(),
+  role: t.Union([
+    t.Literal("ADMIN"),
+    t.Literal("PROFESSIONAL"),
+    t.Literal("RECEPTIONIST"),
+  ]),
+  status: t.Literal("ACTIVE"),
+});
+
 export const organizationsResponse = t.Object({
-  data: t.Array(
-    t.Object({
-      id: t.String(),
-      name: t.String(),
-      slug: t.String(),
-      role: t.Union([
-        t.Literal("ADMIN"),
-        t.Literal("PROFESSIONAL"),
-        t.Literal("RECEPTIONIST"),
-      ]),
-    }),
-  ),
+  data: t.Array(organizationItem),
 });
 
 export const clinicDetailsBody = t.Object({
@@ -104,6 +105,10 @@ export const clinicDetailsResponse = t.Object({
   addressComplement: t.String(),
 });
 
+export type OrgSlugParams = typeof orgSlugParams.static;
+export type OrganizationItem = typeof organizationItem.static;
+export type OrganizationsResponse = typeof organizationsResponse.static;
 export type ClinicDetailsBody = typeof clinicDetailsBody.static;
 export type ClinicContactBody = typeof clinicContactBody.static;
 export type ClinicAddressBody = typeof clinicAddressBody.static;
+export type ClinicDetailsResponse = typeof clinicDetailsResponse.static;
