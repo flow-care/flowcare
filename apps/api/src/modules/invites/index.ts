@@ -44,6 +44,14 @@ export function inviteModule(deps: {
         response: { 200: m.acceptResponse },
       },
     )
+    .post(
+      "/invites/:token/decline",
+      ({ auth, params }) => service.decline(auth.userId, params.token),
+      {
+        params: t.Object({ token: t.String({ minLength: 20 }) }),
+        response: { 200: m.declineResponse },
+      },
+    )
     .delete(
       "/organizations/:orgSlug/invites/:inviteId",
       ({ auth, params }) =>

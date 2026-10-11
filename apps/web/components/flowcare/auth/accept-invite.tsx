@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import {
   acceptInviteAction,
+  declineInviteAction,
   switchAccountAction,
 } from "@/app/(auth)/accept-invite/actions";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -110,11 +111,15 @@ export function AcceptInvite({
 }: AcceptInviteProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const [activeAction, setActiveAction] = useState<
+    "accept" | "decline" | "switch" | null
+  >(null);
 
   const returnTo = `/accept-invite/${token}`;
 
   function handleAccept() {
     if (isPending) return;
+    setActiveAction("accept");
     startTransition(async () => {
       try {
         const result = await acceptInviteAction(token);
@@ -135,8 +140,30 @@ export function AcceptInvite({
     });
   }
 
+  function handleDecline() {
+    if (isPending) return;
+    setActiveAction("decline");
+    startTransition(async () => {
+      try {
+        const result = await declineInviteAction(token);
+        if (!result.ok) {
+          toast.error(result.error.message);
+          return;
+        }
+        toast.success("Convite recusado.");
+        router.push("/");
+        router.refresh();
+      } catch {
+        toast.error(
+          "Não foi possível recusar o convite no momento. Tente novamente.",
+        );
+      }
+    });
+  }
+
   function handleSwitchAccount() {
     if (isPending) return;
+    setActiveAction("switch");
     startTransition(async () => {
       await switchAccountAction(returnTo);
     });
@@ -256,7 +283,9 @@ export function AcceptInvite({
           disabled={isPending}
           className="w-full"
         >
-          {isPending && <Spinner className="mr-2 size-4" />}
+          {isPending && activeAction === "switch" && (
+            <Spinner className="mr-2 size-4" />
+          )}
           Trocar de conta
         </Button>
       </div>
@@ -273,22 +302,41 @@ export function AcceptInvite({
       <div className="space-y-4">
         <CurrentSessionBadge currentUser={currentUser} />
       </div>
-      <Button
-        type="button"
-        size="form"
-        onClick={handleAccept}
-        disabled={isPending}
-        className="w-full"
-      >
-        {isPending ? (
-          <>
-            <Spinner className="mr-2 size-4" />
-            Aceitando convite...
-          </>
-        ) : (
-          "Aceitar convite"
-        )}
-      </Button>
+      <div className="flex flex-col gap-3">
+        <Button
+          type="button"
+          size="form"
+          onClick={handleAccept}
+          disabled={isPending}
+          className="w-full"
+        >
+          {isPending && activeAction === "accept" ? (
+            <>
+              <Spinner className="mr-2 size-4" />
+              Aceitando convite...
+            </>
+          ) : (
+            "Aceitar convite"
+          )}
+        </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          size="form"
+          onClick={handleDecline}
+          disabled={isPending}
+          className="w-full"
+        >
+          {isPending && activeAction === "decline" ? (
+            <>
+              <Spinner className="mr-2 size-4" />
+              Recusando convite...
+            </>
+          ) : (
+            "Recusar convite"
+          )}
+        </Button>
+      </div>
     </div>
   );
 }

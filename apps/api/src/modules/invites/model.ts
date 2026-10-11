@@ -38,6 +38,7 @@ export const inviteListResponse = t.Object({
   ),
 });
 export const acceptResponse = t.Object({ organizationSlug: t.String() });
+export const declineResponse = t.Object({ message: t.String() });
 export const inviteDetailsResponse = t.Object({
   organizationName: t.String(),
   organizationSlug: t.String(),

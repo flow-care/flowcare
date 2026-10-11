@@ -213,6 +213,50 @@ export class InviteService {
     return { organizationSlug: result };
   }
 
+  async decline(userId: string, token: string) {
+    const user = await this.deps.prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true },
+    });
+    if (!user)
+      throw new ApiError("UNAUTHENTICATED", 401, "Autenticação necessária.");
+    let invite = await this.deps.prisma.organizationInvite.findUnique({
+      where: { tokenHash: hashToken(token) },
+    });
+    if (
+      !invite &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        token,
+      )
+    ) {
+      invite = await this.deps.prisma.organizationInvite.findUnique({
+        where: { id: token },
+      });
+    }
+    if (
+      !invite ||
+      invite.revokedAt ||
+      invite.acceptedAt ||
+      invite.expiresAt <= new Date()
+    )
+      throw new ApiError(
+        "INVITE_EXPIRED",
+        410,
+        "Convite expirado ou inválido.",
+      );
+    if (invite.email !== user.email.toLowerCase())
+      throw new ApiError(
+        "FORBIDDEN",
+        403,
+        "Este convite pertence a outro e-mail.",
+      );
+    await this.deps.prisma.organizationInvite.update({
+      where: { id: invite.id },
+      data: { revokedAt: new Date() },
+    });
+    return { message: "Convite recusado." };
+  }
+
   async revoke(adminId: string, slug: string, inviteId: string) {
     const organization = await this.authorizeAdmin(adminId, slug);
     await this.deps.prisma.organizationInvite.updateMany({

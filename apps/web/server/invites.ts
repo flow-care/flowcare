@@ -147,3 +147,42 @@ export async function acceptInvite(
   if (!parsed.success) throw new Error("UPSTREAM_UNAVAILABLE");
   return parsed.data;
 }
+
+export async function declineInvite(
+  token: string,
+): Promise<{ message: string }> {
+  const sessionToken = await getSessionToken();
+  if (!sessionToken) {
+    throw new Error("UNAUTHENTICATED");
+  }
+  const { apiBaseUrl } = getServerConfig();
+  const response = await fetch(
+    `${apiBaseUrl}/invites/${encodeURIComponent(token)}/decline`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${sessionToken}`,
+        Accept: "application/json",
+      },
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(10_000),
+    },
+  );
+  const data: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const code =
+      data && typeof data === "object" && "error" in data
+        ? (data as { error: { code?: string } }).error?.code
+        : null;
+    if (code === "FORBIDDEN") throw new Error("FORBIDDEN");
+    if (code === "INVITE_EXPIRED" || response.status === 410) {
+      throw new Error("INVITE_EXPIRED");
+    }
+    if (response.status === 401) throw new Error("UNAUTHENTICATED");
+    throw new Error("UPSTREAM_UNAVAILABLE");
+  }
+  const parsed = z.object({ message: z.string() }).safeParse(data);
+  if (!parsed.success) throw new Error("UPSTREAM_UNAVAILABLE");
+  return parsed.data;
+}
