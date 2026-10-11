@@ -35,10 +35,12 @@ function ClinicHeader({
   organizationName,
   inviterName,
   isEmailMismatch = false,
+  isAlreadyMember = false,
 }: {
   organizationName: string;
   inviterName?: string;
   isEmailMismatch?: boolean;
+  isAlreadyMember?: boolean;
 }) {
   return (
     <div className="flex flex-col items-center justify-center gap-3 py-1 text-center">
@@ -53,7 +55,12 @@ function ClinicHeader({
         </AvatarFallback>
       </Avatar>
       <h2 className="text-2xl font-semibold tracking-tight text-foreground">
-        {isEmailMismatch ? (
+        {isAlreadyMember ? (
+          <>
+            <span className="font-normal">Você já faz parte da clínica</span> '
+            {organizationName}'
+          </>
+        ) : isEmailMismatch ? (
           "Você não pode acessar a clínica porque não foi convidado."
         ) : inviterName ? (
           <>
@@ -238,18 +245,23 @@ export function AcceptInvite({
     );
   }
 
-  // Estado 3: Usuário autenticado com e-mail diferente do convite
+  const isAlreadyMember = Boolean(
+    currentUser.organizationSlugs?.includes(invite.organizationSlug),
+  );
+
+  // Estado 3: Usuário autenticado com e-mail diferente do convite (ou já membro da clínica)
   const isEmailMismatch =
     currentUser.email.trim().toLowerCase() !==
     invite.email.trim().toLowerCase();
 
-  if (isEmailMismatch) {
+  if (isEmailMismatch || isAlreadyMember) {
     return (
       <div className="space-y-6">
         <ClinicHeader
           organizationName={invite.organizationName}
           inviterName={invite.inviterName}
-          isEmailMismatch
+          isEmailMismatch={isEmailMismatch}
+          isAlreadyMember={isAlreadyMember}
         />
         <div className="space-y-4">
           <div className="flex items-center gap-3 rounded-lg bg-card p-3 shadow-none">
@@ -273,21 +285,38 @@ export function AcceptInvite({
           <CurrentSessionBadge currentUser={currentUser} />
         </div>
         <p className="text-center text-xs text-muted-foreground">
-          Para aceitar este convite, saia da conta atual e entre utilizando o
-          e-mail indicado no convite.
+          {isAlreadyMember && isEmailMismatch
+            ? "Sua conta atual já possui acesso a esta clínica. Para aceitar o convite enviado ao e-mail acima, troque de conta."
+            : isAlreadyMember
+              ? "Sua conta já está vinculada a esta clínica."
+              : "Para aceitar este convite, saia da conta atual e entre utilizando o e-mail indicado no convite."}
         </p>
-        <Button
-          type="button"
-          size="form"
-          onClick={handleSwitchAccount}
-          disabled={isPending}
-          className="w-full"
-        >
-          {isPending && activeAction === "switch" && (
-            <Spinner className="mr-2 size-4" />
+        <div className="flex flex-col gap-3">
+          {isAlreadyMember && (
+            <Button asChild size="form" className="w-full">
+              <Link
+                href={`/app/${encodeURIComponent(invite.organizationSlug)}/dashboard`}
+              >
+                Ir para a clínica
+              </Link>
+            </Button>
           )}
-          Trocar de conta
-        </Button>
+          {isEmailMismatch && (
+            <Button
+              type="button"
+              variant={isAlreadyMember ? "secondary" : "default"}
+              size="form"
+              onClick={handleSwitchAccount}
+              disabled={isPending}
+              className="w-full"
+            >
+              {isPending && activeAction === "switch" && (
+                <Spinner className="mr-2 size-4" />
+              )}
+              Trocar de conta
+            </Button>
+          )}
+        </div>
       </div>
     );
   }

@@ -10,6 +10,7 @@ export interface CurrentUserProfile {
   email: string;
   fullName: string;
   photoUrl?: string | null;
+  organizationSlugs?: string[];
 }
 
 const userProfileSchema = z.object({
@@ -23,6 +24,14 @@ const userProfileSchema = z.object({
     })
     .nullable()
     .optional(),
+});
+
+const organizationsListSchema = z.object({
+  data: z.array(
+    z.object({
+      slug: z.string().min(1),
+    }),
+  ),
 });
 
 const photoDownloadSchema = z.object({
@@ -65,17 +74,35 @@ export async function getCurrentUser(): Promise<CurrentUserProfile | null> {
       Authorization: `Bearer ${token}`,
       Accept: "application/json",
     };
-    const response = await fetch(`${apiBaseUrl}/me/profile`, {
-      method: "GET",
-      headers,
-      cache: "no-store",
-      redirect: "error",
-      signal: AbortSignal.timeout(10_000),
-    });
+    const [response, orgsResponse] = await Promise.all([
+      fetch(`${apiBaseUrl}/me/profile`, {
+        method: "GET",
+        headers,
+        cache: "no-store",
+        redirect: "error",
+        signal: AbortSignal.timeout(10_000),
+      }),
+      fetch(`${apiBaseUrl}/organizations`, {
+        method: "GET",
+        headers,
+        cache: "no-store",
+        redirect: "error",
+        signal: AbortSignal.timeout(10_000),
+      }).catch(() => null),
+    ]);
     if (!response.ok) return null;
     const data: unknown = await response.json();
     const parsed = userProfileSchema.safeParse(data);
     if (!parsed.success) return null;
+
+    let organizationSlugs: string[] = [];
+    if (orgsResponse?.ok) {
+      const orgsJson: unknown = await orgsResponse.json().catch(() => null);
+      const parsedOrgs = organizationsListSchema.safeParse(orgsJson);
+      if (parsedOrgs.success) {
+        organizationSlugs = parsedOrgs.data.data.map((org) => org.slug);
+      }
+    }
 
     let photoUrl: string | null = null;
     if (parsed.data.photo) {
@@ -103,6 +130,7 @@ export async function getCurrentUser(): Promise<CurrentUserProfile | null> {
       email: parsed.data.email,
       fullName: parsed.data.fullName,
       photoUrl,
+      organizationSlugs,
     };
   } catch {
     return null;
