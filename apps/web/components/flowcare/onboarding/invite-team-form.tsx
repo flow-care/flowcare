@@ -11,7 +11,11 @@ import {
 } from "@/app/onboarding/invite-team/actions";
 import { Button } from "@/components/ui/button";
 import { Field, FieldLabel } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+} from "@/components/ui/input-group";
 import {
   Select,
   SelectContent,
@@ -134,67 +138,75 @@ export function InviteTeamForm({
                 <FieldLabel htmlFor="invite-email" className="required">
                   E-mail
                 </FieldLabel>
-                <Input
-                  id="invite-email"
-                  name={field.name}
-                  type="email"
-                  autoComplete="email"
-                  placeholder="pessoa@exemplo.com"
-                  value={field.state.value}
-                  onBlur={field.handleBlur}
-                  onChange={(event) => field.handleChange(event.target.value)}
-                  aria-invalid={!field.state.meta.isValid}
-                  required
-                />
+                <div className="flex flex-col gap-3 sm:flex-row">
+                  <InputGroup className="h-[47px] rounded-lg border-transparent bg-card shadow-none focus-within:border-primary has-[[data-slot=input-group-control]:focus-visible]:border-primary dark:bg-card">
+                    <InputGroupInput
+                      id="invite-email"
+                      name={field.name}
+                      type="email"
+                      autoComplete="email"
+                      placeholder="pessoa@exemplo.com"
+                      value={field.state.value}
+                      onBlur={field.handleBlur}
+                      onChange={(event) =>
+                        field.handleChange(event.target.value)
+                      }
+                      aria-invalid={!field.state.meta.isValid}
+                      className="focus-visible:border-transparent"
+                      required
+                    />
+                    <form.Field name="role">
+                      {(roleField) => (
+                        <InputGroupAddon align="inline-end" className="pr-1">
+                          <FieldLabel htmlFor="invite-role" className="sr-only">
+                            Papel
+                          </FieldLabel>
+                          <Select
+                            value={roleField.state.value}
+                            onValueChange={(value) =>
+                              roleField.handleChange(value as InviteRole)
+                            }
+                          >
+                            <SelectTrigger
+                              id="invite-role"
+                              className="h-9 min-w-36 rounded-md border-0 bg-transparent px-2 shadow-none hover:bg-muted focus-visible:border-transparent focus-visible:ring-0 dark:bg-transparent dark:hover:bg-muted/50"
+                            >
+                              <SelectValue placeholder="Selecione um papel" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {initial.roles.map((role) => (
+                                <SelectItem key={role} value={role}>
+                                  {formatInviteRole(role)}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </InputGroupAddon>
+                      )}
+                    </form.Field>
+                  </InputGroup>
+                  <form.Subscribe selector={(state) => state.isSubmitting}>
+                    {(pending) => (
+                      <Button
+                        type="submit"
+                        className={`${buttonClass} h-[47px] w-full sm:w-auto`}
+                        disabled={pending || finishing || Boolean(busyId)}
+                      >
+                        {pending ? (
+                          <>
+                            <Spinner className="mr-2 size-4" />
+                            Enviando...
+                          </>
+                        ) : (
+                          "Enviar convite"
+                        )}
+                      </Button>
+                    )}
+                  </form.Subscribe>
+                </div>
               </Field>
             )}
           </form.Field>
-          <form.Field name="role">
-            {(field) => (
-              <Field>
-                <FieldLabel htmlFor="invite-role" className="required">
-                  Papel
-                </FieldLabel>
-                <Select
-                  value={field.state.value}
-                  onValueChange={(value) =>
-                    field.handleChange(value as InviteRole)
-                  }
-                >
-                  <SelectTrigger id="invite-role" className="w-full">
-                    <SelectValue placeholder="Selecione um papel" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {initial.roles.map((role) => (
-                      <SelectItem key={role} value={role}>
-                        {formatInviteRole(role)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
-            )}
-          </form.Field>
-          <div className="flex justify-end">
-            <form.Subscribe selector={(state) => state.isSubmitting}>
-              {(pending) => (
-                <Button
-                  type="submit"
-                  className={buttonClass}
-                  disabled={pending || finishing || Boolean(busyId)}
-                >
-                  {pending ? (
-                    <>
-                      <Spinner className="mr-2 size-4" />
-                      Enviando...
-                    </>
-                  ) : (
-                    "Enviar convite"
-                  )}
-                </Button>
-              )}
-            </form.Subscribe>
-          </div>
         </form>
       )}
 
