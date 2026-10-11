@@ -3,6 +3,7 @@ export const onboardingSteps = [
   "ORGANIZATION_SETUP",
   "CLINIC_DETAILS",
   "CLINIC_ADDRESS",
+  "WEEKLY_SCHEDULE",
   "TEAM_INVITES",
 ] as const;
 

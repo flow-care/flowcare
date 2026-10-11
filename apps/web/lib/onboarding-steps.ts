@@ -11,6 +11,11 @@ export const onboardingSteps = [
     title: "Endereço",
     path: "/onboarding/configure-clinic/address",
   },
+  {
+    id: "WEEKLY_SCHEDULE",
+    title: "Horários",
+    path: "/onboarding/configure-hours",
+  },
   { id: "TEAM_INVITES", title: "Equipe", path: "/onboarding/invite-team" },
 ] as const;
 

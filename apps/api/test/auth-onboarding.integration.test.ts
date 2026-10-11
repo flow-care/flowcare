@@ -82,6 +82,20 @@ function patch(path: string, body: unknown, token?: string) {
   );
 }
 
+function put(path: string, body: unknown, token?: string) {
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+  };
+  if (token) headers.authorization = `Bearer ${token}`;
+  return api.handle(
+    new Request(`http://localhost/api${path}`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
 function get(path: string, token?: string) {
   const headers: Record<string, string> = {};
   if (token) headers.authorization = `Bearer ${token}`;
@@ -453,9 +467,37 @@ describe.skipIf(!dbUp)("Integração: auth + onboarding (Postgres real)", () => 
       expect(before.status).toBe(409);
 
       await post("/onboarding/organization", { name: "Clínica Alfa" }, token);
+      const contact = await put(
+        "/organizations/clinica-alfa/onboarding-contact",
+        {
+          version: 0,
+          legalName: "Clínica Alfa Ltda",
+          taxId: "",
+          contactEmail: "contato@alfa.com.br",
+          contactPhone: "85999999999",
+        },
+        token,
+      );
+      expect(contact.status).toBe(200);
+      const address = await put(
+        "/organizations/clinica-alfa/onboarding-address",
+        {
+          version: 1,
+          postalCode: "60000000",
+          state: "CE",
+          city: "Fortaleza",
+          district: "Centro",
+          street: "Rua das Flores",
+          streetNumber: "10",
+          addressComplement: "",
+        },
+        token,
+      );
+      expect(address.status).toBe(200);
       const schedule = await post(
         "/onboarding/schedule-rules",
         {
+          timezone: "America/Fortaleza",
           weeklySchedule: [
             {
               dayOfWeek: "MONDAY",
@@ -475,6 +517,12 @@ describe.skipIf(!dbUp)("Integração: auth + onboarding (Postgres real)", () => 
       );
       expect(schedule.status).toBe(200);
       expect(await prisma.weeklyScheduleRule.count()).toBe(2);
+      const savedSchedule = await get("/onboarding/schedule-rules", token);
+      expect(savedSchedule.status).toBe(200);
+      expect(await savedSchedule.json()).toMatchObject({
+        timezone: "America/Fortaleza",
+        weeklySchedule: [{ dayOfWeek: "MONDAY", startTime: "08:00" }],
+      });
 
       const overlap = await post(
         "/onboarding/schedule-rules",

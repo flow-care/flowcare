@@ -36,6 +36,15 @@ test("existing clinics resume at contact, address, then optional team invitation
       },
       onboardingSteps,
     ),
+  ).toEqual({ currentStep: "WEEKLY_SCHEDULE", completed: false });
+  expect(
+    resolveOnboardingState(
+      {
+        ...input,
+        savedProgress: { currentStep: "WEEKLY_SCHEDULE", completed: true },
+      },
+      onboardingSteps,
+    ),
   ).toEqual({ currentStep: "TEAM_INVITES", completed: false });
   expect(
     resolveOnboardingState(

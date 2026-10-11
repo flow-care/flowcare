@@ -108,10 +108,14 @@ export const weeklyScheduleRule = t.Object({
 });
 
 export const scheduleRulesBody = t.Object({
+  timezone: t.Optional(t.String({ minLength: 3, maxLength: 100 })),
   weeklySchedule: t.Array(weeklyScheduleRule, { maxItems: 100 }),
 });
 
-export const scheduleRulesResponse = scheduleRulesBody;
+export const scheduleRulesResponse = t.Object({
+  timezone: t.String(),
+  weeklySchedule: t.Array(weeklyScheduleRule),
+});
 
 export const completeResponse = t.Object({ redirectUrl: t.String() });
 

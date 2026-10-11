@@ -192,21 +192,26 @@ Em caso de falha (códigos HTTP 4xx e 5xx), a API responde com a seguinte estrut
 * **Respostas:** `201 Created` (`{ "organization": { "id": "org_1", "name": "...", "slug": "vida-e-saude", "role": "ADMIN", "isOwner": true } }`), `409 ALREADY_EXISTS`.
 * **Estado:** Implementado para `name` e `slug`. `phone`, `address` e `Idempotency-Key` ainda não são processados; ver #217 e #303.
 
+#### `GET /onboarding/schedule-rules`
+* **Descrição:** Recupera o fuso horário da clínica e sua grade semanal salva. Exige vínculo ADMIN ativo com a clínica criada no onboarding.
+* **Resposta:** `200 OK` com `{ "timezone": "America/Sao_Paulo", "weeklySchedule": [...] }`.
+
 #### `POST /onboarding/schedule-rules`
-* **Descrição:** Configura opcionalmente os dias e horários padrão de atendimento da clínica durante o onboarding ou depois dele.
+* **Descrição:** Configura os dias e horários padrão de atendimento da clínica. O envio durante a etapa de horários marca `WEEKLY_SCHEDULE` como concluída.
 * **Permissão:** Autenticado (Administrador).
 * **Body:**
   ```json
   {
+    "timezone": "America/Sao_Paulo",
     "weeklySchedule": [
       { "dayOfWeek": "MONDAY", "startTime": "08:00", "endTime": "18:00", "slotDurationMinutes": 30 }
     ]
   }
   ```
-* **Respostas:** `200 OK` com `{ "weeklySchedule": [...] }`; `400 VALIDATION_ERROR` para intervalos inválidos ou sobrepostos; `403 ACCOUNT_NOT_VERIFIED`; `409 ONBOARDING_INCOMPLETE` sem clínica criada e vínculo ADMIN ativo. A lista vazia remove os horários iniciais. O envio substitui os horários da clínica.
+* **Respostas:** `200 OK` com `{ "timezone": "...", "weeklySchedule": [...] }`; `400 VALIDATION_ERROR` para fuso ou intervalos inválidos ou sobrepostos; `403 ACCOUNT_NOT_VERIFIED`; `409 ONBOARDING_INCOMPLETE` sem clínica criada e vínculo ADMIN ativo. A lista vazia remove os horários iniciais. O envio substitui os horários da clínica. `timezone` é opcional para clientes antigos; nesse caso, o fuso da clínica é preservado.
 
 #### `POST /onboarding/complete`
-* **Descrição:** Finaliza a jornada de onboarding após confirmação de e-mail e criação da clínica. Perfil complementar, horários e convites não bloqueiam a conclusão.
+* **Descrição:** Finaliza a jornada após a última etapa obrigatória, incluindo a configuração de horários. A grade pode ser vazia quando não houver horários de atendimento definidos.
 * **Permissão:** Autenticado.
 * **Respostas:** `200 OK` (`{ "redirectUrl": "/app/vida-e-saude/dashboard" }`), inclusive em chamadas repetidas; `403 ACCOUNT_NOT_VERIFIED`; `409 ONBOARDING_INCOMPLETE` sem clínica criada e vínculo ADMIN ativo.
 

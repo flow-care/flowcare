@@ -11,6 +11,12 @@ salva dados institucionais e endereço, e a API marca essa etapa como concluída
 O identificador da clínica criada fica no progresso para selecionar a clínica
 correta quando a pessoa administra mais de uma.
 
+A etapa `WEEKLY_SCHEDULE` vem após o endereço. Ela salva o fuso IANA da clínica
+e os intervalos semanais em `POST /onboarding/schedule-rules`; dias fechados
+podem permanecer sem intervalos. `GET /onboarding/schedule-rules` recupera a
+grade para recarga da página. O envio de uma grade vazia conclui a etapa sem
+definir horários de atendimento.
+
 ## Adicionar uma etapa obrigatória
 
 1. Adicione o identificador após a etapa anterior na lista do backend.

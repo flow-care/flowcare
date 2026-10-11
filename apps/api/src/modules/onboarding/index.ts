@@ -64,6 +64,11 @@ export function onboardingModule(deps: OnboardingDeps) {
             response: { 200: m.scheduleRulesResponse },
           },
         )
+        .get(
+          "/schedule-rules",
+          ({ auth }) => service.getScheduleRules(auth.userId),
+          { response: { 200: m.scheduleRulesResponse } },
+        )
         .post("/complete", ({ auth }) => service.complete(auth.userId), {
           response: { 200: m.completeResponse },
         }),

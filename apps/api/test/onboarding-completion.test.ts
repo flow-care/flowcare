@@ -31,9 +31,11 @@ function fixture(
 ) {
   let savedRules: unknown[] = [];
   let completed = false;
-  let currentStep: string = "ORGANIZATION_SETUP";
+  let currentStep: string = "CLINIC_ADDRESS";
+  let stepCompleted = true;
   let version = 1;
   let writes = 0;
+  let timezone = "America/Sao_Paulo";
   const db = {
     session: {
       findFirst: async () => ({
@@ -47,6 +49,8 @@ function fixture(
     },
     onboardingProgress: {
       findUnique: async () => ({
+        currentStep,
+        completed: stepCompleted,
         draftData:
           options.organizationId === null
             ? {}
@@ -62,12 +66,20 @@ function fixture(
         }
         return { count: 0 };
       },
+      update: async ({
+        data,
+      }: {
+        data: { currentStep: string; completed: boolean };
+      }) => {
+        currentStep = data.currentStep;
+        stepCompleted = data.completed;
+      },
     },
     membership: {
       findFirst: async () =>
         options.activeAdmin === false
           ? null
-          : { organization: { slug: "clinica-alfa" } },
+          : { organization: { slug: "clinica-alfa", timezone } },
     },
     weeklyScheduleRule: {
       deleteMany: async () => {
@@ -76,6 +88,28 @@ function fixture(
       createMany: async ({ data }: { data: unknown[] }) => {
         savedRules = data;
       },
+      findMany: async () =>
+        savedRules.map((item) => {
+          const rule = item as {
+            dayOfWeek: string;
+            startTime: string;
+            endTime: string;
+            slotDurationMinutes: number;
+          };
+          return {
+            dayOfWeek: rule.dayOfWeek,
+            startTime: rule.startTime,
+            endTime: rule.endTime,
+            slotDurationMinutes: rule.slotDurationMinutes,
+          };
+        }),
+    },
+    organization: {
+      update: async ({ data }: { data: { timezone: string } }) => {
+        timezone = data.timezone;
+        return {};
+      },
+      findUniqueOrThrow: async () => ({ timezone }),
     },
   };
   const prisma = {
@@ -102,6 +136,31 @@ function fixture(
 }
 
 describe("onboarding schedule and completion (#218)", () => {
+  test("reloads saved hours and clinic timezone and rejects invalid timezone", async () => {
+    const state = fixture();
+    const rule = {
+      dayOfWeek: "MONDAY" as const,
+      startTime: "08:00",
+      endTime: "12:00",
+      slotDurationMinutes: 30,
+    };
+    await expect(
+      state.service.saveScheduleRules("user-1", {
+        timezone: "Invalid/Timezone",
+        weeklySchedule: [rule],
+      }),
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    expect(state.rules()).toHaveLength(0);
+    await state.service.saveScheduleRules("user-1", {
+      timezone: "America/Fortaleza",
+      weeklySchedule: [rule],
+    });
+    expect(await state.service.getScheduleRules("user-1")).toEqual({
+      timezone: "America/Fortaleza",
+      weeklySchedule: [rule],
+    });
+  });
+
   test("saves non-overlapping intervals and allows an empty schedule", async () => {
     const state = fixture();
     const monday = {
@@ -241,6 +300,7 @@ describe("onboarding schedule and completion (#218)", () => {
 
   test("completion is idempotent without schedule or invitations", async () => {
     const state = fixture();
+    await state.service.saveScheduleRules("user-1", { weeklySchedule: [] });
     expect(await state.service.complete("user-1")).toEqual({
       redirectUrl: "/app/clinica-alfa/dashboard",
     });
@@ -258,6 +318,12 @@ describe("onboarding schedule and completion (#218)", () => {
       { activeAdmin: false },
     ]) {
       const state = fixture(options);
+      if (
+        options.verified !== false &&
+        options.organizationId !== null &&
+        options.activeAdmin !== false
+      )
+        await state.service.saveScheduleRules("user-1", { weeklySchedule: [] });
       await expect(state.service.complete("user-1")).rejects.toMatchObject({
         code:
           options.verified === false
