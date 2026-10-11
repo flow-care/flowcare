@@ -33,7 +33,6 @@ import {
 } from "@/lib/invites";
 
 type InviteList = { data: PendingInvite[]; roles: InviteRole[] };
-const buttonClass = "h-[46px] rounded-lg px-5 text-base font-normal";
 
 export function InviteTeamForm({
   initial,
@@ -140,7 +139,7 @@ export function InviteTeamForm({
                   E-mail
                 </FieldLabel>
                 <div className="flex flex-col gap-3 sm:flex-row">
-                  <InputGroup className="h-[47px] rounded-lg border-transparent bg-card shadow-none focus-within:border-primary has-[[data-slot=input-group-control]:focus-visible]:border-primary dark:bg-card">
+                  <InputGroup>
                     <InputGroupInput
                       id="invite-email"
                       name={field.name}
@@ -153,12 +152,11 @@ export function InviteTeamForm({
                         field.handleChange(event.target.value)
                       }
                       aria-invalid={!field.state.meta.isValid}
-                      className="focus-visible:border-transparent"
                       required
                     />
                     <form.Field name="role">
                       {(roleField) => (
-                        <InputGroupAddon align="inline-end" className="pr-1">
+                        <InputGroupAddon align="inline-end">
                           <FieldLabel htmlFor="invite-role" className="sr-only">
                             Papel
                           </FieldLabel>
@@ -170,7 +168,8 @@ export function InviteTeamForm({
                           >
                             <SelectTrigger
                               id="invite-role"
-                              className="h-9 min-w-36 rounded-md border-0 bg-transparent px-2 shadow-none hover:bg-muted focus-visible:border-transparent focus-visible:ring-0 dark:bg-transparent dark:hover:bg-muted/50"
+                              variant="ghost"
+                              size="sm"
                             >
                               <SelectValue placeholder="Selecione um papel" />
                             </SelectTrigger>
@@ -190,7 +189,7 @@ export function InviteTeamForm({
                     {(pending) => (
                       <Button
                         type="submit"
-                        className={`${buttonClass} h-[47px] w-full sm:w-auto`}
+                        size="form"
                         disabled={pending || finishing || Boolean(busyId)}
                       >
                         {pending ? (
@@ -268,7 +267,7 @@ export function InviteTeamForm({
           {(pending) => (
             <Button
               type="button"
-              className={buttonClass}
+              size="form"
               disabled={finishing || pending || Boolean(busyId)}
               onClick={() => void finish()}
             >
