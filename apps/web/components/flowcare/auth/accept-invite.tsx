@@ -31,6 +31,14 @@ function initialLetter(value: string) {
   return value.trim().charAt(0).toUpperCase() || "?";
 }
 
+function maskEmail(email: string) {
+  const [local, domain] = email.trim().split("@");
+  if (!local || !domain) return email;
+  if (local.length <= 2) return `${local.charAt(0)}**@${domain}`;
+  if (local.length === 3) return `${local.slice(0, 2)}**@${domain}`;
+  return `${local.slice(0, 3)}${"*".repeat(Math.min(4, local.length - 3))}@${domain}`;
+}
+
 function ClinicHeader({
   organizationName,
   inviterName,
@@ -201,6 +209,7 @@ export function AcceptInvite({
 
   // Estado 2: Usuário não autenticado
   if (!currentUser) {
+    const maskedEmail = maskEmail(invite.email);
     return (
       <div className="space-y-6">
         <ClinicHeader
@@ -221,13 +230,12 @@ export function AcceptInvite({
               Convite emitido para
             </span>
             <p className="truncate font-medium text-foreground">
-              {invite.email}
+              {maskedEmail}
             </p>
           </div>
         </div>
         <p className="text-center text-xs text-muted-foreground">
-          Para aceitar o convite, acesse sua conta existente ou crie uma conta
-          com o e-mail indicado acima.
+          Faça login ou cadastre-se no Flowcare para responder a este convite.
         </p>
         <div className="flex flex-col gap-3">
           <Button asChild size="form" className="w-full">
@@ -278,7 +286,7 @@ export function AcceptInvite({
                 Convite emitido para
               </span>
               <p className="truncate font-medium text-foreground">
-                {invite.email}
+                {isAlreadyMember ? invite.email : maskEmail(invite.email)}
               </p>
             </div>
           </div>
