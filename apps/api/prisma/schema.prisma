@@ -145,6 +145,10 @@ model Organization {
   street String?
   streetNumber String?
   addressComplement String?
+  logoObjectKey String? @unique
+  logoContentType String?
+  logoSizeBytes Int?
+  logoUpdatedAt DateTime?
   detailsVersion Int @default(0)
   detailsCompletedAt DateTime?
   timezone String @default("America/Sao_Paulo")
@@ -155,7 +159,24 @@ model Organization {
   invites       OrganizationInvite[]
   storageObjects StorageObject[]
   weeklyScheduleRules WeeklyScheduleRule[]
+  auditLogs    AuditLog[]
   activeUsers User[] @relation("ActiveOrganization")
+}
+
+model AuditLog {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @db.Uuid
+  actorUserId    String   @db.Uuid
+  action         String
+  targetType     String
+  targetId       String
+  metadata       Json     @default("{}")
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt])
+  @@index([organizationId, action])
 }
 
 model WeeklyScheduleRule {
