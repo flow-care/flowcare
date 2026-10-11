@@ -318,6 +318,11 @@ O fluxo obrigatório é:
 * **Body:** `{ "email": "recepcao@exemplo.com", "role": "RECEPTIONIST" }`
 * **Respostas:** `201 Created` (`{ "invite": { "id": "inv_1", "email": "...", "expiresAt": "..." } }`), `409 ALREADY_EXISTS`.
 
+#### `GET /organizations/:orgSlug/invites`
+* **Descrição:** Lista até 100 convites pendentes e não expirados da clínica, junto com os papéis aceitos atualmente pela API.
+* **Permissão:** Administrador ativo da clínica.
+* **Resposta:** `200 OK` (`{ "data": [ { "id": "inv_1", "email": "...", "role": "PROFESSIONAL", "expiresAt": "..." } ], "roles": ["ADMIN", "PROFESSIONAL", "RECEPTIONIST"] }`). Tokens não são retornados.
+
 #### `POST /invites/:token/accept`
 * **Descrição:** Aceita um convite de equipe enviado por e-mail e cria o vínculo de Membership na clínica.
 * **Permissão:** Autenticado, e-mail verificado e igual ao destinatário do convite.

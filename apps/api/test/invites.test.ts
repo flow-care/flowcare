@@ -10,6 +10,84 @@ const future = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 const past = new Date(now.getTime() - 1000);
 
 describe("Módulo de convites (Issue #213)", () => {
+  test("list retorna só convites pendentes da clínica autorizada sem expor tokens", async () => {
+    let queriedOrganization: string | undefined;
+    const prisma = {
+      membership: {
+        findFirst: async () => ({
+          organization: { id: "org-1", name: "Clínica" },
+        }),
+      },
+      organizationInvite: {
+        findMany: async ({ where }: { where: { organizationId: string } }) => {
+          queriedOrganization = where.organizationId;
+          return [
+            {
+              id: "inv-1",
+              email: "pessoa@exemplo.com",
+              role: "PROFESSIONAL",
+              expiresAt: future,
+              tokenHash: "secret",
+            },
+          ];
+        },
+      },
+    } as unknown as PrismaClient;
+    const service = new InviteService({
+      prisma,
+      mailer: {} as never,
+      webAppUrl: "http://localhost:3000",
+    });
+    const result = await service.list("admin-1", "clinica");
+    expect(queriedOrganization).toBe("org-1");
+    expect(result.data).toEqual([
+      {
+        id: "inv-1",
+        email: "pessoa@exemplo.com",
+        role: "PROFESSIONAL",
+        expiresAt: future.toISOString(),
+      },
+    ]);
+    expect(JSON.stringify(result)).not.toContain("secret");
+  });
+
+  test("resend informa falha de entrega para permitir nova tentativa", async () => {
+    const prisma = {
+      membership: {
+        findFirst: async () => ({
+          organization: { id: "org-1", name: "Clínica" },
+        }),
+      },
+      organizationInvite: {
+        findFirst: async () => ({
+          id: "inv-1",
+          email: "pessoa@exemplo.com",
+          expiresAt: future,
+        }),
+        update: async () => ({
+          id: "inv-1",
+          email: "pessoa@exemplo.com",
+          expiresAt: future,
+        }),
+      },
+    } as unknown as PrismaClient;
+    const service = new InviteService({
+      prisma,
+      mailer: {
+        send: async () => {
+          throw new Error("SES indisponível");
+        },
+      },
+      webAppUrl: "http://localhost:3000",
+    });
+    await expect(
+      service.resend("admin-1", "clinica", "inv-1"),
+    ).rejects.toMatchObject({
+      code: "EMAIL_DELIVERY_FAILED",
+      httpStatus: 503,
+    });
+  });
+
   test("getDetails retorna dados da clínica para convite ativo", async () => {
     const prisma = {
       organizationInvite: {

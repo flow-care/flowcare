@@ -26,8 +26,11 @@ export default async function OnboardingProfilePage() {
   }
 
   if (unauthenticated) redirect("/login");
+  const progress = await getOnboardingProgress();
+  if (progress?.pendingInviteId) {
+    redirect(`/accept-invite/${encodeURIComponent(progress.pendingInviteId)}`);
+  }
   if (profile?.completed) {
-    const progress = await getOnboardingProgress();
     if (progress?.completed) redirect("/app");
     redirect(onboardingStepPath(progress?.currentStep ?? "ORGANIZATION_SETUP"));
   }

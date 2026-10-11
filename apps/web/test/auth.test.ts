@@ -105,6 +105,15 @@ test("proxy deixa páginas públicas acessíveis sem sessão", () => {
 test("login escolhe onboarding, clínica única ou seleção", () => {
   expect(destinationAfterLogin(session, null)).toBe("/onboarding/profile");
   expect(
+    destinationAfterLogin(session, "/accept-invite/tok_12345678901234567890"),
+  ).toBe("/accept-invite/tok_12345678901234567890");
+  expect(
+    destinationAfterLogin(
+      { ...session, pendingInviteId: "00000000-0000-0000-0000-000000000001" },
+      null,
+    ),
+  ).toBe("/accept-invite/00000000-0000-0000-0000-000000000001");
+  expect(
     destinationAfterLogin(
       { ...session, onboardingCurrentStep: "ORGANIZATION_SETUP" },
       "/app/clinica/dashboard",

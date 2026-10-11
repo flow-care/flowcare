@@ -52,7 +52,7 @@ function validate(value: {
   );
 }
 
-export function RegisterForm() {
+export function RegisterForm({ returnTo }: { returnTo?: string | null }) {
   const router = useRouter();
   const [success, setSuccess] = useState(false);
   const form = useForm({
@@ -232,7 +232,14 @@ export function RegisterForm() {
       </form.Subscribe>
       <p className="pt-1 text-center text-sm text-muted-foreground">
         Já tem uma conta?{" "}
-        <Link href="/login" className={authLinkClass}>
+        <Link
+          href={
+            returnTo
+              ? `/login?returnTo=${encodeURIComponent(returnTo)}`
+              : "/login"
+          }
+          className={authLinkClass}
+        >
           Entrar
         </Link>
       </p>

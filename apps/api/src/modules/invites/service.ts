@@ -16,6 +16,32 @@ export class InviteService {
     },
   ) {}
 
+  async list(adminId: string, slug: string) {
+    const organization = await this.authorizeAdmin(adminId, slug);
+    const invites = await this.deps.prisma.organizationInvite.findMany({
+      where: {
+        organizationId: organization.id,
+        acceptedAt: null,
+        revokedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+      select: { id: true, email: true, role: true, expiresAt: true },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    });
+    return {
+      data: invites.map((invite) => ({
+        id: invite.id,
+        email: invite.email,
+        role: invite.role,
+        expiresAt: invite.expiresAt.toISOString(),
+      })),
+      roles: ["ADMIN", "PROFESSIONAL", "RECEPTIONIST"] as Array<
+        "ADMIN" | "PROFESSIONAL" | "RECEPTIONIST"
+      >,
+    };
+  }
+
   async create(adminId: string, slug: string, body: CreateInviteBody) {
     const organization = await this.authorizeAdmin(adminId, slug);
     const email = body.email.trim().toLowerCase();
@@ -57,7 +83,7 @@ export class InviteService {
         expiresAt: new Date(Date.now() + TTL_MS),
       },
     });
-    void this.send(invite.email, organization.name, token);
+    await this.send(invite.email, organization.name, token);
     return {
       id: invite.id,
       email: invite.email,
@@ -66,10 +92,30 @@ export class InviteService {
   }
 
   async getDetails(token: string): Promise<InviteDetailsResponse> {
-    const invite = await this.deps.prisma.organizationInvite.findUnique({
+    const includeOrg = {
+      organization: {
+        include: {
+          owner: {
+            select: { fullName: true },
+          },
+        },
+      },
+    } as const;
+    let invite = await this.deps.prisma.organizationInvite.findUnique({
       where: { tokenHash: hashToken(token) },
-      include: { organization: true },
+      include: includeOrg,
     });
+    if (
+      !invite &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        token,
+      )
+    ) {
+      invite = await this.deps.prisma.organizationInvite.findUnique({
+        where: { id: token },
+        include: includeOrg,
+      });
+    }
     if (
       !invite ||
       invite.revokedAt ||
@@ -85,6 +131,7 @@ export class InviteService {
     return {
       organizationName: invite.organization.name,
       organizationSlug: invite.organization.slug,
+      inviterName: invite.organization.owner?.fullName ?? "Administrador",
       email: invite.email,
       role: invite.role,
       expiresAt: invite.expiresAt.toISOString(),
@@ -99,10 +146,21 @@ export class InviteService {
     if (!user)
       throw new ApiError("UNAUTHENTICATED", 401, "Autenticação necessária.");
     const result = await this.deps.prisma.$transaction(async (tx) => {
-      const invite = await tx.organizationInvite.findUnique({
+      let invite = await tx.organizationInvite.findUnique({
         where: { tokenHash: hashToken(token) },
         include: { organization: true },
       });
+      if (
+        !invite &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          token,
+        )
+      ) {
+        invite = await tx.organizationInvite.findUnique({
+          where: { id: token },
+          include: { organization: true },
+        });
+      }
       if (
         !invite ||
         invite.revokedAt ||
@@ -139,9 +197,64 @@ export class InviteService {
         },
         update: { role: invite.role, status: "ACTIVE" },
       });
+      await tx.onboardingProgress?.updateMany?.({
+        where: {
+          userId,
+          completed: false,
+          currentStep: { in: ["PROFILE_SETUP", "ORGANIZATION_SETUP"] },
+        },
+        data: {
+          currentStep: "TEAM_INVITES",
+          completed: true,
+        },
+      });
       return invite.organization.slug;
     });
     return { organizationSlug: result };
+  }
+
+  async decline(userId: string, token: string) {
+    const user = await this.deps.prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true },
+    });
+    if (!user)
+      throw new ApiError("UNAUTHENTICATED", 401, "Autenticação necessária.");
+    let invite = await this.deps.prisma.organizationInvite.findUnique({
+      where: { tokenHash: hashToken(token) },
+    });
+    if (
+      !invite &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        token,
+      )
+    ) {
+      invite = await this.deps.prisma.organizationInvite.findUnique({
+        where: { id: token },
+      });
+    }
+    if (
+      !invite ||
+      invite.revokedAt ||
+      invite.acceptedAt ||
+      invite.expiresAt <= new Date()
+    )
+      throw new ApiError(
+        "INVITE_EXPIRED",
+        410,
+        "Convite expirado ou inválido.",
+      );
+    if (invite.email !== user.email.toLowerCase())
+      throw new ApiError(
+        "FORBIDDEN",
+        403,
+        "Este convite pertence a outro e-mail.",
+      );
+    await this.deps.prisma.organizationInvite.update({
+      where: { id: invite.id },
+      data: { revokedAt: new Date() },
+    });
+    return { message: "Convite recusado." };
   }
 
   async revoke(adminId: string, slug: string, inviteId: string) {
@@ -177,7 +290,7 @@ export class InviteService {
         expiresAt: new Date(Date.now() + TTL_MS),
       },
     });
-    void this.send(invite.email, organization.name, token);
+    await this.send(invite.email, organization.name, token);
     return {
       id: invite.id,
       email: invite.email,
@@ -216,6 +329,11 @@ export class InviteService {
       });
     } catch {
       console.error("[invite] delivery failed");
+      throw new ApiError(
+        "EMAIL_DELIVERY_FAILED",
+        503,
+        "O convite foi preparado, mas o e-mail não pôde ser enviado. Reenvie o convite pendente.",
+      );
     }
   }
 }

@@ -13,6 +13,7 @@ export type LoginResult = {
   availableOrganizations: OrganizationSummary[];
   onboardingCompleted: boolean;
   onboardingCurrentStep: string;
+  pendingInviteId?: string | null;
 };
 
 export type LoginInput = { email: string; password: string };
@@ -50,10 +51,16 @@ export function destinationAfterLogin(
   result: LoginResult,
   returnTo: string | null,
 ): string {
+  const safeReturnTo = safeReturnPath(returnTo);
+  if (safeReturnTo?.startsWith("/accept-invite/")) {
+    return safeReturnTo;
+  }
+  if (result.pendingInviteId) {
+    return `/accept-invite/${encodeURIComponent(result.pendingInviteId)}`;
+  }
   if (!result.onboardingCompleted) {
     return onboardingStepPath(result.onboardingCurrentStep);
   }
-  const safeReturnTo = safeReturnPath(returnTo);
   if (safeReturnTo) return safeReturnTo;
   if (result.availableOrganizations.length === 1) {
     return `/app/${encodeURIComponent(result.availableOrganizations[0].slug)}/dashboard`;

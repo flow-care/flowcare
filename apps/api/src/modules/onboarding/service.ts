@@ -197,8 +197,9 @@ export class OnboardingService {
         where: { userId },
       });
       if (
-        progress?.currentStep !== finalOnboardingStep ||
-        !progress.completed
+        !progress?.completed ||
+        (progress.currentStep !== "WEEKLY_SCHEDULE" &&
+          progress.currentStep !== finalOnboardingStep)
       ) {
         throw new ApiError(
           "ONBOARDING_INCOMPLETE",
@@ -230,13 +231,28 @@ export class OnboardingService {
       this.deps.prisma.onboardingProgress.findUnique({ where: { userId } }),
       this.deps.prisma.user.findUnique({
         where: { id: userId },
-        select: { profileCompletedAt: true },
+        select: { email: true, profileCompletedAt: true },
       }),
       this.deps.prisma.membership.count({
         where: { userId, status: "ACTIVE" },
       }),
     ]);
     if (!user) throw Unauthenticated();
+    const pendingInvite =
+      membershipCount === 0 && user.email
+        ? await this.deps.prisma.organizationInvite
+            ?.findFirst({
+              where: {
+                email: user.email.toLowerCase(),
+                acceptedAt: null,
+                revokedAt: null,
+                expiresAt: { gt: new Date() },
+              },
+              orderBy: { createdAt: "desc" },
+              select: { id: true },
+            })
+            .catch(() => null)
+        : null;
     const state = resolveOnboardingState({
       profileCompleted: user.profileCompletedAt !== null,
       hasOrganization: membershipCount > 0,
@@ -246,6 +262,7 @@ export class OnboardingService {
       ...state,
       draftData: asRecord(progress?.draftData) ?? {},
       version: progress?.version ?? 0,
+      ...(pendingInvite?.id ? { pendingInviteId: pendingInvite.id } : {}),
     };
   }
 
@@ -350,18 +367,35 @@ export class OnboardingService {
           "Esta etapa já foi concluída.",
         );
       }
-      const savedProgress = await tx.onboardingProgress.findUnique({
-        where: { userId },
-        select: { currentStep: true },
-      });
+      const [savedProgress, membershipCount] = await Promise.all([
+        tx.onboardingProgress.findUnique({
+          where: { userId },
+          select: { currentStep: true },
+        }),
+        tx.membership?.count?.({
+          where: { userId, status: "ACTIVE" },
+        }) ?? Promise.resolve(0),
+      ]);
+      const isInvitedMemberOnly =
+        membershipCount > 0 &&
+        (!savedProgress || savedProgress.currentStep === "PROFILE_SETUP");
       await tx.onboardingProgress.upsert({
         where: { userId },
-        create: { userId, currentStep: "ORGANIZATION_SETUP", version: 1 },
+        create: {
+          userId,
+          currentStep: isInvitedMemberOnly
+            ? finalOnboardingStep
+            : "ORGANIZATION_SETUP",
+          completed: isInvitedMemberOnly,
+          version: 1,
+        },
         update: {
-          currentStep:
-            savedProgress?.currentStep === "PROFILE_SETUP"
+          currentStep: isInvitedMemberOnly
+            ? finalOnboardingStep
+            : savedProgress?.currentStep === "PROFILE_SETUP"
               ? "ORGANIZATION_SETUP"
               : (savedProgress?.currentStep ?? "ORGANIZATION_SETUP"),
+          completed: isInvitedMemberOnly ? true : undefined,
           version: { increment: 1 },
         },
       });

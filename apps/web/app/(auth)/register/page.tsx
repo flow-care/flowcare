@@ -3,7 +3,12 @@ import { RegisterForm } from "@/components/flowcare/auth/register-form";
 
 export const metadata: Metadata = { title: "Cadastro | Flowcare" };
 
-export default function Page() {
+export default async function Page({
+  searchParams,
+}: {
+  searchParams: Promise<{ returnTo?: string }>;
+}) {
+  const { returnTo } = await searchParams;
   return (
     <section aria-labelledby="auth-title">
       <h1
@@ -12,7 +17,7 @@ export default function Page() {
       >
         Cadastro
       </h1>
-      <RegisterForm />
+      <RegisterForm returnTo={returnTo} />
     </section>
   );
 }

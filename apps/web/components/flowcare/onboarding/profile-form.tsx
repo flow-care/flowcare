@@ -56,7 +56,7 @@ export function ProfileForm({ initialProfile }: { initialProfile: Profile }) {
       const result = await saveOnboardingProfile(value);
       if (result.ok) {
         toast.success("Perfil concluído com sucesso!");
-        router.replace("/onboarding/clinic");
+        router.replace("/");
         return;
       }
       const firstError =
