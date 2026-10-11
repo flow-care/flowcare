@@ -12,7 +12,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import { formatInviteRole, type InviteDetails } from "@/lib/invites";
+import type { InviteDetails } from "@/lib/invites";
 import type { CurrentUserProfile } from "@/server/invites";
 
 interface AcceptInviteProps {
@@ -30,13 +30,7 @@ function initialLetter(value: string) {
   return value.trim().charAt(0).toUpperCase() || "?";
 }
 
-function ClinicHeader({
-  organizationName,
-  role,
-}: {
-  organizationName: string;
-  role: string;
-}) {
+function ClinicHeader({ organizationName }: { organizationName: string }) {
   return (
     <div className="flex flex-col items-center justify-center gap-2 py-1 text-center">
       <Avatar className="size-20">
@@ -49,14 +43,9 @@ function ClinicHeader({
           {initialLetter(organizationName)}
         </AvatarFallback>
       </Avatar>
-      <div className="space-y-1">
-        <h3 className="text-2xl font-bold tracking-tight text-foreground">
-          {organizationName}
-        </h3>
-        <Badge variant="secondary" className="font-medium">
-          {formatInviteRole(role)}
-        </Badge>
-      </div>
+      <h3 className="text-2xl font-bold tracking-tight text-foreground">
+        {organizationName}
+      </h3>
     </div>
   );
 }
@@ -72,8 +61,11 @@ function CurrentSessionBadge({
         Sua sessão atual
       </span>
       <div className="flex">
-        <div className="inline-flex items-center gap-2.5 rounded-full bg-secondary/60 px-3 py-1.5 text-secondary-foreground">
-          <Avatar className="size-6">
+        <Badge
+          variant="outline"
+          className="inline-flex items-center gap-2 px-3 py-1.5 font-normal"
+        >
+          <Avatar className="size-5">
             <AvatarImage
               src={
                 currentUser.photoUrl ||
@@ -82,11 +74,11 @@ function CurrentSessionBadge({
               alt=""
               referrerPolicy="no-referrer"
             />
-            <AvatarFallback className="text-xs">
+            <AvatarFallback className="text-[10px]">
               {initialLetter(currentUser.fullName || currentUser.email)}
             </AvatarFallback>
           </Avatar>
-          <span className="truncate text-sm font-medium">
+          <span className="truncate text-xs font-medium text-foreground">
             {currentUser.fullName || currentUser.email}
           </span>
           {currentUser.fullName && (
@@ -94,7 +86,7 @@ function CurrentSessionBadge({
               ({currentUser.email})
             </span>
           )}
-        </div>
+        </Badge>
       </div>
     </div>
   );
@@ -171,13 +163,10 @@ export function AcceptInvite({
             Convite para equipe
           </h2>
           <p className="text-sm text-muted-foreground">
-            Você foi convidado para integrar a equipe desta clínica no Flowcare.
+            Você recebeu um link de convite para entrar na organização.
           </p>
         </div>
-        <ClinicHeader
-          organizationName={invite.organizationName}
-          role={invite.role}
-        />
+        <ClinicHeader organizationName={invite.organizationName} />
         <div className="flex items-center gap-3 rounded-lg bg-card p-3 shadow-none">
           <Avatar className="size-10">
             <AvatarImage
@@ -232,10 +221,7 @@ export function AcceptInvite({
             Sua conta conectada não corresponde ao destinatário do convite.
           </p>
         </div>
-        <ClinicHeader
-          organizationName={invite.organizationName}
-          role={invite.role}
-        />
+        <ClinicHeader organizationName={invite.organizationName} />
         <div className="space-y-4">
           <div className="flex items-center gap-3 rounded-lg bg-card p-3 shadow-none">
             <Avatar className="size-10">
@@ -283,13 +269,10 @@ export function AcceptInvite({
           Convite para equipe
         </h2>
         <p className="text-sm text-muted-foreground">
-          Confirme para ingressar na equipe com sua sessão atual.
+          Você recebeu um link de convite para entrar na organização.
         </p>
       </div>
-      <ClinicHeader
-        organizationName={invite.organizationName}
-        role={invite.role}
-      />
+      <ClinicHeader organizationName={invite.organizationName} />
       <div className="space-y-4">
         <CurrentSessionBadge currentUser={currentUser} />
       </div>
