@@ -60,7 +60,7 @@ export class OnboardingService {
       where: {
         userId,
         organizationId,
-        role: "ADMIN",
+        role: { in: ["ADMIN", "ADMIN_PROFESSIONAL"] },
         status: "ACTIVE",
         organization: { ownerId: userId },
       },

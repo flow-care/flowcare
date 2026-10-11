@@ -1,6 +1,7 @@
 import { Elysia, t } from "elysia";
 import type { PrismaClient } from "../../generated/prisma/client";
 import { authPlugin } from "../../plugins/auth";
+import { organizationAccessPlugin } from "../../plugins/organization-access";
 import * as m from "./model";
 import { StorageService } from "./service";
 
@@ -20,29 +21,31 @@ export function storageModule(deps: {
     config: deps.config,
   });
   return new Elysia({ name: "storage" })
-    .use(authPlugin({ prisma: deps.prisma, jwtSecret: deps.jwtSecret }))
+    .use(authPlugin(deps))
+    .use(organizationAccessPlugin(deps))
     .group("/organizations/:orgSlug/storage", (group) =>
       group
         .post(
           "/upload-url",
-          ({ auth, params, body }) =>
-            service.createUpload(auth.userId, params.orgSlug, body),
+          ({ organizationAccess, body }) =>
+            service.createUpload(organizationAccess.organizationId, body),
           {
             params: t.Object({ orgSlug: t.String() }),
             body: m.uploadBody,
+            organizationAccess: "patients:attachments:write",
             response: { 200: m.storageResponse },
           },
         )
         .post(
           "/:objectId/download-url",
-          ({ auth, params }) =>
+          ({ organizationAccess, params }) =>
             service.createDownload(
-              auth.userId,
-              params.orgSlug,
+              organizationAccess.organizationId,
               params.objectId,
             ),
           {
             params: t.Object({ orgSlug: t.String(), objectId: t.String() }),
+            organizationAccess: "patients:attachments:read",
             response: { 200: m.downloadResponse },
           },
         ),

@@ -211,7 +211,7 @@ test("clinic steps deny users without an active admin membership", async () => {
     where: {
       userId: "other-user",
       status: "ACTIVE",
-      role: "ADMIN",
+      role: { in: ["ADMIN", "ADMIN_PROFESSIONAL"] },
       organization: { slug: "pet-saude" },
     },
   });

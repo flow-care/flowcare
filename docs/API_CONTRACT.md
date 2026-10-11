@@ -315,7 +315,7 @@ O fluxo obrigatório é:
 ### Módulo 4: Equipe, Convites & Papéis Fixos
 *(Ref: Issues [#194](https://github.com/Flowcare-team/flowcare-monorepo/issues/194), [#314](https://github.com/Flowcare-team/flowcare-monorepo/issues/314)–[#319](https://github.com/Flowcare-team/flowcare-monorepo/issues/319))*
 
-**Decisão de produto do MVP:** a [matriz de papéis e capacidades](RBAC_MVP.md) define quatro papéis fixos: `ADMIN`, `ADMIN_PROFESSIONAL`, `PROFESSIONAL` e `RECEPTIONIST`. Papéis personalizados e `roles:manage` ficam fora do MVP. O schema atual ainda contém três papéis e precisa ser migrado antes de aplicar a matriz em produção. Habilitações específicas de ações clínicas exigem revisão por responsável clínico antes da ativação.
+**Decisão de produto do MVP:** a [matriz de papéis e capacidades](RBAC_MVP.md) define quatro papéis fixos: `ADMIN`, `ADMIN_PROFESSIONAL`, `PROFESSIONAL` e `RECEPTIONIST`. Papéis personalizados e `roles:manage` ficam fora do MVP. Habilitações específicas de ações clínicas exigem revisão por responsável clínico antes da ativação.
 
 #### `GET /organizations/:orgSlug/members`
 * **Descrição:** Lista os membros da equipe da clínica com seus respectivos papéis.
@@ -698,7 +698,7 @@ A definição completa e o schema Prisma oficial para o banco PostgreSQL são ma
 * **`VerificationToken`**: Tokens de uso único (verificação de e-mail, reset de senha) armazenados **apenas como SHA-256**, com TTL e `usedAt`.
 * **`Organization`**: Clínicas do sistema com `slug` único, `ownerId` (o criador — pagador da assinatura) e fuso horário.
 * **`Subscription`**: Assinatura por clínica: R$ 89/mês, status `PENDING_PAYMENT`/`ACTIVE`/`PAST_DUE`/`CANCELED`. Somente o dono paga; membros convidados não pagam.
-* **`Membership`**: Vínculo entre `User` e `Organization` com `role` (ADMIN/PROFESSIONAL/RECEPTIONIST) e status.
+* **`Membership`**: Vínculo entre `User` e `Organization` com `role` (`ADMIN`, `ADMIN_PROFESSIONAL`, `PROFESSIONAL` ou `RECEPTIONIST`) e status.
 * **`OnboardingProgress`**: Estado do assistente de primeiro acesso, persistido por conta.
 * **`Role` & `Permission`**: Papéis e permissões granulares por clínica.
 * **`Patient`**: Cadastros de pacientes isolados por `organizationId`.
@@ -723,7 +723,7 @@ O relacionamento que permite a uma pessoa acessar várias clínicas é `User` 1-
 | `Membership` | `id` | Chave primária opaca e imutável do vínculo. |
 | `Membership` | `userId` | Chave estrangeira obrigatória para `User(id)`. |
 | `Membership` | `organizationId` | Chave estrangeira obrigatória para `Organization(id)`. |
-| `Membership` | `role` | Papel da pessoa nessa organização: `ADMIN`, `PROFESSIONAL` ou `RECEPTIONIST`. |
+| `Membership` | `role` | Papel da pessoa nessa organização: `ADMIN`, `ADMIN_PROFESSIONAL`, `PROFESSIONAL` ou `RECEPTIONIST`. |
 | `Membership` | `status` | Estado do vínculo: `ACTIVE`, `SUSPENDED` ou `INVITED`. Somente `ACTIVE` autoriza acesso. |
 
 Regras e restrições:

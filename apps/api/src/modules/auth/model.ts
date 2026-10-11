@@ -44,6 +44,7 @@ export const organizationSummary = t.Object({
   slug: t.String(),
   role: t.Union([
     t.Literal("ADMIN"),
+    t.Literal("ADMIN_PROFESSIONAL"),
     t.Literal("PROFESSIONAL"),
     t.Literal("RECEPTIONIST"),
   ]),

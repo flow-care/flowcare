@@ -146,7 +146,7 @@ export class OrganizationsService {
       where: {
         userId,
         status: "ACTIVE",
-        role: "ADMIN",
+        role: { in: ["ADMIN", "ADMIN_PROFESSIONAL"] },
         organization: { slug },
       },
       select: { organization: true },
@@ -251,7 +251,7 @@ export class OrganizationsService {
         where: {
           userId,
           organizationId: org.id,
-          role: "ADMIN",
+          role: { in: ["ADMIN", "ADMIN_PROFESSIONAL"] },
           status: "ACTIVE",
         },
         select: { id: true },
