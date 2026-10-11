@@ -60,8 +60,12 @@ export const loginResponse = t.Object({
     fullName: t.String(),
   }),
   availableOrganizations: t.Array(organizationSummary),
+  activeOrganization: t.Nullable(
+    t.Object({ id: t.String(), slug: t.String() }),
+  ),
   onboardingCompleted: t.Boolean(),
   onboardingCurrentStep: t.String(),
+  pendingInviteId: t.Optional(t.Nullable(t.String())),
 });
 
 export const errorResponse = t.Object({

@@ -54,6 +54,14 @@ export function accountModule(deps: AccountModuleDeps) {
       response: { 200: m.profileResponse },
     })
     .patch(
+      "/account/active-organization",
+      ({ auth, body }) => service.setActiveOrganization(auth.userId, body),
+      {
+        body: m.activeOrganizationBody,
+        response: { 200: m.activeOrganizationResponse },
+      },
+    )
+    .patch(
       "/me/profile",
       ({ auth, body }) => service.updateProfile(auth.userId, body),
       {

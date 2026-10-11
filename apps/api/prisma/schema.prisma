@@ -76,6 +76,8 @@ model User {
   memberships        Membership[]
   onboarding         OnboardingProgress?
   ownedOrganizations Organization[]      @relation("OrganizationOwner")
+  activeOrganizationId String? @db.Uuid
+  activeOrganization Organization? @relation("ActiveOrganization", fields: [activeOrganizationId], references: [id], onDelete: SetNull)
 
   @@index([email])
 }
@@ -145,6 +147,7 @@ model Organization {
   addressComplement String?
   detailsVersion Int @default(0)
   detailsCompletedAt DateTime?
+  timezone String @default("America/Sao_Paulo")
 
   owner        User          @relation("OrganizationOwner", fields: [ownerId], references: [id], onDelete: Restrict)
   memberships  Membership[]
@@ -152,6 +155,7 @@ model Organization {
   invites       OrganizationInvite[]
   storageObjects StorageObject[]
   weeklyScheduleRules WeeklyScheduleRule[]
+  activeUsers User[] @relation("ActiveOrganization")
 }
 
 model WeeklyScheduleRule {

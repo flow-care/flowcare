@@ -1,4 +1,4 @@
-import { Elysia } from "elysia";
+import { Elysia, status } from "elysia";
 import type { PrismaClient } from "../../generated/prisma/client";
 import { authPlugin } from "../../plugins/auth";
 import { organizationAccessPlugin } from "../../plugins/organization-access";
@@ -6,6 +6,8 @@ import {
   clinicAddressBody,
   clinicContactBody,
   clinicDetailsResponse,
+  createAdditionalOrganizationBody,
+  createAdditionalOrganizationResponse,
   organizationsResponse,
   orgSlugParams,
 } from "./model";
@@ -25,6 +27,15 @@ export function organizationsModule(deps: {
         .get("", ({ auth }) => service.listForUser(auth.userId), {
           response: { 200: organizationsResponse },
         })
+        .post(
+          "",
+          async ({ auth, body }) =>
+            status(201, await service.createAdditional(auth.userId, body)),
+          {
+            body: createAdditionalOrganizationBody,
+            response: { 201: createAdditionalOrganizationResponse },
+          },
+        )
         .get(
           "/:orgSlug/onboarding-details",
           ({ auth, params }) =>

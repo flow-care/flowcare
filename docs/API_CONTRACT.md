@@ -192,21 +192,26 @@ Em caso de falha (códigos HTTP 4xx e 5xx), a API responde com a seguinte estrut
 * **Respostas:** `201 Created` (`{ "organization": { "id": "org_1", "name": "...", "slug": "vida-e-saude", "role": "ADMIN", "isOwner": true } }`), `409 ALREADY_EXISTS`.
 * **Estado:** Implementado para `name` e `slug`. `phone`, `address` e `Idempotency-Key` ainda não são processados; ver #217 e #303.
 
+#### `GET /onboarding/schedule-rules`
+* **Descrição:** Recupera o fuso horário da clínica e sua grade semanal salva. Exige vínculo ADMIN ativo com a clínica criada no onboarding.
+* **Resposta:** `200 OK` com `{ "timezone": "America/Sao_Paulo", "weeklySchedule": [...] }`.
+
 #### `POST /onboarding/schedule-rules`
-* **Descrição:** Configura opcionalmente os dias e horários padrão de atendimento da clínica durante o onboarding ou depois dele.
+* **Descrição:** Configura os dias e horários padrão de atendimento da clínica. O envio durante a etapa de horários marca `WEEKLY_SCHEDULE` como concluída.
 * **Permissão:** Autenticado (Administrador).
 * **Body:**
   ```json
   {
+    "timezone": "America/Sao_Paulo",
     "weeklySchedule": [
       { "dayOfWeek": "MONDAY", "startTime": "08:00", "endTime": "18:00", "slotDurationMinutes": 30 }
     ]
   }
   ```
-* **Respostas:** `200 OK` com `{ "weeklySchedule": [...] }`; `400 VALIDATION_ERROR` para intervalos inválidos ou sobrepostos; `403 ACCOUNT_NOT_VERIFIED`; `409 ONBOARDING_INCOMPLETE` sem clínica criada e vínculo ADMIN ativo. A lista vazia remove os horários iniciais. O envio substitui os horários da clínica.
+* **Respostas:** `200 OK` com `{ "timezone": "...", "weeklySchedule": [...] }`; `400 VALIDATION_ERROR` para fuso ou intervalos inválidos ou sobrepostos; `403 ACCOUNT_NOT_VERIFIED`; `409 ONBOARDING_INCOMPLETE` sem clínica criada e vínculo ADMIN ativo. A lista vazia remove os horários iniciais. O envio substitui os horários da clínica. `timezone` é opcional para clientes antigos; nesse caso, o fuso da clínica é preservado.
 
 #### `POST /onboarding/complete`
-* **Descrição:** Finaliza a jornada de onboarding após confirmação de e-mail e criação da clínica. Perfil complementar, horários e convites não bloqueiam a conclusão.
+* **Descrição:** Finaliza a jornada após a última etapa obrigatória, incluindo a configuração de horários. A grade pode ser vazia quando não houver horários de atendimento definidos.
 * **Permissão:** Autenticado.
 * **Respostas:** `200 OK` (`{ "redirectUrl": "/app/vida-e-saude/dashboard" }`), inclusive em chamadas repetidas; `403 ACCOUNT_NOT_VERIFIED`; `409 ONBOARDING_INCOMPLETE` sem clínica criada e vínculo ADMIN ativo.
 
@@ -222,6 +227,17 @@ Em caso de falha (códigos HTTP 4xx e 5xx), a API responde com a seguinte estrut
 * **Descrição:** Lista somente as clínicas nas quais a pessoa possui `Membership` ativo. Vínculos suspensos ou ainda `INVITED` não autorizam acesso e não aparecem na seleção.
 * **Permissão:** Autenticado.
 * **Respostas:** `200 OK` (`{ "data": [ { "id": "org_1", "name": "...", "slug": "vida-e-saude", "role": "ADMIN", "status": "ACTIVE" } ] }`), `401 UNAUTHENTICATED`. A lista retorna no máximo 100 vínculos ativos, em ordem de criação; uma conta sem vínculos recebe `data: []`.
+
+#### `POST /organizations`
+* **Descrição:** Cria uma clínica adicional após o onboarding. O nome é normalizado; o slug é derivado do nome e colisões recebem sufixo numérico (`-2`, `-3`, ...). A criação da clínica, do vínculo `ADMIN` ativo do proprietário, da assinatura pendente e da preferência ativa é transacional. No modelo atual, `Organization.ownerId` identifica o proprietário; `MembershipRole` não possui `OWNER`.
+* **Body:** `{ "name": "Pet Saúde" }`.
+* **Respostas:** `201 Created` com `{ "organization": { "id": "...", "name": "Pet Saúde", "slug": "pet-saude", "role": "ADMIN", "isOwner": true }, "activeOrganization": { "id": "...", "slug": "pet-saude" } }`; `400 VALIDATION_ERROR`; `401 UNAUTHENTICATED`; `409 ALREADY_EXISTS` se não for possível reservar um slug após as tentativas permitidas.
+
+#### `PATCH /account/active-organization`
+* **Descrição:** Guarda a última clínica escolhida pela conta. A preferência é usada apenas para navegação, nunca como prova de autorização; toda rota organizacional continua validando o vínculo. Vínculo suspenso, convidado, inexistente ou de terceiro não pode ser selecionado.
+* **Body:** `{ "orgSlug": "pet-saude" }`.
+* **Respostas:** `200 OK` com `{ "activeOrganization": { "id": "...", "slug": "pet-saude" } }`; `400 VALIDATION_ERROR`; `401 UNAUTHENTICATED`; `403 FORBIDDEN` quando não há vínculo ativo.
+* **Restauração:** A resposta de login inclui `activeOrganization` com `id` e `slug` quando a última clínica salva ainda possui vínculo ativo; caso contrário retorna `null`. O frontend pode usar esse valor para restaurar a navegação, mas deve continuar validando cada chamada pelo `orgSlug` da URL.
 
 #### `GET /organizations/:orgSlug`
 * **Descrição:** Obtém os dados e preferências da clínica especificada pelo slug.
@@ -312,6 +328,11 @@ O fluxo obrigatório é:
 * **Cabeçalho Obrigatório:** `Idempotency-Key`
 * **Body:** `{ "email": "recepcao@exemplo.com", "role": "RECEPTIONIST" }`
 * **Respostas:** `201 Created` (`{ "invite": { "id": "inv_1", "email": "...", "expiresAt": "..." } }`), `409 ALREADY_EXISTS`.
+
+#### `GET /organizations/:orgSlug/invites`
+* **Descrição:** Lista até 100 convites pendentes e não expirados da clínica, junto com os papéis aceitos atualmente pela API.
+* **Permissão:** Administrador ativo da clínica.
+* **Resposta:** `200 OK` (`{ "data": [ { "id": "inv_1", "email": "...", "role": "PROFESSIONAL", "expiresAt": "..." } ], "roles": ["ADMIN", "PROFESSIONAL", "RECEPTIONIST"] }`). Tokens não são retornados.
 
 #### `POST /invites/:token/accept`
 * **Descrição:** Aceita um convite de equipe enviado por e-mail e cria o vínculo de Membership na clínica.

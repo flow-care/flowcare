@@ -56,7 +56,7 @@ export function ProfileForm({ initialProfile }: { initialProfile: Profile }) {
       const result = await saveOnboardingProfile(value);
       if (result.ok) {
         toast.success("Perfil concluído com sucesso!");
-        router.replace("/onboarding/clinic");
+        router.replace("/");
         return;
       }
       const firstError =
@@ -135,17 +135,14 @@ export function ProfileForm({ initialProfile }: { initialProfile: Profile }) {
               Atuação profissional
             </FieldLabel>
             <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  id="professionalRole"
-                  type="button"
-                  variant="ghost"
-                  aria-labelledby="professionalRole-label"
-                  className="flex h-[47px] w-full items-center justify-between rounded-lg border border-transparent bg-card px-3 text-base font-normal outline-none focus-visible:border-primary"
-                >
-                  {professionalRoles[field.state.value]}
-                  <ChevronDownIcon className="size-4 text-muted-foreground" />
-                </Button>
+              <DropdownMenuTrigger
+                id="professionalRole"
+                type="button"
+                aria-labelledby="professionalRole-label"
+                className="flex h-[47px] w-full cursor-pointer items-center justify-between rounded-lg border border-transparent bg-card px-3 text-base font-normal outline-none focus-visible:border-primary"
+              >
+                {professionalRoles[field.state.value]}
+                <ChevronDownIcon className="size-4 text-muted-foreground" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start">
                 <DropdownMenuRadioGroup

@@ -222,6 +222,18 @@ export class AuthService {
       hasOrganization: user.memberships.length > 0,
       savedProgress: user.onboarding,
     });
+    const pendingInvite = await db.organizationInvite
+      ?.findFirst({
+        where: {
+          email: user.email.toLowerCase(),
+          acceptedAt: null,
+          revokedAt: null,
+          expiresAt: { gt: new Date() },
+        },
+        orderBy: { createdAt: "desc" },
+        select: { id: true },
+      })
+      .catch(() => null);
 
     return {
       token,
@@ -233,8 +245,17 @@ export class AuthService {
         role: m.role,
         isOwner: m.organization.ownerId === user.id,
       })),
+      activeOrganization: (() => {
+        const active = user.memberships.find(
+          (m) => m.organizationId === user.activeOrganizationId,
+        );
+        return active
+          ? { id: active.organization.id, slug: active.organization.slug }
+          : null;
+      })(),
       onboardingCompleted: onboarding.completed,
       onboardingCurrentStep: onboarding.currentStep,
+      ...(pendingInvite?.id ? { pendingInviteId: pendingInvite.id } : {}),
     };
   }
 

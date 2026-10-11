@@ -20,6 +20,14 @@ export function inviteModule(deps: {
     })
     .use(authPlugin({ prisma: deps.prisma, jwtSecret: deps.jwtSecret }))
     .use(organizationAccessPlugin(deps))
+    .get(
+      "/organizations/:orgSlug/invites",
+      ({ auth, params }) => service.list(auth.userId, params.orgSlug),
+      {
+        params: t.Object({ orgSlug: t.String() }),
+        response: { 200: m.inviteListResponse },
+      },
+    )
     .post(
       "/organizations/:orgSlug/invites",
       async ({ auth, params, body, status }) =>
@@ -37,6 +45,14 @@ export function inviteModule(deps: {
       {
         params: t.Object({ token: t.String({ minLength: 20 }) }),
         response: { 200: m.acceptResponse },
+      },
+    )
+    .post(
+      "/invites/:token/decline",
+      ({ auth, params }) => service.decline(auth.userId, params.token),
+      {
+        params: t.Object({ token: t.String({ minLength: 20 }) }),
+        response: { 200: m.declineResponse },
       },
     )
     .delete(

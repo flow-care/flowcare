@@ -19,6 +19,7 @@ import {
   clinicContactSchema,
   formatCnpj,
 } from "@/lib/clinic-details";
+import { onboardingSteps } from "@/lib/onboarding-steps";
 import { formatPhoneWithAreaCode } from "@/lib/phone";
 import { formatPostalCode, postalCodeDigits } from "@/lib/postal-code";
 
@@ -136,9 +137,12 @@ export function ConfigureClinicForm({
         return;
       }
       toast.success("Dados da clínica salvos.");
-      router.replace(
-        step === "contact" ? "/onboarding/configure-clinic/address" : "/",
+      const currentIndex = onboardingSteps.findIndex(
+        (item) =>
+          item.id ===
+          (step === "contact" ? "CLINIC_DETAILS" : "CLINIC_ADDRESS"),
       );
+      router.replace(onboardingSteps[currentIndex + 1]?.path ?? "/");
     },
   });
   const values = useStore(form.store, (state) => state.values);

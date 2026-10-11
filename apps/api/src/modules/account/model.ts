@@ -73,6 +73,21 @@ export const profileResponse = t.Object(
   { additionalProperties: false },
 );
 
+export const activeOrganizationBody = t.Object(
+  {
+    orgSlug: t.String({
+      minLength: 2,
+      maxLength: 60,
+      pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+    }),
+  },
+  { additionalProperties: false },
+);
+export const activeOrganizationResponse = t.Object({
+  activeOrganization: t.Object({ id: t.String(), slug: t.String() }),
+});
+export type ActiveOrganizationBody = typeof activeOrganizationBody.static;
+
 export const accountModels = {
   "account.changePasswordBody": changePasswordBody,
   "account.changePasswordResponse": changePasswordResponse,

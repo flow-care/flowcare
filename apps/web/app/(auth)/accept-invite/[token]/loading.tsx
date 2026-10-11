@@ -2,7 +2,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 
 export default function Loading() {
   return (
-    <Card className="rounded-xl border border-border bg-card" aria-busy="true">
+    <Card aria-busy="true">
       <CardHeader className="text-center pb-2 items-center flex flex-col gap-2">
         <div className="h-3 w-28 animate-pulse rounded bg-muted" />
         <div className="h-7 w-48 animate-pulse rounded bg-muted" />

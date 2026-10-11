@@ -14,6 +14,10 @@ export default async function Home() {
     redirect("/login");
   }
 
+  if (progress.pendingInviteId) {
+    redirect(`/accept-invite/${encodeURIComponent(progress.pendingInviteId)}`);
+  }
+
   if (!progress.completed) {
     redirect(onboardingStepPath(progress.currentStep));
   }

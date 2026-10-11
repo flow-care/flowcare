@@ -29,6 +29,7 @@ export const progressResponse = t.Object({
   completed: t.Boolean(),
   draftData: t.Record(t.String(), t.Unknown()),
   version: t.Number(),
+  pendingInviteId: t.Optional(t.Nullable(t.String())),
 });
 
 export const professionalRole = t.Union([
@@ -108,10 +109,14 @@ export const weeklyScheduleRule = t.Object({
 });
 
 export const scheduleRulesBody = t.Object({
+  timezone: t.Optional(t.String({ minLength: 3, maxLength: 100 })),
   weeklySchedule: t.Array(weeklyScheduleRule, { maxItems: 100 }),
 });
 
-export const scheduleRulesResponse = scheduleRulesBody;
+export const scheduleRulesResponse = t.Object({
+  timezone: t.String(),
+  weeklySchedule: t.Array(weeklyScheduleRule),
+});
 
 export const completeResponse = t.Object({ redirectUrl: t.String() });
 

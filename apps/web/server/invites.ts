@@ -9,12 +9,33 @@ export interface CurrentUserProfile {
   id: string;
   email: string;
   fullName: string;
+  photoUrl?: string | null;
+  organizationSlugs?: string[];
 }
 
 const userProfileSchema = z.object({
   id: z.string().min(1),
   email: z.string().email(),
   fullName: z.string(),
+  photo: z
+    .object({
+      contentType: z.string(),
+      sizeBytes: z.number(),
+    })
+    .nullable()
+    .optional(),
+});
+
+const organizationsListSchema = z.object({
+  data: z.array(
+    z.object({
+      slug: z.string().min(1),
+    }),
+  ),
+});
+
+const photoDownloadSchema = z.object({
+  downloadUrl: z.string().url(),
 });
 
 export async function getInviteDetails(
@@ -49,20 +70,68 @@ export async function getCurrentUser(): Promise<CurrentUserProfile | null> {
   if (!token) return null;
   try {
     const { apiBaseUrl } = getServerConfig();
-    const response = await fetch(`${apiBaseUrl}/me/profile`, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/json",
-      },
-      cache: "no-store",
-      redirect: "error",
-      signal: AbortSignal.timeout(10_000),
-    });
+    const headers = {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json",
+    };
+    const [response, orgsResponse] = await Promise.all([
+      fetch(`${apiBaseUrl}/me/profile`, {
+        method: "GET",
+        headers,
+        cache: "no-store",
+        redirect: "error",
+        signal: AbortSignal.timeout(10_000),
+      }),
+      fetch(`${apiBaseUrl}/organizations`, {
+        method: "GET",
+        headers,
+        cache: "no-store",
+        redirect: "error",
+        signal: AbortSignal.timeout(10_000),
+      }).catch(() => null),
+    ]);
     if (!response.ok) return null;
     const data: unknown = await response.json();
     const parsed = userProfileSchema.safeParse(data);
-    return parsed.success ? parsed.data : null;
+    if (!parsed.success) return null;
+
+    let organizationSlugs: string[] = [];
+    if (orgsResponse?.ok) {
+      const orgsJson: unknown = await orgsResponse.json().catch(() => null);
+      const parsedOrgs = organizationsListSchema.safeParse(orgsJson);
+      if (parsedOrgs.success) {
+        organizationSlugs = parsedOrgs.data.data.map((org) => org.slug);
+      }
+    }
+
+    let photoUrl: string | null = null;
+    if (parsed.data.photo) {
+      const photoRes = await fetch(
+        `${apiBaseUrl}/me/profile/photo/download-url`,
+        {
+          method: "GET",
+          headers,
+          cache: "no-store",
+          redirect: "error",
+          signal: AbortSignal.timeout(5_000),
+        },
+      ).catch(() => null);
+      if (photoRes?.ok) {
+        const photoJson: unknown = await photoRes.json().catch(() => null);
+        const parsedPhoto = photoDownloadSchema.safeParse(photoJson);
+        if (parsedPhoto.success) {
+          photoUrl = parsedPhoto.data.downloadUrl;
+        }
+      }
+    }
+
+    return {
+      id: parsed.data.id,
+      email: parsed.data.email,
+      fullName: parsed.data.fullName,
+      photoUrl,
+      organizationSlugs,
+    };
   } catch {
     return null;
   }
@@ -103,6 +172,45 @@ export async function acceptInvite(
     throw new Error("UPSTREAM_UNAVAILABLE");
   }
   const parsed = z.object({ organizationSlug: z.string() }).safeParse(data);
+  if (!parsed.success) throw new Error("UPSTREAM_UNAVAILABLE");
+  return parsed.data;
+}
+
+export async function declineInvite(
+  token: string,
+): Promise<{ message: string }> {
+  const sessionToken = await getSessionToken();
+  if (!sessionToken) {
+    throw new Error("UNAUTHENTICATED");
+  }
+  const { apiBaseUrl } = getServerConfig();
+  const response = await fetch(
+    `${apiBaseUrl}/invites/${encodeURIComponent(token)}/decline`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${sessionToken}`,
+        Accept: "application/json",
+      },
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(10_000),
+    },
+  );
+  const data: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const code =
+      data && typeof data === "object" && "error" in data
+        ? (data as { error: { code?: string } }).error?.code
+        : null;
+    if (code === "FORBIDDEN") throw new Error("FORBIDDEN");
+    if (code === "INVITE_EXPIRED" || response.status === 410) {
+      throw new Error("INVITE_EXPIRED");
+    }
+    if (response.status === 401) throw new Error("UNAUTHENTICATED");
+    throw new Error("UPSTREAM_UNAVAILABLE");
+  }
+  const parsed = z.object({ message: z.string() }).safeParse(data);
   if (!parsed.success) throw new Error("UPSTREAM_UNAVAILABLE");
   return parsed.data;
 }

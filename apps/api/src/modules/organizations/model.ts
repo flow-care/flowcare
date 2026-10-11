@@ -31,6 +31,32 @@ export const organizationsResponse = t.Object({
   data: t.Array(organizationItem),
 });
 
+export const createAdditionalOrganizationBody = t.Object(
+  {
+    name: t.String({
+      minLength: 2,
+      maxLength: 120,
+      pattern: NON_BLANK_MIN_2_PATTERN,
+    }),
+  },
+  { additionalProperties: false },
+);
+
+export const activeOrganizationResponse = t.Object({
+  activeOrganization: t.Object({ id: t.String(), slug: t.String() }),
+});
+
+export const createAdditionalOrganizationResponse = t.Object({
+  organization: t.Object({
+    id: t.String(),
+    name: t.String(),
+    slug: t.String(),
+    role: t.Literal("ADMIN"),
+    isOwner: t.Literal(true),
+  }),
+  activeOrganization: t.Object({ id: t.String(), slug: t.String() }),
+});
+
 export const clinicDetailsBody = t.Object({
   version: t.Integer({ minimum: 0 }),
   legalName: t.String({
@@ -109,6 +135,8 @@ export const clinicDetailsResponse = t.Object({
 export type OrgSlugParams = typeof orgSlugParams.static;
 export type OrganizationItem = typeof organizationItem.static;
 export type OrganizationsResponse = typeof organizationsResponse.static;
+export type CreateAdditionalOrganizationBody =
+  typeof createAdditionalOrganizationBody.static;
 export type ClinicDetailsBody = typeof clinicDetailsBody.static;
 export type ClinicContactBody = typeof clinicContactBody.static;
 export type ClinicAddressBody = typeof clinicAddressBody.static;

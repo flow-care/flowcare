@@ -11,7 +11,7 @@ mock.module("next/headers", () => ({
   }),
 }));
 
-const { acceptInviteAction } = await import(
+const { acceptInviteAction, declineInviteAction } = await import(
   "../app/(auth)/accept-invite/actions"
 );
 
@@ -128,5 +128,16 @@ test("acceptInviteAction mapeia convite expirado ou inexistente (INVITE_EXPIRED)
   expect(result).toMatchObject({
     ok: false,
     error: { code: "INVITE_EXPIRED" },
+  });
+});
+
+test("declineInviteAction recusa convite com sucesso", async () => {
+  respondWith({ message: "Convite recusado." }, 200);
+  const result = await declineInviteAction(
+    "token_valido_com_mais_de_vinte_caracteres",
+  );
+  expect(result).toEqual({
+    ok: true,
+    data: { message: "Convite recusado." },
   });
 });
