@@ -43,7 +43,7 @@ function ClinicHeader({ organizationName }: { organizationName: string }) {
           {initialLetter(organizationName)}
         </AvatarFallback>
       </Avatar>
-      <h3 className="text-xl font-medium tracking-tight text-foreground">
+      <h3 className="text-2xl font-semibold tracking-tight text-foreground">
         {organizationName}
       </h3>
     </div>
