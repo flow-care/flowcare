@@ -10,6 +10,16 @@ import { Unauthenticated } from "../auth/errors";
 import * as m from "./model";
 import { TemplatesService } from "./service";
 
+async function defaultClinicalEligibility(
+  context: OrganizationAccess,
+  capability: OrganizationCapability,
+): Promise<boolean> {
+  return (
+    capability === "templates:read" &&
+    (context.role === "ADMIN_PROFESSIONAL" || context.role === "PROFESSIONAL")
+  );
+}
+
 export function templatesModule(deps: {
   prisma: PrismaClient;
   jwtSecret: string;
@@ -20,14 +30,7 @@ export function templatesModule(deps: {
 }) {
   const service = new TemplatesService(deps.prisma);
   const clinicalEligibility =
-    deps.clinicalEligibility ??
-    (async (
-      context: OrganizationAccess,
-      capability: OrganizationCapability,
-    ) =>
-      capability === "templates:read" &&
-      (context.role === "ADMIN_PROFESSIONAL" ||
-        context.role === "PROFESSIONAL"));
+    deps.clinicalEligibility ?? defaultClinicalEligibility;
 
   return new Elysia({ name: "templates" })
     .use(authPlugin(deps))
