@@ -1,6 +1,7 @@
 import { Elysia, t } from "elysia";
 import type { PrismaClient } from "../../generated/prisma/client";
 import { authPlugin } from "../../plugins/auth";
+import { organizationAccessPlugin } from "../../plugins/organization-access";
 import type { Mailer } from "../../services/mailer";
 import * as m from "./model";
 import { InviteService } from "./service";
@@ -18,6 +19,7 @@ export function inviteModule(deps: {
       response: { 200: m.inviteDetailsResponse },
     })
     .use(authPlugin({ prisma: deps.prisma, jwtSecret: deps.jwtSecret }))
+    .use(organizationAccessPlugin(deps))
     .post(
       "/organizations/:orgSlug/invites",
       async ({ auth, params, body, status }) =>
@@ -25,6 +27,7 @@ export function inviteModule(deps: {
       {
         params: t.Object({ orgSlug: t.String() }),
         body: m.createInviteBody,
+        organizationAccess: "team:invite",
         response: { 201: m.inviteResponse },
       },
     )
@@ -40,7 +43,10 @@ export function inviteModule(deps: {
       "/organizations/:orgSlug/invites/:inviteId",
       ({ auth, params }) =>
         service.revoke(auth.userId, params.orgSlug, params.inviteId),
-      { params: t.Object({ orgSlug: t.String(), inviteId: t.String() }) },
+      {
+        params: t.Object({ orgSlug: t.String(), inviteId: t.String() }),
+        organizationAccess: "team:manage",
+      },
     )
     .post(
       "/organizations/:orgSlug/invites/:inviteId/resend",
@@ -48,6 +54,7 @@ export function inviteModule(deps: {
         service.resend(auth.userId, params.orgSlug, params.inviteId),
       {
         params: t.Object({ orgSlug: t.String(), inviteId: t.String() }),
+        organizationAccess: "team:invite",
         response: { 200: m.inviteResponse },
       },
     );

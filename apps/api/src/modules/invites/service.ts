@@ -190,7 +190,7 @@ export class InviteService {
       where: {
         userId,
         status: "ACTIVE",
-        role: "ADMIN",
+        role: { in: ["ADMIN", "ADMIN_PROFESSIONAL"] },
         organization: { slug },
       },
       select: { organization: true },

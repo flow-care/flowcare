@@ -1,6 +1,7 @@
 import { Elysia } from "elysia";
 import type { PrismaClient } from "../../generated/prisma/client";
 import { authPlugin } from "../../plugins/auth";
+import { organizationAccessPlugin } from "../../plugins/organization-access";
 import {
   clinicAddressBody,
   clinicContactBody,
@@ -18,6 +19,7 @@ export function organizationsModule(deps: {
 
   return new Elysia({ name: "organizations" })
     .use(authPlugin(deps))
+    .use(organizationAccessPlugin(deps))
     .group("/organizations", (group) =>
       group
         .get("", ({ auth }) => service.listForUser(auth.userId), {
@@ -29,6 +31,7 @@ export function organizationsModule(deps: {
             service.getClinicDetails(auth.userId, params.orgSlug),
           {
             params: orgSlugParams,
+            organizationAccess: "settings:read",
             response: { 200: clinicDetailsResponse },
           },
         )
@@ -39,6 +42,7 @@ export function organizationsModule(deps: {
           {
             params: orgSlugParams,
             body: clinicContactBody,
+            organizationAccess: "settings:write",
             response: { 200: clinicDetailsResponse },
           },
         )
@@ -49,6 +53,7 @@ export function organizationsModule(deps: {
           {
             params: orgSlugParams,
             body: clinicAddressBody,
+            organizationAccess: "settings:write",
             response: { 200: clinicDetailsResponse },
           },
         ),

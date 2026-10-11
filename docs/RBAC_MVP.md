@@ -51,7 +51,7 @@ Autenticação (`/auth/*`) e conta pessoal (`/me/*`) dependem da própria identi
 
 ## Implementação planejada
 
-A task [#228](https://github.com/flow-care/flowcare/issues/228) implementa o contexto organizacional e a verificação de capacidade na API Elysia, usando um plugin ou macro tipada após autenticação e validação de `orgSlug`, conforme o [ciclo de vida oficial do Elysia](https://elysiajs.com/essential/life-cycle). A task [#317](https://github.com/flow-care/flowcare/issues/317) protege troca de papel e último administrador. A interface lista somente os quatro papéis fixos. A criação/edição de papéis personalizados das tasks #316, #319 e #325 sai do escopo do MVP.
+A task [#228](https://github.com/flow-care/flowcare/issues/228) introduz o contexto organizacional e a verificação de capacidade na API Elysia. Cada rota organizacional deve declarar a capacidade exigida no macro `organizationAccess` e usar o `organizationId` resolvido para consultas e mutações. Ações clínicas marcadas com `*` falham fechadas até o módulo do recurso fornecer verificação específica de habilitação profissional. O endpoint genérico de armazenamento aceita anexos clínicos somente para papéis clínicos; áudio e PDF aguardam rotas de recurso com habilitação específica. A task [#317](https://github.com/flow-care/flowcare/issues/317) protege troca de papel e último administrador. A criação/edição de papéis personalizados das tasks #316, #319 e #325 sai do escopo do MVP.
 
 Antes de ativar emissão de documentos, aprovação de anamnese ou outra ação clínica, responsável clínico valida as habilitações específicas por tipo de recurso. A matriz de papéis não substitui essa validação.
 

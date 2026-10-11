@@ -21,6 +21,7 @@ datasource db {
 
 enum MembershipRole {
   ADMIN
+  ADMIN_PROFESSIONAL
   PROFESSIONAL
   RECEPTIONIST
 }

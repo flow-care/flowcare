@@ -52,12 +52,15 @@ export class StorageService {
         : null;
   }
 
-  async createUpload(
-    userId: string,
-    organizationSlug: string,
-    body: UploadBody,
-  ) {
-    const membership = await this.membership(userId, organizationSlug);
+  async createUpload(organizationId: string, body: UploadBody) {
+    // Generic storage has no consultation/document context to establish
+    // professional qualification. These categories must use resource routes.
+    if (body.category !== "attachment")
+      throw new ApiError(
+        "PERMISSION_DENIED",
+        403,
+        "Habilitação clínica não verificada.",
+      );
     const allowed = MIME_LIMITS[body.contentType];
     if (!allowed || allowed.category !== body.category)
       throw new ApiError(
@@ -78,10 +81,10 @@ export class StorageService {
         "Armazenamento indisponível.",
       );
     const safeName = body.fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const objectKey = `organizations/${membership.organizationId}/${body.category}/${crypto.randomUUID()}-${safeName}`;
+    const objectKey = `organizations/${organizationId}/${body.category}/${crypto.randomUUID()}-${safeName}`;
     const object = await this.deps.prisma.storageObject.create({
       data: {
-        organizationId: membership.organizationId,
+        organizationId,
         objectKey,
         contentType: body.contentType,
         sizeBytes: body.sizeBytes,
@@ -104,17 +107,18 @@ export class StorageService {
     return { objectId: object.id, objectKey, uploadUrl, expiresInSeconds: 600 };
   }
 
-  async createDownload(
-    userId: string,
-    organizationSlug: string,
-    objectId: string,
-  ) {
-    const membership = await this.membership(userId, organizationSlug);
+  async createDownload(organizationId: string, objectId: string) {
     const object = await this.deps.prisma.storageObject.findFirst({
-      where: { id: objectId, organizationId: membership.organizationId },
+      where: { id: objectId, organizationId },
     });
     if (!object)
       throw new ApiError("NOT_FOUND", 404, "Arquivo não encontrado.");
+    if (object.category !== "attachment")
+      throw new ApiError(
+        "PERMISSION_DENIED",
+        403,
+        "Habilitação clínica não verificada.",
+      );
     if (!this.client || !this.deps.config.bucket)
       throw new ApiError(
         "STORAGE_UNAVAILABLE",
@@ -130,15 +134,5 @@ export class StorageService {
       { expiresIn: 900 },
     );
     return { objectId, downloadUrl, expiresInSeconds: 900 };
-  }
-
-  private async membership(userId: string, slug: string) {
-    const membership = await this.deps.prisma.membership.findFirst({
-      where: { userId, status: "ACTIVE", organization: { slug } },
-      select: { organizationId: true },
-    });
-    if (!membership)
-      throw new ApiError("FORBIDDEN", 403, "Sem acesso a esta organização.");
-    return membership;
   }
 }

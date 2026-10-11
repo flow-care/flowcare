@@ -4,6 +4,7 @@ export const createInviteBody = t.Object({
   email: t.String({ format: "email" }),
   role: t.Union([
     t.Literal("ADMIN"),
+    t.Literal("ADMIN_PROFESSIONAL"),
     t.Literal("PROFESSIONAL"),
     t.Literal("RECEPTIONIST"),
   ]),

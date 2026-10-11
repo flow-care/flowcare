@@ -6,30 +6,19 @@ import { StorageService } from "../src/modules/storage/service";
 const orgId = "11111111-1111-4111-8111-111111111111";
 const otherOrgId = "22222222-2222-4222-8222-222222222222";
 
-function setup(active = true) {
+function setup() {
   const records: Array<{
     id: string;
     organizationId: string;
     objectKey: string;
+    category: string;
   }> = [];
   const prisma = {
-    membership: {
-      findFirst: async ({
-        where,
-      }: {
-        where: { userId: string; organization: { slug: string } };
-      }) =>
-        active &&
-        where.userId === "user-a" &&
-        where.organization.slug === "clinic-a"
-          ? { organizationId: orgId }
-          : null,
-    },
     storageObject: {
       create: async ({
         data,
       }: {
-        data: { organizationId: string; objectKey: string };
+        data: { organizationId: string; objectKey: string; category: string };
       }) => {
         const record = { id: crypto.randomUUID(), ...data };
         records.push(record);
@@ -61,19 +50,19 @@ function setup(active = true) {
 }
 
 const upload = {
-  fileName: "sample.webm",
-  contentType: "audio/webm",
+  fileName: "sample.png",
+  contentType: "image/png",
   sizeBytes: 1024,
-  category: "audio" as const,
+  category: "attachment" as const,
 };
 
 describe("private storage", () => {
   test("signs only allowed category and organization with bounded expiry", async () => {
     const { service } = setup();
-    const result = await service.createUpload("user-a", "clinic-a", upload);
-    expect(result.objectKey.startsWith(`organizations/${orgId}/audio/`)).toBe(
-      true,
-    );
+    const result = await service.createUpload(orgId, upload);
+    expect(
+      result.objectKey.startsWith(`organizations/${orgId}/attachment/`),
+    ).toBe(true);
     expect(result.expiresInSeconds).toBe(600);
     expect(new URL(result.uploadUrl).searchParams.get("X-Amz-Expires")).toBe(
       "600",
@@ -81,26 +70,11 @@ describe("private storage", () => {
     expect(
       new URL(result.uploadUrl).searchParams.get("X-Amz-SignedHeaders"),
     ).toBe("content-length;content-type;host");
-    const download = await service.createDownload(
-      "user-a",
-      "clinic-a",
-      result.objectId,
-    );
+    const download = await service.createDownload(orgId, result.objectId);
     expect(download.expiresInSeconds).toBe(900);
     expect(
       new URL(download.downloadUrl).searchParams.get("X-Amz-Expires"),
     ).toBe("900");
-  });
-
-  test("rejects users without active membership before issuing a URL", async () => {
-    const { service, records } = setup(false);
-    await expect(
-      service.createUpload("user-a", "clinic-a", upload),
-    ).rejects.toMatchObject({
-      code: "FORBIDDEN",
-      httpStatus: 403,
-    } satisfies Partial<ApiError>);
-    expect(records).toHaveLength(0);
   });
 
   test("cannot sign a download for another organization", async () => {
@@ -109,9 +83,10 @@ describe("private storage", () => {
       id: "other-object",
       organizationId: otherOrgId,
       objectKey: `organizations/${otherOrgId}/audio/sample`,
+      category: "audio",
     });
     await expect(
-      service.createDownload("user-a", "clinic-a", "other-object"),
+      service.createDownload(orgId, "other-object"),
     ).rejects.toMatchObject({
       code: "NOT_FOUND",
       httpStatus: 404,
@@ -121,23 +96,44 @@ describe("private storage", () => {
   test("rejects MIME mismatches and oversized files before persistence", async () => {
     const { service, records } = setup();
     await expect(
-      service.createUpload("user-a", "clinic-a", {
+      service.createUpload(orgId, {
         ...upload,
         contentType: "application/pdf",
       }),
     ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
     await expect(
-      service.createUpload("user-a", "clinic-a", {
+      service.createUpload(orgId, {
         ...upload,
         contentType: "application/octet-stream",
       }),
     ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
     await expect(
-      service.createUpload("user-a", "clinic-a", {
+      service.createUpload(orgId, {
         ...upload,
-        sizeBytes: 50 * 1024 * 1024 + 1,
+        sizeBytes: 25 * 1024 * 1024 + 1,
       }),
     ).rejects.toMatchObject({ code: "FILE_TOO_LARGE", httpStatus: 413 });
     expect(records).toHaveLength(0);
+  });
+
+  test("fails closed for audio and PDF without resource-specific clinical eligibility", async () => {
+    const { service, records } = setup();
+    await expect(
+      service.createUpload(orgId, {
+        fileName: "recording.webm",
+        contentType: "audio/webm",
+        sizeBytes: 1024,
+        category: "audio",
+      }),
+    ).rejects.toMatchObject({ code: "PERMISSION_DENIED", httpStatus: 403 });
+    records.push({
+      id: "clinical-pdf",
+      organizationId: orgId,
+      objectKey: "private",
+      category: "pdf",
+    });
+    await expect(
+      service.createDownload(orgId, "clinical-pdf"),
+    ).rejects.toMatchObject({ code: "PERMISSION_DENIED", httpStatus: 403 });
   });
 });
