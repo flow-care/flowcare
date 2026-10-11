@@ -1,6 +1,7 @@
 "use client";
 
 import { useForm } from "@tanstack/react-form";
+import { MoreHorizontalIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -10,6 +11,12 @@ import {
   updateTeamInvite,
 } from "@/app/onboarding/invite-team/actions";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Field, FieldLabel } from "@/components/ui/field";
 import {
   InputGroup,
@@ -232,30 +239,36 @@ export function InviteTeamForm({
                     {formatInviteRole(invite.role)} · Aguardando aceite
                   </p>
                 </div>
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={Boolean(busyId) || finishing}
-                    onClick={() => void update(invite.id, "resend")}
-                  >
-                    {busyId === invite.id ? (
-                      <Spinner className="size-4" />
-                    ) : (
-                      "Reenviar"
-                    )}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    disabled={Boolean(busyId) || finishing}
-                    onClick={() => void update(invite.id, "revoke")}
-                  >
-                    Revogar
-                  </Button>
-                </div>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={`Ações para o convite de ${invite.email}`}
+                      disabled={Boolean(busyId) || finishing}
+                    >
+                      {busyId === invite.id ? (
+                        <Spinner />
+                      ) : (
+                        <MoreHorizontalIcon />
+                      )}
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                      onSelect={() => void update(invite.id, "resend")}
+                    >
+                      Reenviar
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      variant="destructive"
+                      onSelect={() => void update(invite.id, "revoke")}
+                    >
+                      Revogar
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </li>
             ))}
           </ul>
