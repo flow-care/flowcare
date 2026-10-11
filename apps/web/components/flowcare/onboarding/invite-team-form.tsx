@@ -198,7 +198,7 @@ export function InviteTeamForm({
                             Enviando...
                           </>
                         ) : (
-                          "Enviar convite"
+                          "Convidar"
                         )}
                       </Button>
                     )}
