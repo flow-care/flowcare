@@ -141,7 +141,7 @@ export function ProfileForm({ initialProfile }: { initialProfile: Profile }) {
                   type="button"
                   variant="ghost"
                   aria-labelledby="professionalRole-label"
-                  className="flex h-[47px] w-full items-center justify-between rounded-lg border border-transparent bg-card px-3 text-base font-normal outline-none focus-visible:border-primary"
+                  className="flex h-[47px] w-full items-center justify-between rounded-lg border border-transparent bg-card px-3 text-base font-normal outline-none hover:bg-card focus-visible:border-primary aria-expanded:bg-card dark:hover:bg-card"
                 >
                   {professionalRoles[field.state.value]}
                   <ChevronDownIcon className="size-4 text-muted-foreground" />
