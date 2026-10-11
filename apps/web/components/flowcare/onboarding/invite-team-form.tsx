@@ -238,7 +238,7 @@ export function InviteTeamForm({
                 <div className="flex min-w-0 flex-1 items-center gap-3">
                   <Avatar>
                     <AvatarImage
-                      src={`https://api.dicebear.com/10.x/initials/svg?seed=${encodeURIComponent(invite.email.split("@")[0])}`}
+                      src={`https://api.dicebear.com/10.x/initials/svg?seed=${encodeURIComponent(invite.email.split("@")[0])}&lettersVariant=single`}
                       alt=""
                       referrerPolicy="no-referrer"
                     />
