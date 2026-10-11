@@ -10,6 +10,7 @@ import {
   sendTeamInvite,
   updateTeamInvite,
 } from "@/app/onboarding/invite-team/actions";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -233,42 +234,44 @@ export function InviteTeamForm({
                 key={invite.id}
                 className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-card p-3"
               >
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{invite.email}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {formatInviteRole(invite.role)} · Aguardando aceite
-                  </p>
                 </div>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={`Ações para o convite de ${invite.email}`}
-                      disabled={Boolean(busyId) || finishing}
-                    >
-                      {busyId === invite.id ? (
-                        <Spinner />
-                      ) : (
-                        <MoreHorizontalIcon />
-                      )}
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem
-                      onSelect={() => void update(invite.id, "resend")}
-                    >
-                      Reenviar
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      variant="destructive"
-                      onSelect={() => void update(invite.id, "revoke")}
-                    >
-                      Revogar
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline">
+                    {formatInviteRole(invite.role)}
+                  </Badge>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`Ações para o convite de ${invite.email}`}
+                        disabled={Boolean(busyId) || finishing}
+                      >
+                        {busyId === invite.id ? (
+                          <Spinner />
+                        ) : (
+                          <MoreHorizontalIcon />
+                        )}
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        onSelect={() => void update(invite.id, "resend")}
+                      >
+                        Reenviar
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        variant="destructive"
+                        onSelect={() => void update(invite.id, "revoke")}
+                      >
+                        Revogar
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
               </li>
             ))}
           </ul>
