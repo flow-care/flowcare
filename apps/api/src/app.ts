@@ -4,6 +4,7 @@ import type { Env } from "./config/env";
 import type { PrismaClient } from "./generated/prisma/client";
 import { ApiError } from "./lib/api-error";
 import { accountModule } from "./modules/account";
+import { appointmentsModule } from "./modules/appointments";
 import { authModule } from "./modules/auth";
 import type { AuthDeps } from "./modules/auth/service";
 import { inviteModule } from "./modules/invites";
@@ -172,6 +173,7 @@ export function createApp(env: Env, deps: AppDeps) {
       }
     })
     .use(authModule(authDeps))
+    .use(appointmentsModule({ prisma: deps.prisma, jwtSecret: env.jwtSecret }))
     .use(onboardingModule(onboardingDeps))
     .use(organizationsModule({ prisma: deps.prisma, jwtSecret: env.jwtSecret }))
     .use(
