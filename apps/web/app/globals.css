@@ -135,6 +135,12 @@
   [data-slot="textarea"] {
     background-color: var(--card);
   }
+  input[type="time"]::-webkit-calendar-picker-indicator,
+  input[type="time"]::-webkit-inner-spin-button,
+  input[type="time"]::-webkit-clear-button {
+    display: none;
+    -webkit-appearance: none;
+  }
   body {
     @apply bg-background text-foreground;
   }

@@ -1,7 +1,6 @@
 "use client";
 
 import { useForm, useStore } from "@tanstack/react-form";
-import { MoonIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { saveHoursAction } from "@/app/onboarding/configure-hours/actions";
@@ -165,6 +164,8 @@ export function ConfigureHoursForm({ initial }: { initial: Schedule }) {
 
       {enabled && (
         <>
+          <Separator className="border-t border-dashed border-border bg-transparent" />
+
           <form.Field name="timezone">
             {(field) => (
               <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-[160px_1fr] sm:items-center sm:gap-4">
@@ -202,7 +203,7 @@ export function ConfigureHoursForm({ initial }: { initial: Schedule }) {
             )}
           </form.Field>
 
-          <Separator />
+          <Separator className="border-t border-dashed border-border bg-transparent" />
 
           <div className="space-y-3">
             {weekdays.map(({ id, label }, index) => {
@@ -273,7 +274,7 @@ export function ConfigureHoursForm({ initial }: { initial: Schedule }) {
                               };
                             });
                           }}
-                          className="w-auto flex-none px-0 text-right text-sm font-medium [&::-webkit-calendar-picker-indicator]:hidden"
+                          className="w-auto flex-none px-0 text-right text-sm font-medium"
                         />
                       </InputGroup>
 
@@ -306,13 +307,12 @@ export function ConfigureHoursForm({ initial }: { initial: Schedule }) {
                               };
                             });
                           }}
-                          className="w-auto flex-none px-0 text-right text-sm font-medium [&::-webkit-calendar-picker-indicator]:hidden"
+                          className="w-auto flex-none px-0 text-right text-sm font-medium"
                         />
                       </InputGroup>
                     </div>
                   ) : (
-                    <div className="flex h-[47px] items-center gap-2.5 rounded-lg bg-card/55 px-3.5 text-sm text-muted-foreground">
-                      <MoonIcon className="size-4 text-muted-foreground" />
+                    <div className="flex h-[47px] items-center rounded-lg bg-card/55 px-3.5 text-sm text-muted-foreground">
                       <span>Fechado</span>
                     </div>
                   )}
