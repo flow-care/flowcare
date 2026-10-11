@@ -10,7 +10,7 @@ import {
   sendTeamInvite,
   updateTeamInvite,
 } from "@/app/onboarding/invite-team/actions";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -237,6 +237,11 @@ export function InviteTeamForm({
               >
                 <div className="flex min-w-0 flex-1 items-center gap-3">
                   <Avatar>
+                    <AvatarImage
+                      src={`https://api.dicebear.com/10.x/initials/svg?seed=${encodeURIComponent(invite.email.split("@")[0])}`}
+                      alt=""
+                      referrerPolicy="no-referrer"
+                    />
                     <AvatarFallback>
                       {invite.email.charAt(0).toUpperCase()}
                     </AvatarFallback>
