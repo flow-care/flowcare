@@ -18,6 +18,14 @@ export function inviteModule(deps: {
       response: { 200: m.inviteDetailsResponse },
     })
     .use(authPlugin({ prisma: deps.prisma, jwtSecret: deps.jwtSecret }))
+    .get(
+      "/organizations/:orgSlug/invites",
+      ({ auth, params }) => service.list(auth.userId, params.orgSlug),
+      {
+        params: t.Object({ orgSlug: t.String() }),
+        response: { 200: m.inviteListResponse },
+      },
+    )
     .post(
       "/organizations/:orgSlug/invites",
       async ({ auth, params, body, status }) =>

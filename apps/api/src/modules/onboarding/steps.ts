@@ -3,10 +3,11 @@ export const onboardingSteps = [
   "ORGANIZATION_SETUP",
   "CLINIC_DETAILS",
   "CLINIC_ADDRESS",
+  "TEAM_INVITES",
 ] as const;
 
 export const finalOnboardingStep: (typeof onboardingSteps)[number] =
-  "CLINIC_ADDRESS";
+  "TEAM_INVITES";
 
 type SavedProgress = {
   currentStep: string;

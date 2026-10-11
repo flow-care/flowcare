@@ -16,6 +16,32 @@ export class InviteService {
     },
   ) {}
 
+  async list(adminId: string, slug: string) {
+    const organization = await this.authorizeAdmin(adminId, slug);
+    const invites = await this.deps.prisma.organizationInvite.findMany({
+      where: {
+        organizationId: organization.id,
+        acceptedAt: null,
+        revokedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+      select: { id: true, email: true, role: true, expiresAt: true },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    });
+    return {
+      data: invites.map((invite) => ({
+        id: invite.id,
+        email: invite.email,
+        role: invite.role,
+        expiresAt: invite.expiresAt.toISOString(),
+      })),
+      roles: ["ADMIN", "PROFESSIONAL", "RECEPTIONIST"] as Array<
+        "ADMIN" | "PROFESSIONAL" | "RECEPTIONIST"
+      >,
+    };
+  }
+
   async create(adminId: string, slug: string, body: CreateInviteBody) {
     const organization = await this.authorizeAdmin(adminId, slug);
     const email = body.email.trim().toLowerCase();
@@ -57,7 +83,7 @@ export class InviteService {
         expiresAt: new Date(Date.now() + TTL_MS),
       },
     });
-    void this.send(invite.email, organization.name, token);
+    await this.send(invite.email, organization.name, token);
     return {
       id: invite.id,
       email: invite.email,
@@ -177,7 +203,7 @@ export class InviteService {
         expiresAt: new Date(Date.now() + TTL_MS),
       },
     });
-    void this.send(invite.email, organization.name, token);
+    await this.send(invite.email, organization.name, token);
     return {
       id: invite.id,
       email: invite.email,
@@ -216,6 +242,11 @@ export class InviteService {
       });
     } catch {
       console.error("[invite] delivery failed");
+      throw new ApiError(
+        "EMAIL_DELIVERY_FAILED",
+        503,
+        "O convite foi preparado, mas o e-mail não pôde ser enviado. Reenvie o convite pendente.",
+      );
     }
   }
 }
