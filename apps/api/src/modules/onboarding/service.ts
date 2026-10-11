@@ -64,7 +64,7 @@ export class OnboardingService {
         status: "ACTIVE",
         organization: { ownerId: userId },
       },
-      select: { organization: { select: { slug: true } } },
+      select: { organization: { select: { slug: true, timezone: true } } },
     });
     if (!membership) {
       throw new ApiError(
@@ -73,10 +73,21 @@ export class OnboardingService {
         "Clínica indisponível para conclusão.",
       );
     }
-    return { organizationId, slug: membership.organization.slug };
+    return {
+      organizationId,
+      slug: membership.organization.slug,
+      timezone: membership.organization.timezone,
+    };
   }
 
   async saveScheduleRules(userId: string, body: ScheduleRulesBody) {
+    if (body.timezone) {
+      try {
+        new Intl.DateTimeFormat("pt-BR", { timeZone: body.timezone });
+      } catch {
+        throw new ApiError("VALIDATION_ERROR", 400, "Fuso horário inválido.");
+      }
+    }
     const byDay = new Map<string, Array<{ start: number; end: number }>>();
     for (const rule of body.weeklySchedule) {
       const start =
@@ -103,11 +114,18 @@ export class OnboardingService {
       byDay.set(rule.dayOfWeek, intervals);
     }
 
-    await this.deps.prisma.$transaction(async (tx) => {
-      const { organizationId } = await this.createdOrganization(
-        userId,
-        tx as PrismaClient,
-      );
+    const timezone = await this.deps.prisma.$transaction(async (tx) => {
+      const { organizationId, timezone: currentTimezone } =
+        await this.createdOrganization(userId, tx as PrismaClient);
+      const progress = await tx.onboardingProgress.findUnique({
+        where: { userId },
+      });
+      if (body.timezone) {
+        await tx.organization.update({
+          where: { id: organizationId },
+          data: { timezone: body.timezone },
+        });
+      }
       await tx.weeklyScheduleRule.deleteMany({ where: { organizationId } });
       if (body.weeklySchedule.length) {
         await tx.weeklyScheduleRule.createMany({
@@ -117,8 +135,56 @@ export class OnboardingService {
           })),
         });
       }
+      if (
+        (progress?.currentStep === "CLINIC_ADDRESS" && progress.completed) ||
+        (progress?.currentStep === "WEEKLY_SCHEDULE" && !progress.completed)
+      ) {
+        await tx.onboardingProgress.update({
+          where: { userId },
+          data: {
+            currentStep: "WEEKLY_SCHEDULE",
+            completed: true,
+            version: { increment: 1 },
+          },
+        });
+      }
+      return body.timezone ?? currentTimezone;
     });
-    return body;
+    return {
+      timezone,
+      weeklySchedule: body.weeklySchedule,
+    };
+  }
+
+  async getScheduleRules(userId: string) {
+    const { organizationId } = await this.createdOrganization(
+      userId,
+      this.deps.prisma,
+    );
+    const [organization, rules] = await Promise.all([
+      this.deps.prisma.organization.findUniqueOrThrow({
+        where: { id: organizationId },
+        select: { timezone: true },
+      }),
+      this.deps.prisma.weeklyScheduleRule.findMany({
+        where: { organizationId },
+        orderBy: [{ dayOfWeek: "asc" }, { startTime: "asc" }],
+        select: {
+          dayOfWeek: true,
+          startTime: true,
+          endTime: true,
+          slotDurationMinutes: true,
+        },
+      }),
+    ]);
+    return {
+      timezone: organization.timezone,
+      weeklySchedule: rules.map((rule) => ({
+        ...rule,
+        dayOfWeek:
+          rule.dayOfWeek as ScheduleRulesBody["weeklySchedule"][number]["dayOfWeek"],
+      })),
+    };
   }
 
   async complete(userId: string) {
@@ -127,6 +193,19 @@ export class OnboardingService {
         userId,
         tx as PrismaClient,
       );
+      const progress = await tx.onboardingProgress.findUnique({
+        where: { userId },
+      });
+      if (
+        progress?.currentStep !== finalOnboardingStep ||
+        !progress.completed
+      ) {
+        throw new ApiError(
+          "ONBOARDING_INCOMPLETE",
+          409,
+          "Conclua os horários da clínica primeiro.",
+        );
+      }
       await tx.onboardingProgress.updateMany({
         where: {
           userId,

@@ -36,7 +36,16 @@ test("existing clinics resume at contact, then address, and complete after both"
       },
       onboardingSteps,
     ),
-  ).toEqual({ currentStep: "CLINIC_ADDRESS", completed: true });
+  ).toEqual({ currentStep: "WEEKLY_SCHEDULE", completed: false });
+  expect(
+    resolveOnboardingState(
+      {
+        ...input,
+        savedProgress: { currentStep: "WEEKLY_SCHEDULE", completed: true },
+      },
+      onboardingSteps,
+    ),
+  ).toEqual({ currentStep: "WEEKLY_SCHEDULE", completed: true });
 });
 
 test("routes a new account to the profile", () => {
