@@ -1,4 +1,4 @@
-import { Elysia, t } from "elysia";
+import { Elysia } from "elysia";
 import type { PrismaClient } from "../../generated/prisma/client";
 import { authPlugin } from "../../plugins/auth";
 import {
@@ -6,6 +6,7 @@ import {
   clinicContactBody,
   clinicDetailsResponse,
   organizationsResponse,
+  slugParams,
 } from "./model";
 import { OrganizationsService } from "./service";
 
@@ -25,9 +26,7 @@ export function organizationsModule(deps: {
       ({ auth, params }) =>
         service.getClinicDetails(auth.userId, params.orgSlug),
       {
-        params: t.Object({
-          orgSlug: t.String({ minLength: 2, maxLength: 60 }),
-        }),
+        params: slugParams,
         response: { 200: clinicDetailsResponse },
       },
     )
@@ -36,9 +35,7 @@ export function organizationsModule(deps: {
       ({ auth, params, body }) =>
         service.saveClinicContact(auth.userId, params.orgSlug, body),
       {
-        params: t.Object({
-          orgSlug: t.String({ minLength: 2, maxLength: 60 }),
-        }),
+        params: slugParams,
         body: clinicContactBody,
         response: { 200: clinicDetailsResponse },
       },
@@ -48,9 +45,7 @@ export function organizationsModule(deps: {
       ({ auth, params, body }) =>
         service.saveClinicAddress(auth.userId, params.orgSlug, body),
       {
-        params: t.Object({
-          orgSlug: t.String({ minLength: 2, maxLength: 60 }),
-        }),
+        params: slugParams,
         body: clinicAddressBody,
         response: { 200: clinicDetailsResponse },
       },

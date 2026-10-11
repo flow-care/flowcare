@@ -221,7 +221,7 @@ Em caso de falha (códigos HTTP 4xx e 5xx), a API responde com a seguinte estrut
 #### `GET /organizations`
 * **Descrição:** Lista somente as clínicas nas quais a pessoa possui `Membership` ativo. Vínculos suspensos ou ainda `INVITED` não autorizam acesso e não aparecem na seleção.
 * **Permissão:** Autenticado.
-* **Respostas:** `200 OK` (`{ "data": [ { "id": "org_1", "name": "...", "slug": "vida-e-saude", "role": "ADMIN" } ] }`), `401 UNAUTHENTICATED`.
+* **Respostas:** `200 OK` (`{ "data": [ { "id": "org_1", "name": "...", "slug": "vida-e-saude", "role": "ADMIN", "status": "ACTIVE" } ] }`), `401 UNAUTHENTICATED`. A lista retorna no máximo 100 vínculos ativos, em ordem de criação; uma conta sem vínculos recebe `data: []`.
 
 #### `GET /organizations/:orgSlug`
 * **Descrição:** Obtém os dados e preferências da clínica especificada pelo slug.

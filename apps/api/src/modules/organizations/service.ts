@@ -1,6 +1,33 @@
 import type { PrismaClient } from "../../generated/prisma/client";
 import { ApiError } from "../../lib/api-error";
-import type { ClinicAddressBody, ClinicContactBody } from "./model";
+import type {
+  ClinicAddressBody,
+  ClinicContactBody,
+  ClinicDetailsResponse,
+  OrganizationsResponse,
+} from "./model";
+
+const MAX_USER_ORGANIZATIONS = 100;
+
+type ClinicContactStepData = {
+  legalName: string;
+  taxId: string | null;
+  contactEmail: string;
+  contactPhone: string;
+};
+
+type ClinicAddressStepData = {
+  postalCode: string;
+  state: string;
+  city: string;
+  district: string;
+  street: string;
+  streetNumber: string;
+  addressComplement: string | null;
+  detailsCompletedAt: Date;
+};
+
+type ClinicStepData = ClinicContactStepData | ClinicAddressStepData;
 
 function validCnpj(value: string) {
   if (!value) return true;
@@ -20,10 +47,68 @@ function validCnpj(value: string) {
   return Number(value[12]) === digit(12) && Number(value[13]) === digit(13);
 }
 
+function normalizeContactStep(
+  contact: ClinicContactBody,
+): ClinicContactStepData {
+  const legalName = contact.legalName.trim();
+  const taxId = contact.taxId.replace(/\D/g, "");
+  const contactPhone = contact.contactPhone.replace(/\D/g, "");
+  if (
+    legalName.length < 2 ||
+    !validCnpj(taxId) ||
+    contactPhone.length < 10 ||
+    contactPhone.length > 13
+  ) {
+    throw new ApiError(
+      "VALIDATION_ERROR",
+      400,
+      "Confira os dados da clínica e o endereço.",
+    );
+  }
+  return {
+    legalName,
+    taxId: taxId || null,
+    contactEmail: contact.contactEmail.trim().toLowerCase(),
+    contactPhone,
+  };
+}
+
+function normalizeAddressStep(
+  address: ClinicAddressBody,
+): ClinicAddressStepData {
+  const city = address.city.trim();
+  const district = address.district.trim();
+  const street = address.street.trim();
+  const streetNumber = address.streetNumber.trim();
+  if (
+    city.length < 2 ||
+    district.length < 2 ||
+    street.length < 2 ||
+    !streetNumber ||
+    !/^\d{8}$/.test(address.postalCode)
+  ) {
+    throw new ApiError(
+      "VALIDATION_ERROR",
+      400,
+      "Confira os dados da clínica e o endereço.",
+    );
+  }
+  return {
+    postalCode: address.postalCode,
+    state: address.state.toUpperCase(),
+    city,
+    district,
+    street,
+    streetNumber,
+    addressComplement: address.addressComplement.trim() || null,
+    detailsCompletedAt: new Date(),
+  };
+}
+
 export class OrganizationsService {
   constructor(private readonly prisma: PrismaClient) {}
 
-  async listForUser(userId: string) {
+  async listForUser(userId: string): Promise<OrganizationsResponse> {
     const memberships = await this.prisma.membership.findMany({
       where: { userId, status: "ACTIVE" },
       select: {
@@ -33,12 +118,16 @@ export class OrganizationsService {
         },
       },
       orderBy: { createdAt: "asc" },
+      take: MAX_USER_ORGANIZATIONS,
     });
 
     return {
       data: memberships.map(({ role, organization }) => ({
-        ...organization,
+        id: organization.id,
+        name: organization.name,
+        slug: organization.slug,
         role,
+        status: "ACTIVE",
       })),
     };
   }
@@ -58,7 +147,10 @@ export class OrganizationsService {
     return membership.organization;
   }
 
-  async getClinicDetails(userId: string, slug: string) {
+  async getClinicDetails(
+    userId: string,
+    slug: string,
+  ): Promise<ClinicDetailsResponse> {
     const org = await this.editableClinic(userId, slug);
     return {
       name: org.name,
@@ -83,24 +175,37 @@ export class OrganizationsService {
     userId: string,
     slug: string,
     body: ClinicContactBody,
-  ) {
-    return this.saveClinicStep(userId, slug, "CLINIC_DETAILS", body);
+  ): Promise<ClinicDetailsResponse> {
+    return this.saveClinicStep(
+      userId,
+      slug,
+      "CLINIC_DETAILS",
+      body.version,
+      () => normalizeContactStep(body),
+    );
   }
 
   async saveClinicAddress(
     userId: string,
     slug: string,
     body: ClinicAddressBody,
-  ) {
-    return this.saveClinicStep(userId, slug, "CLINIC_ADDRESS", body);
+  ): Promise<ClinicDetailsResponse> {
+    return this.saveClinicStep(
+      userId,
+      slug,
+      "CLINIC_ADDRESS",
+      body.version,
+      () => normalizeAddressStep(body),
+    );
   }
 
   private async saveClinicStep(
     userId: string,
     slug: string,
     step: "CLINIC_DETAILS" | "CLINIC_ADDRESS",
-    body: ClinicContactBody | ClinicAddressBody,
-  ) {
+    version: number,
+    buildStepData: () => ClinicStepData,
+  ): Promise<ClinicDetailsResponse> {
     const org = await this.editableClinic(userId, slug);
     const savedProgress = await this.prisma.onboardingProgress.findUnique({
       where: { userId },
@@ -131,48 +236,7 @@ export class OrganizationsService {
         "Esta etapa não está disponível.",
       );
     }
-    const contact =
-      step === "CLINIC_DETAILS" ? (body as ClinicContactBody) : null;
-    const address =
-      step === "CLINIC_ADDRESS" ? (body as ClinicAddressBody) : null;
-    const taxId = contact?.taxId.replace(/\D/g, "") ?? "";
-    const phone = contact?.contactPhone.replace(/\D/g, "") ?? "";
-    if (
-      contact
-        ? !validCnpj(taxId) ||
-          phone.length < 10 ||
-          phone.length > 13 ||
-          contact.legalName.trim().length < 2
-        : !address ||
-          ![address.city, address.district, address.street].every(
-            (value) => value.trim().length >= 2,
-          ) ||
-          !address.streetNumber.trim() ||
-          !/^\d{8}$/.test(address.postalCode)
-    ) {
-      throw new ApiError(
-        "VALIDATION_ERROR",
-        400,
-        "Confira os dados da clínica e o endereço.",
-      );
-    }
-    const stepData = contact
-      ? {
-          legalName: contact.legalName.trim(),
-          taxId: taxId || null,
-          contactEmail: contact.contactEmail.trim().toLowerCase(),
-          contactPhone: phone,
-        }
-      : {
-          postalCode: address?.postalCode,
-          state: address?.state.toUpperCase(),
-          city: address?.city.trim(),
-          district: address?.district.trim(),
-          street: address?.street.trim(),
-          streetNumber: address?.streetNumber.trim(),
-          addressComplement: address?.addressComplement.trim() || null,
-          detailsCompletedAt: new Date(),
-        };
+    const stepData = buildStepData();
     await this.prisma.$transaction(async (tx) => {
       const stillAdmin = await tx.membership.findFirst({
         where: {
@@ -196,7 +260,7 @@ export class OrganizationsService {
         );
       }
       const updated = await tx.organization.updateMany({
-        where: { id: org.id, detailsVersion: body.version },
+        where: { id: org.id, detailsVersion: version },
         data: {
           ...stepData,
           detailsVersion: { increment: 1 },
