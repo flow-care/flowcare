@@ -39,10 +39,6 @@ function ClinicHeader({
   inviterName?: string;
   description: string;
 }) {
-  const title = inviterName
-    ? `${inviterName} convidou você para a clínica '${organizationName}'`
-    : `Convite para a clínica '${organizationName}'`;
-
   return (
     <div className="flex flex-col items-center justify-center gap-3 py-1 text-center">
       <Avatar className="size-20">
@@ -57,7 +53,18 @@ function ClinicHeader({
       </Avatar>
       <div className="space-y-2">
         <h2 className="text-2xl font-semibold tracking-tight text-foreground">
-          {title}
+          {inviterName ? (
+            <>
+              {inviterName}{" "}
+              <span className="font-normal">convidou você para a clínica</span>{" "}
+              '{organizationName}'
+            </>
+          ) : (
+            <>
+              <span className="font-normal">Convite para a clínica</span> '
+              {organizationName}'
+            </>
+          )}
         </h2>
         <p className="text-sm text-muted-foreground">{description}</p>
       </div>
