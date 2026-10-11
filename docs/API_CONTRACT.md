@@ -622,13 +622,24 @@ O fluxo obrigatório é:
 #### `GET /me/profile`
 * **Descrição:** Consulta os dados da conta pessoal do usuário logado.
 * **Permissão:** Autenticado.
-* **Respostas:** `200 OK` (`{ "id": "usr_1", "fullName": "Dra. Maria Silva", "email": "maria@exemplo.com" }`).
+* **Respostas:** `200 OK` (`{ "id": "usr_1", "fullName": "Dra. Maria Silva", "email": "maria@exemplo.com", "photo": null }`). Quando há foto, `photo` contém somente `contentType` e `sizeBytes`; nenhum URL público é exposto.
 
 #### `PATCH /me/profile`
 * **Descrição:** Atualiza o nome completo ou foto de perfil pessoal.
 * **Permissão:** Autenticado.
-* **Body:** `{ "fullName": "Dra. Maria Silva Santos" }`
-* **Respostas:** `200 OK`.
+* **Body:** `{ "fullName": "Dra. Maria Silva Santos" }` (3 a 120 caracteres após remover espaços nas pontas). Outros campos, inclusive `email` e `userId`, são rejeitados.
+* **Respostas:** `200 OK` com o mesmo DTO de `GET /me/profile`; `400 VALIDATION_ERROR` para nome inválido.
+
+#### `POST /me/profile/photo`
+* **Descrição:** Envia foto da própria conta por `multipart/form-data` no campo `file`, sem depender de clínica. O servidor verifica o conteúdo e grava no armazenamento privado sob `users/{id}/profile/`. A foto anterior é removida após a substituição.
+* **Permissão:** Autenticado.
+* **Limite:** JPEG ou PNG, até **5 MiB (5.242.880 bytes)**. O tipo declarado deve corresponder à assinatura do arquivo.
+* **Respostas:** `200 OK` com o DTO de `GET /me/profile`; `400 VALIDATION_ERROR` para tipo/conteúdo inválido; `413 FILE_TOO_LARGE`; `503 STORAGE_UNAVAILABLE`.
+
+#### `GET /me/profile/photo/download-url`
+* **Descrição:** Gera URL temporária de leitura da foto privada da própria conta, válida por 15 minutos.
+* **Permissão:** Autenticado.
+* **Respostas:** `200 OK` (`{ "downloadUrl": "...", "expiresInSeconds": 900 }`); `404 NOT_FOUND` se não houver foto.
 
 #### `POST /me/change-password`
 * **Descrição:** Altera a senha do usuário solicitando a senha atual como confirmação de segurança. Revoga atomicamente as outras sessões; a sessão atual permanece ativa.

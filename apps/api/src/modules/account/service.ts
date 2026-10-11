@@ -1,25 +1,35 @@
 import { hash, verify as verifyHash } from "argon2";
+import { fileType } from "elysia";
 import type { PrismaClient } from "../../generated/prisma/client";
 import {
   safeSessionIpAddress,
   summarizeUserAgent,
 } from "../../lib/session-metadata";
 import {
+  PROFILE_PHOTO_URL_TTL_SECONDS,
+  type ProfilePhotoStore,
+} from "../../services/profile-photo-store";
+import {
   InvalidCurrentPassword,
+  ProfilePhotoNotFound,
   SessionNotFound,
+  StorageUnavailable,
   UserNotFound,
 } from "./errors";
 import type {
   ChangePasswordBody,
   ChangePasswordResponse,
+  ProfilePhotoUrlResponse,
   ProfileResponse,
   RevokeSessionResponse,
   SessionRevocationAction,
   SessionsResponse,
+  UpdateProfileBody,
 } from "./model";
 
 export interface AccountDeps {
   prisma: PrismaClient;
+  photoStore?: ProfilePhotoStore | null;
 }
 
 export class AccountService {
@@ -171,11 +181,86 @@ export class AccountService {
   async getProfile(userId: string): Promise<ProfileResponse> {
     const user = await this.deps.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, fullName: true, email: true },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        profilePhotoContentType: true,
+        profilePhotoSizeBytes: true,
+      },
     });
     if (!user) {
       throw UserNotFound();
     }
-    return user;
+    return {
+      id: user.id,
+      fullName: user.fullName,
+      email: user.email,
+      photo:
+        user.profilePhotoContentType && user.profilePhotoSizeBytes
+          ? {
+              contentType: user.profilePhotoContentType,
+              sizeBytes: user.profilePhotoSizeBytes,
+            }
+          : null,
+    };
+  }
+
+  async updateProfile(
+    userId: string,
+    body: UpdateProfileBody,
+  ): Promise<ProfileResponse> {
+    const fullName = body.fullName.trim();
+    const updated = await this.deps.prisma.user.updateMany({
+      where: { id: userId },
+      data: { fullName },
+    });
+    if (updated.count === 0) throw UserNotFound();
+    return this.getProfile(userId);
+  }
+
+  async uploadPhoto(userId: string, file: File): Promise<ProfileResponse> {
+    await fileType(file, file.type);
+    const store = this.deps.photoStore;
+    if (!store) throw StorageUnavailable();
+    const existing = await this.deps.prisma.user.findUnique({
+      where: { id: userId },
+      select: { profilePhotoKey: true },
+    });
+    if (!existing) throw UserNotFound();
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const key = `users/${userId}/profile/${crypto.randomUUID()}`;
+    await store.put(key, bytes, file.type);
+    try {
+      await this.deps.prisma.user.update({
+        where: { id: userId },
+        data: {
+          profilePhotoKey: key,
+          profilePhotoContentType: file.type,
+          profilePhotoSizeBytes: bytes.length,
+        },
+      });
+    } catch (error) {
+      await store.delete(key).catch(() => {});
+      throw error;
+    }
+    if (existing.profilePhotoKey)
+      await store.delete(existing.profilePhotoKey).catch(() => {});
+    return this.getProfile(userId);
+  }
+
+  async getPhotoUrl(userId: string): Promise<ProfilePhotoUrlResponse> {
+    const user = await this.deps.prisma.user.findUnique({
+      where: { id: userId },
+      select: { profilePhotoKey: true },
+    });
+    if (!user) throw UserNotFound();
+    if (!user.profilePhotoKey) throw ProfilePhotoNotFound();
+    const store = this.deps.photoStore;
+    if (!store) throw StorageUnavailable();
+    return {
+      downloadUrl: await store.downloadUrl(user.profilePhotoKey),
+      expiresInSeconds: PROFILE_PHOTO_URL_TTL_SECONDS,
+    };
   }
 }

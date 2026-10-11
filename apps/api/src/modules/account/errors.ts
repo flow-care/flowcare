@@ -10,5 +10,11 @@ export const InvalidCurrentPassword = () =>
 export const UserNotFound = () =>
   new ApiError("NOT_FOUND", 404, "Usuário não encontrado.");
 
+export const ProfilePhotoNotFound = () =>
+  new ApiError("NOT_FOUND", 404, "Foto não encontrada.");
+
+export const StorageUnavailable = () =>
+  new ApiError("STORAGE_UNAVAILABLE", 503, "Armazenamento indisponível.");
+
 export const SessionNotFound = () =>
   new ApiError("NOT_FOUND", 404, "Sessão não encontrada.");

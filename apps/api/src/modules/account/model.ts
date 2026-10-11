@@ -1,7 +1,7 @@
 import { t } from "elysia";
 
 /**
- * Schemas TypeBox para o módulo account (Issues #332, #333 / docs/API_CONTRACT.md §3 Módulo 14).
+ * Schemas TypeBox para o módulo account (Issues #331, #332, #333 / docs/API_CONTRACT.md §3 Módulo 14).
  * Fontes de verdade tipadas para validação de entrada e saída.
  */
 
@@ -66,6 +66,9 @@ export const profileResponse = t.Object(
     id: t.String(),
     fullName: t.String(),
     email: t.String({ format: "email" }),
+    photo: t.Nullable(
+      t.Object({ contentType: t.String(), sizeBytes: t.Integer() }),
+    ),
   },
   { additionalProperties: false },
 );
@@ -88,3 +91,39 @@ export type RevokeSessionParams = typeof revokeSessionParams.static;
 export type RevokeSessionResponse = typeof revokeSessionResponse.static;
 export type SessionRevocationAction = typeof sessionRevocationAction.static;
 export type ProfileResponse = typeof profileResponse.static;
+
+export const updateProfileBody = t.Object(
+  {
+    fullName: t.String({
+      minLength: 3,
+      maxLength: 120,
+      pattern: "^\\s*\\S[\\s\\S]+\\S\\s*$",
+    }),
+    email: t.Optional(t.Never()),
+    userId: t.Optional(t.Never()),
+    id: t.Optional(t.Never()),
+  },
+  { additionalProperties: false },
+);
+export type UpdateProfileBody = typeof updateProfileBody.static;
+
+export const profilePhotoBody = t.Object(
+  {
+    file: t.File({
+      type: ["image/jpeg", "image/png"],
+      minSize: 1,
+      maxSize: "5m",
+    }),
+  },
+  { additionalProperties: false },
+);
+export type ProfilePhotoBody = typeof profilePhotoBody.static;
+
+export const profilePhotoUrlResponse = t.Object(
+  {
+    downloadUrl: t.String(),
+    expiresInSeconds: t.Integer(),
+  },
+  { additionalProperties: false },
+);
+export type ProfilePhotoUrlResponse = typeof profilePhotoUrlResponse.static;

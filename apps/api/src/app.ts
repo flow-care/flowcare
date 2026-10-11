@@ -14,6 +14,11 @@ import { storageModule } from "./modules/storage";
 import { createSesWebhook } from "./modules/webhooks/ses";
 import { requestLogger } from "./plugins/request-logger";
 import type { Mailer } from "./services/mailer";
+import {
+  createProfilePhotoStore,
+  PROFILE_PHOTO_MAX_BYTES,
+  type ProfilePhotoStore,
+} from "./services/profile-photo-store";
 
 /**
  * Aplicação Elysia — montada via `createApp(env, deps)` para manter o app
@@ -27,6 +32,7 @@ import type { Mailer } from "./services/mailer";
 export interface AppDeps {
   prisma: PrismaClient;
   mailer: Mailer;
+  profilePhotoStore?: ProfilePhotoStore | null;
 }
 
 const WAHA_PROBE_TIMEOUT_MS = 1500;
@@ -73,6 +79,10 @@ export function createApp(env: Env, deps: AppDeps) {
     prisma: deps.prisma,
     jwtSecret: env.jwtSecret,
   };
+  const photoStore =
+    deps.profilePhotoStore === undefined
+      ? createProfilePhotoStore(env)
+      : deps.profilePhotoStore;
 
   const app = new Elysia({ prefix: "/api" })
     .use(requestLogger)
@@ -120,7 +130,23 @@ export function createApp(env: Env, deps: AppDeps) {
             error: { code: "NOT_FOUND", message: "Recurso não encontrado." },
           });
         case "VALIDATION":
+        case "INVALID_FILE_TYPE":
         case "PARSE": {
+          if (
+            code === "VALIDATION" &&
+            error.all.some(
+              (item) =>
+                item.value instanceof Blob &&
+                item.value.size > PROFILE_PHOTO_MAX_BYTES,
+            )
+          ) {
+            return status(413, {
+              error: {
+                code: "FILE_TOO_LARGE",
+                message: "Foto deve ter no máximo 5 MiB.",
+              },
+            });
+          }
           const path =
             code === "VALIDATION" && error.type === "body"
               ? error.all.find((issue) =>
@@ -148,7 +174,13 @@ export function createApp(env: Env, deps: AppDeps) {
     .use(authModule(authDeps))
     .use(onboardingModule(onboardingDeps))
     .use(organizationsModule({ prisma: deps.prisma, jwtSecret: env.jwtSecret }))
-    .use(accountModule({ prisma: deps.prisma, jwtSecret: env.jwtSecret }))
+    .use(
+      accountModule({
+        prisma: deps.prisma,
+        jwtSecret: env.jwtSecret,
+        photoStore,
+      }),
+    )
     .use(
       inviteModule({
         prisma: deps.prisma,

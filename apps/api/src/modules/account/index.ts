@@ -1,16 +1,21 @@
 import { Elysia } from "elysia";
 import type { PrismaClient } from "../../generated/prisma/client";
 import { authPlugin } from "../../plugins/auth";
+import type { ProfilePhotoStore } from "../../services/profile-photo-store";
 import * as m from "./model";
 import { AccountService } from "./service";
 
 export interface AccountModuleDeps {
   prisma: PrismaClient;
   jwtSecret: string;
+  photoStore?: ProfilePhotoStore | null;
 }
 
 export function accountModule(deps: AccountModuleDeps) {
-  const service = new AccountService({ prisma: deps.prisma });
+  const service = new AccountService({
+    prisma: deps.prisma,
+    photoStore: deps.photoStore,
+  });
 
   return new Elysia({ name: "account" })
     .model(m.accountModels)
@@ -47,5 +52,28 @@ export function accountModule(deps: AccountModuleDeps) {
     )
     .get("/me/profile", ({ auth }) => service.getProfile(auth.userId), {
       response: { 200: m.profileResponse },
-    });
+    })
+    .patch(
+      "/me/profile",
+      ({ auth, body }) => service.updateProfile(auth.userId, body),
+      {
+        body: m.updateProfileBody,
+        response: { 200: m.profileResponse },
+      },
+    )
+    .post(
+      "/me/profile/photo",
+      ({ auth, body }) => service.uploadPhoto(auth.userId, body.file),
+      {
+        body: m.profilePhotoBody,
+        response: { 200: m.profileResponse },
+      },
+    )
+    .get(
+      "/me/profile/photo/download-url",
+      ({ auth }) => service.getPhotoUrl(auth.userId),
+      {
+        response: { 200: m.profilePhotoUrlResponse },
+      },
+    );
 }
