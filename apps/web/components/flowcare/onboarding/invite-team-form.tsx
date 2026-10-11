@@ -267,6 +267,7 @@ export function InviteTeamForm({
           {(pending) => (
             <Button
               type="button"
+              variant={invites.length ? "default" : "outline"}
               size="form"
               disabled={finishing || pending || Boolean(busyId)}
               onClick={() => void finish()}
