@@ -9,12 +9,24 @@ export interface CurrentUserProfile {
   id: string;
   email: string;
   fullName: string;
+  photoUrl?: string | null;
 }
 
 const userProfileSchema = z.object({
   id: z.string().min(1),
   email: z.string().email(),
   fullName: z.string(),
+  photo: z
+    .object({
+      contentType: z.string(),
+      sizeBytes: z.number(),
+    })
+    .nullable()
+    .optional(),
+});
+
+const photoDownloadSchema = z.object({
+  downloadUrl: z.string().url(),
 });
 
 export async function getInviteDetails(
@@ -49,12 +61,13 @@ export async function getCurrentUser(): Promise<CurrentUserProfile | null> {
   if (!token) return null;
   try {
     const { apiBaseUrl } = getServerConfig();
+    const headers = {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json",
+    };
     const response = await fetch(`${apiBaseUrl}/me/profile`, {
       method: "GET",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/json",
-      },
+      headers,
       cache: "no-store",
       redirect: "error",
       signal: AbortSignal.timeout(10_000),
@@ -62,7 +75,35 @@ export async function getCurrentUser(): Promise<CurrentUserProfile | null> {
     if (!response.ok) return null;
     const data: unknown = await response.json();
     const parsed = userProfileSchema.safeParse(data);
-    return parsed.success ? parsed.data : null;
+    if (!parsed.success) return null;
+
+    let photoUrl: string | null = null;
+    if (parsed.data.photo) {
+      const photoRes = await fetch(
+        `${apiBaseUrl}/me/profile/photo/download-url`,
+        {
+          method: "GET",
+          headers,
+          cache: "no-store",
+          redirect: "error",
+          signal: AbortSignal.timeout(5_000),
+        },
+      ).catch(() => null);
+      if (photoRes?.ok) {
+        const photoJson: unknown = await photoRes.json().catch(() => null);
+        const parsedPhoto = photoDownloadSchema.safeParse(photoJson);
+        if (parsedPhoto.success) {
+          photoUrl = parsedPhoto.data.downloadUrl;
+        }
+      }
+    }
+
+    return {
+      id: parsed.data.id,
+      email: parsed.data.email,
+      fullName: parsed.data.fullName,
+      photoUrl,
+    };
   } catch {
     return null;
   }
