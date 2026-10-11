@@ -31,46 +31,34 @@ function initialLetter(value: string) {
   return value.trim().charAt(0).toUpperCase() || "?";
 }
 
-function InviteInfoCard({
-  label,
-  value,
-  subvalue,
-  avatarSeed,
-  avatarUrl,
-  badge,
+function ClinicHeader({
+  organizationName,
+  role,
 }: {
-  label: string;
-  value: string;
-  subvalue?: string;
-  avatarSeed: string;
-  avatarUrl?: string | null;
-  badge?: string;
+  organizationName: string;
+  role: string;
 }) {
   return (
-    <Card size="sm">
-      <CardContent className="flex items-center justify-between gap-3">
-        <div className="flex min-w-0 flex-1 items-center gap-3">
-          <Avatar>
-            <AvatarImage
-              src={avatarUrl || dicebearInitialUrl(avatarSeed)}
-              alt=""
-              referrerPolicy="no-referrer"
-            />
-            <AvatarFallback>{initialLetter(avatarSeed)}</AvatarFallback>
-          </Avatar>
-          <div className="min-w-0 flex-1">
-            <span className="block text-xs text-muted-foreground">{label}</span>
-            <p className="truncate font-medium text-foreground">{value}</p>
-            {subvalue && (
-              <p className="truncate text-xs text-muted-foreground">
-                {subvalue}
-              </p>
-            )}
-          </div>
-        </div>
-        {badge && <Badge variant="outline">{badge}</Badge>}
-      </CardContent>
-    </Card>
+    <div className="flex flex-col items-center justify-center gap-2 py-2 text-center">
+      <Avatar className="size-16 ring-2 ring-border/50">
+        <AvatarImage
+          src={dicebearInitialUrl(organizationName)}
+          alt={organizationName}
+          referrerPolicy="no-referrer"
+        />
+        <AvatarFallback className="text-xl font-semibold">
+          {initialLetter(organizationName)}
+        </AvatarFallback>
+      </Avatar>
+      <div className="space-y-1">
+        <h3 className="text-xl font-semibold tracking-tight text-foreground">
+          {organizationName}
+        </h3>
+        <Badge variant="secondary" className="font-medium">
+          {formatInviteRole(role)}
+        </Badge>
+      </div>
+    </div>
   );
 }
 
@@ -140,27 +128,40 @@ export function AcceptInvite({
   if (!currentUser) {
     return (
       <div className="space-y-6">
+        <ClinicHeader
+          organizationName={invite.organizationName}
+          role={invite.role}
+        />
         <div className="space-y-2 text-center">
           <h2 className="text-2xl font-semibold tracking-tight text-foreground">
-            Convite para clínica
+            Convite para equipe
           </h2>
           <p className="text-sm text-muted-foreground">
             Você foi convidado para integrar a equipe desta clínica no Flowcare.
           </p>
         </div>
-        <div className="space-y-3">
-          <InviteInfoCard
-            label="Clínica"
-            value={invite.organizationName}
-            avatarSeed={invite.organizationName}
-            badge={formatInviteRole(invite.role)}
-          />
-          <InviteInfoCard
-            label="Convite emitido para"
-            value={invite.email}
-            avatarSeed={invite.email}
-          />
-        </div>
+        <Card size="sm">
+          <CardContent className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              <Avatar>
+                <AvatarImage
+                  src={dicebearInitialUrl(invite.email)}
+                  alt=""
+                  referrerPolicy="no-referrer"
+                />
+                <AvatarFallback>{initialLetter(invite.email)}</AvatarFallback>
+              </Avatar>
+              <div className="min-w-0 flex-1">
+                <span className="block text-xs text-muted-foreground">
+                  Convite emitido para
+                </span>
+                <p className="truncate font-medium text-foreground">
+                  {invite.email}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
         <p className="text-center text-xs text-muted-foreground">
           Para aceitar o convite, acesse sua conta existente ou crie uma conta
           com o e-mail indicado acima.
@@ -189,6 +190,10 @@ export function AcceptInvite({
   if (isEmailMismatch) {
     return (
       <div className="space-y-6">
+        <ClinicHeader
+          organizationName={invite.organizationName}
+          role={invite.role}
+        />
         <div className="space-y-2 text-center">
           <h2 className="text-2xl font-semibold tracking-tight text-foreground">
             E-mail incompatível
@@ -198,23 +203,60 @@ export function AcceptInvite({
           </p>
         </div>
         <div className="space-y-3">
-          <InviteInfoCard
-            label="Clínica"
-            value={invite.organizationName}
-            avatarSeed={invite.organizationName}
-            badge={formatInviteRole(invite.role)}
-          />
-          <InviteInfoCard
-            label="Convite emitido para"
-            value={invite.email}
-            avatarSeed={invite.email}
-          />
-          <InviteInfoCard
-            label="Sua sessão atual"
-            value={currentUser.email}
-            avatarSeed={currentUser.fullName || currentUser.email}
-            avatarUrl={currentUser.photoUrl}
-          />
+          <Card size="sm">
+            <CardContent className="flex items-center justify-between gap-3">
+              <div className="flex min-w-0 flex-1 items-center gap-3">
+                <Avatar>
+                  <AvatarImage
+                    src={dicebearInitialUrl(invite.email)}
+                    alt=""
+                    referrerPolicy="no-referrer"
+                  />
+                  <AvatarFallback>{initialLetter(invite.email)}</AvatarFallback>
+                </Avatar>
+                <div className="min-w-0 flex-1">
+                  <span className="block text-xs text-muted-foreground">
+                    Convite emitido para
+                  </span>
+                  <p className="truncate font-medium text-foreground">
+                    {invite.email}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          <Card size="sm">
+            <CardContent className="flex items-center justify-between gap-3">
+              <div className="flex min-w-0 flex-1 items-center gap-3">
+                <Avatar>
+                  <AvatarImage
+                    src={
+                      currentUser.photoUrl ||
+                      dicebearInitialUrl(
+                        currentUser.fullName || currentUser.email,
+                      )
+                    }
+                    alt=""
+                    referrerPolicy="no-referrer"
+                  />
+                  <AvatarFallback>
+                    {initialLetter(currentUser.fullName || currentUser.email)}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-medium text-foreground">
+                    {currentUser.fullName || currentUser.email}
+                  </p>
+                  {currentUser.fullName && (
+                    <p className="truncate text-xs text-muted-foreground">
+                      {currentUser.email}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <Badge variant="outline">Sua sessão atual</Badge>
+            </CardContent>
+          </Card>
         </div>
         <p className="text-center text-xs text-muted-foreground">
           Para aceitar este convite, saia da conta atual e entre utilizando o
@@ -237,28 +279,51 @@ export function AcceptInvite({
   // Estado 4: Usuário autenticado com e-mail correto — pronto para aceitar
   return (
     <div className="space-y-6">
+      <ClinicHeader
+        organizationName={invite.organizationName}
+        role={invite.role}
+      />
       <div className="space-y-2 text-center">
         <h2 className="text-2xl font-semibold tracking-tight text-foreground">
-          Convite para clínica
+          Convite para equipe
         </h2>
         <p className="text-sm text-muted-foreground">
-          Você foi convidado para integrar a equipe desta clínica.
+          Confirme para ingressar na equipe com sua sessão atual.
         </p>
       </div>
       <div className="space-y-3">
-        <InviteInfoCard
-          label="Clínica"
-          value={invite.organizationName}
-          avatarSeed={invite.organizationName}
-          badge={formatInviteRole(invite.role)}
-        />
-        <InviteInfoCard
-          label="Sua sessão atual"
-          value={currentUser.fullName || currentUser.email}
-          subvalue={currentUser.fullName ? currentUser.email : undefined}
-          avatarSeed={currentUser.fullName || currentUser.email}
-          avatarUrl={currentUser.photoUrl}
-        />
+        <Card size="sm">
+          <CardContent className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              <Avatar>
+                <AvatarImage
+                  src={
+                    currentUser.photoUrl ||
+                    dicebearInitialUrl(
+                      currentUser.fullName || currentUser.email,
+                    )
+                  }
+                  alt=""
+                  referrerPolicy="no-referrer"
+                />
+                <AvatarFallback>
+                  {initialLetter(currentUser.fullName || currentUser.email)}
+                </AvatarFallback>
+              </Avatar>
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-medium text-foreground">
+                  {currentUser.fullName || currentUser.email}
+                </p>
+                {currentUser.fullName && (
+                  <p className="truncate text-xs text-muted-foreground">
+                    {currentUser.email}
+                  </p>
+                )}
+              </div>
+            </div>
+            <Badge variant="outline">Sua sessão atual</Badge>
+          </CardContent>
+        </Card>
       </div>
       <Button
         type="button"
