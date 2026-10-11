@@ -531,10 +531,45 @@ O fluxo obrigatório é:
 ### Módulo 9: Modelos de Documentos
 *(Ref: Issues [#287](https://github.com/Flowcare-team/flowcare-monorepo/issues/287)–[#290](https://github.com/Flowcare-team/flowcare-monorepo/issues/290))*
 
-#### `GET /organizations/:orgSlug/document-templates`
-* **Descrição:** Lista os modelos de receitas e atestados configurados na clínica.
-* **Permissão:** `templates:read`.
-* **Respostas:** `200 OK`.
+#### `GET /organizations/:orgSlug/templates` (alias: `GET /organizations/:orgSlug/document-templates`)
+* **Descrição:** Lista os modelos de documentos clínicos pertencentes à clínica ativa e os modelos globais homologados (`organizationId: null`), com filtros por tipo, estado, versão, busca textual e seleção para novas emissões. Modelos de outras clínicas nunca são retornados.
+* **Permissão:** `templates:read` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL`).
+* **Query Params:** `?type=PRESCRIPTION|CERTIFICATE|REPORT|EXAM_REQUEST&status=ACTIVE|ARCHIVED&version=1&selectableOnly=true&includeArchived=true&search=atestado&limit=20&cursor=<uuid>`
+  * Quando `selectableOnly=true` ou `includeArchived=false`, modelos `ARCHIVED` são excluídos para impedir seu uso em novas emissões.
+  * Na listagem geral/histórico, modelos `ARCHIVED` permanecem visíveis com `selectable: false` e `archivedAt` preenchido.
+* **Respostas:**
+  * `200 OK`:
+    ```json
+    {
+      "data": [
+        {
+          "id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2",
+          "organizationId": "11111111-1111-4111-8111-111111111111",
+          "scope": "ORGANIZATION",
+          "isGlobal": false,
+          "title": "Atestado 3 Dias",
+          "type": "CERTIFICATE",
+          "bodyTemplate": "Atesto para os devidos fins que {paciente_nome}...",
+          "status": "ACTIVE",
+          "version": 1,
+          "selectable": true,
+          "archivedAt": null,
+          "createdAt": "2026-10-02T10:00:00.000Z",
+          "updatedAt": "2026-10-02T10:00:00.000Z"
+        }
+      ],
+      "pageInfo": {
+        "nextCursor": null,
+        "hasNextPage": false
+      }
+    }
+    ```
+  * `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 MEMBERSHIP_INACTIVE`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`.
+
+#### `GET /organizations/:orgSlug/templates/variables` e `GET /templates/variables`
+* **Descrição:** Retorna o catálogo estruturado de variáveis dinâmicas homologadas suportadas pela aplicação (ex: `{paciente_nome}`, `{paciente_cpf}`, `{clinica_nome}`, `{profissional_nome}`, `{data_atual}`), com chave, placeholder, rótulo, descrição, tipo, categoria (`PATIENT`, `CLINIC`, `PROFESSIONAL`, `DOCUMENT`), obrigatoriedade, origem e exemplo.
+* **Permissão:** `templates:read` na rota organizacional (`/organizations/:orgSlug/templates/variables`) e sessão autenticada na rota global (`/templates/variables`).
+* **Respostas:** `200 OK` (`{ "data": [ { "key": "paciente_nome", "placeholder": "{paciente_nome}", "label": "Nome do paciente", "description": "...", "type": "string", "category": "PATIENT", "required": true, "source": "patient.fullName", "example": "Maria da Silva" } ] }`), `401 UNAUTHENTICATED`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`.
 
 #### `POST /organizations/:orgSlug/document-templates`
 * **Descrição:** Cria um modelo de documento com campos dinâmicos (ex: `{paciente_nome}`).
