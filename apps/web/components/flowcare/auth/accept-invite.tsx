@@ -68,24 +68,18 @@ function CurrentSessionBadge({
           <Avatar className="size-5">
             <AvatarImage
               src={
-                currentUser.photoUrl ||
-                dicebearInitialUrl(currentUser.fullName || currentUser.email)
+                currentUser.photoUrl || dicebearInitialUrl(currentUser.email)
               }
               alt=""
               referrerPolicy="no-referrer"
             />
             <AvatarFallback className="text-[10px]">
-              {initialLetter(currentUser.fullName || currentUser.email)}
+              {initialLetter(currentUser.email)}
             </AvatarFallback>
           </Avatar>
           <span className="truncate text-xs font-medium text-foreground">
-            {currentUser.fullName || currentUser.email}
+            {currentUser.email}
           </span>
-          {currentUser.fullName && (
-            <span className="truncate text-xs text-muted-foreground">
-              ({currentUser.email})
-            </span>
-          )}
         </Badge>
       </div>
     </div>
