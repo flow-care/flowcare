@@ -10,6 +10,7 @@ import {
   sendTeamInvite,
   updateTeamInvite,
 } from "@/app/onboarding/invite-team/actions";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -234,7 +235,12 @@ export function InviteTeamForm({
                 key={invite.id}
                 className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-card p-3"
               >
-                <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 flex-1 items-center gap-3">
+                  <Avatar>
+                    <AvatarFallback>
+                      {invite.email.charAt(0).toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
                   <p className="truncate text-sm font-medium">{invite.email}</p>
                 </div>
                 <div className="flex items-center gap-2">
