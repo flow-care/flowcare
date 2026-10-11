@@ -12,6 +12,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import type { InviteDetails } from "@/lib/invites";
 import type { CurrentUserProfile } from "@/server/invites";
@@ -25,10 +26,6 @@ interface AcceptInviteProps {
 function dicebearInitialUrl(value: string) {
   const seed = value.includes("@") ? value.split("@")[0] : value.trim();
   return `https://api.dicebear.com/10.x/initials/svg?seed=${encodeURIComponent(seed || value)}&lettersVariant=single`;
-}
-
-function initialLetter(value: string) {
-  return value.trim().charAt(0).toUpperCase() || "?";
 }
 
 function maskEmail(email: string) {
@@ -52,14 +49,14 @@ function ClinicHeader({
 }) {
   return (
     <div className="flex flex-col items-center justify-center gap-3 py-1 text-center">
-      <Avatar className="size-20">
+      <Avatar className="size-20 after:hidden">
         <AvatarImage
           src={dicebearInitialUrl(organizationName)}
           alt={organizationName}
           referrerPolicy="no-referrer"
         />
-        <AvatarFallback className="text-2xl font-semibold">
-          {initialLetter(organizationName)}
+        <AvatarFallback className="bg-transparent p-0">
+          <Skeleton className="size-full rounded-full" />
         </AvatarFallback>
       </Avatar>
       <h2 className="text-2xl font-semibold tracking-tight text-foreground">
@@ -101,14 +98,14 @@ function CurrentSessionBadge({
         variant="outline"
         className="inline-flex h-9 items-center gap-2.5 px-3.5 font-normal"
       >
-        <Avatar className="size-5">
+        <Avatar className="size-5 after:hidden">
           <AvatarImage
             src={currentUser.photoUrl || dicebearInitialUrl(currentUser.email)}
             alt=""
             referrerPolicy="no-referrer"
           />
-          <AvatarFallback className="text-[10px]">
-            {initialLetter(currentUser.email)}
+          <AvatarFallback className="bg-transparent p-0">
+            <Skeleton className="size-full rounded-full" />
           </AvatarFallback>
         </Avatar>
         <span className="truncate text-xs font-medium text-foreground">
@@ -217,13 +214,15 @@ export function AcceptInvite({
           inviterName={invite.inviterName}
         />
         <div className="flex items-center gap-3 rounded-lg bg-card p-3 shadow-none">
-          <Avatar className="size-10">
+          <Avatar className="size-10 after:hidden">
             <AvatarImage
               src={dicebearInitialUrl(invite.email)}
               alt=""
               referrerPolicy="no-referrer"
             />
-            <AvatarFallback>{initialLetter(invite.email)}</AvatarFallback>
+            <AvatarFallback className="bg-transparent p-0">
+              <Skeleton className="size-full rounded-full" />
+            </AvatarFallback>
           </Avatar>
           <div className="min-w-0 flex-1">
             <span className="block text-xs text-muted-foreground">
@@ -273,13 +272,15 @@ export function AcceptInvite({
         />
         <div className="space-y-4">
           <div className="flex items-center gap-3 rounded-lg bg-card p-3 shadow-none">
-            <Avatar className="size-10">
+            <Avatar className="size-10 after:hidden">
               <AvatarImage
                 src={dicebearInitialUrl(invite.email)}
                 alt=""
                 referrerPolicy="no-referrer"
               />
-              <AvatarFallback>{initialLetter(invite.email)}</AvatarFallback>
+              <AvatarFallback className="bg-transparent p-0">
+                <Skeleton className="size-full rounded-full" />
+              </AvatarFallback>
             </Avatar>
             <div className="min-w-0 flex-1">
               <span className="block text-xs text-muted-foreground">
