@@ -76,6 +76,7 @@ Em caso de falha (códigos HTTP 4xx e 5xx), a API responde com a seguinte estrut
 | **410** | `INVITE_EXPIRED` | O convite para a equipe expirou ou foi revogado. |
 | **422** | `BUSINESS_RULE_VIOLATION` | Violação de regra de negócio com estado válido (ex: campos clínicos obrigatórios ausentes para emissão). |
 | **429** | `RATE_LIMITED` | Limite de requisições excedido. |
+| **503** | `COMMUNICATION_PROVIDER_UNAVAILABLE` | Provedor de comunicação indisponível ou retornou uma resposta inválida. |
 | **500** | `INTERNAL` | Erro interno do servidor. Não exibe stack traces nem detalhes de infraestrutura em produção. |
 
 ---
@@ -557,7 +558,12 @@ O fluxo obrigatório é:
 #### `GET /organizations/:orgSlug/communications/whatsapp/status`
 * **Descrição:** Consulta o status da sessão do WhatsApp (conectado, desconectado, QR code pendente).
 * **Permissão:** `communications:read`.
-* **Respostas:** `200 OK` (`{ "status": "CONNECTED", "phoneNumber": "5511999998888" }`).
+* **Respostas:** `200 OK` (`{ "status": "CONNECTED", "phoneNumber": "5511999998888" }`). Estados normalizados: `CONNECTED`, `DISCONNECTED`, `QR_CODE_REQUIRED`, `CONNECTING` e `ERROR`; estados internos e credenciais do provedor não são expostos.
+
+#### `POST /organizations/:orgSlug/communications/whatsapp/reconnect`
+* **Descrição:** Cria ou reinicia a sessão privada da clínica e, quando o provedor solicitar pareamento, retorna o QR temporário com sua validade. O QR não é persistido e a resposta usa `Cache-Control: no-store`.
+* **Permissão:** `settings:write` (somente `ADMIN` e `ADMIN_PROFESSIONAL`).
+* **Respostas:** `200 OK` (`{ "status": "QR_CODE_REQUIRED", "phoneNumber": null, "qrCode": "data:image/png;base64,...", "qrExpiresAt": "2026-10-11T12:00:20.000Z" }`), `503 COMMUNICATION_PROVIDER_UNAVAILABLE`.
 
 #### `GET /organizations/:orgSlug/communications/messages`
 * **Descrição:** Lista o histórico paginado de mensagens operacionais com filtros por estado e período; telefone mascarado.

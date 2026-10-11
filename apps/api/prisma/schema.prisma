@@ -155,7 +155,20 @@ model Organization {
   invites       OrganizationInvite[]
   storageObjects StorageObject[]
   weeklyScheduleRules WeeklyScheduleRule[]
+  whatsappSession WhatsAppSession?
   activeUsers User[] @relation("ActiveOrganization")
+}
+
+// Private binding between a clinic and its provider session. The provider
+// credential and short-lived QR payloads are never stored in the database.
+model WhatsAppSession {
+  id                  String   @id @default(uuid()) @db.Uuid
+  organizationId      String   @unique @db.Uuid
+  providerSessionName String   @unique
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 }
 
 model WeeklyScheduleRule {

@@ -6,6 +6,7 @@ import { ApiError } from "./lib/api-error";
 import { accountModule } from "./modules/account";
 import { authModule } from "./modules/auth";
 import type { AuthDeps } from "./modules/auth/service";
+import { communicationsModule } from "./modules/communications";
 import { inviteModule } from "./modules/invites";
 import { onboardingModule } from "./modules/onboarding";
 import type { OnboardingDeps } from "./modules/onboarding/service";
@@ -19,6 +20,7 @@ import {
   PROFILE_PHOTO_MAX_BYTES,
   type ProfilePhotoStore,
 } from "./services/profile-photo-store";
+import { WahaClient, type WhatsAppProvider } from "./services/waha-client";
 
 /**
  * Aplicação Elysia — montada via `createApp(env, deps)` para manter o app
@@ -33,6 +35,7 @@ export interface AppDeps {
   prisma: PrismaClient;
   mailer: Mailer;
   profilePhotoStore?: ProfilePhotoStore | null;
+  whatsappProvider?: WhatsAppProvider;
 }
 
 const WAHA_PROBE_TIMEOUT_MS = 1500;
@@ -83,6 +86,9 @@ export function createApp(env: Env, deps: AppDeps) {
     deps.profilePhotoStore === undefined
       ? createProfilePhotoStore(env)
       : deps.profilePhotoStore;
+  const whatsappProvider =
+    deps.whatsappProvider ??
+    new WahaClient({ baseUrl: env.wahaBaseUrl, apiKey: env.wahaApiKey });
 
   const app = new Elysia({ prefix: "/api" })
     .use(requestLogger)
@@ -187,6 +193,13 @@ export function createApp(env: Env, deps: AppDeps) {
         jwtSecret: env.jwtSecret,
         mailer: deps.mailer,
         webAppUrl: env.webAppUrl,
+      }),
+    )
+    .use(
+      communicationsModule({
+        prisma: deps.prisma,
+        jwtSecret: env.jwtSecret,
+        provider: whatsappProvider,
       }),
     )
     .use(
