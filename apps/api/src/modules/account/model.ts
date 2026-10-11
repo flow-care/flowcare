@@ -1,7 +1,7 @@
 import { t } from "elysia";
 
 /**
- * Schemas TypeBox para o módulo account (Issue #332 / docs/API_CONTRACT.md §3 Módulo 14).
+ * Schemas TypeBox para o módulo account (Issues #332, #333 / docs/API_CONTRACT.md §3 Módulo 14).
  * Fontes de verdade tipadas para validação de entrada e saída.
  */
 
@@ -38,6 +38,29 @@ export const sessionsResponse = t.Object(
   { additionalProperties: false },
 );
 
+export const sessionIdParams = t.Object(
+  {
+    sessionId: t.String({
+      minLength: 1,
+      maxLength: 200,
+      pattern: "^\\S+$",
+    }),
+  },
+  { additionalProperties: false },
+);
+
+export const revokeSessionParams = sessionIdParams;
+
+export const revokeSessionResponse = t.Object(
+  { revokedCount: t.Integer({ minimum: 0 }) },
+  { additionalProperties: false },
+);
+
+export const sessionRevocationAction = t.Union([
+  t.Literal("SINGLE"),
+  t.Literal("OTHER"),
+]);
+
 export const profileResponse = t.Object(
   {
     id: t.String(),
@@ -47,8 +70,21 @@ export const profileResponse = t.Object(
   { additionalProperties: false },
 );
 
+export const accountModels = {
+  "account.changePasswordBody": changePasswordBody,
+  "account.changePasswordResponse": changePasswordResponse,
+  "account.sessionsResponse": sessionsResponse,
+  "account.sessionIdParams": sessionIdParams,
+  "account.revokeSessionResponse": revokeSessionResponse,
+  "account.profileResponse": profileResponse,
+} as const;
+
 export type ChangePasswordBody = typeof changePasswordBody.static;
 export type ChangePasswordResponse = typeof changePasswordResponse.static;
 export type SessionItem = typeof sessionItem.static;
 export type SessionsResponse = typeof sessionsResponse.static;
+export type SessionIdParams = typeof sessionIdParams.static;
+export type RevokeSessionParams = typeof revokeSessionParams.static;
+export type RevokeSessionResponse = typeof revokeSessionResponse.static;
+export type SessionRevocationAction = typeof sessionRevocationAction.static;
 export type ProfileResponse = typeof profileResponse.static;

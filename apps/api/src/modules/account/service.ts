@@ -4,11 +4,17 @@ import {
   safeSessionIpAddress,
   summarizeUserAgent,
 } from "../../lib/session-metadata";
-import { InvalidCurrentPassword, UserNotFound } from "./errors";
+import {
+  InvalidCurrentPassword,
+  SessionNotFound,
+  UserNotFound,
+} from "./errors";
 import type {
   ChangePasswordBody,
   ChangePasswordResponse,
   ProfileResponse,
+  RevokeSessionResponse,
+  SessionRevocationAction,
   SessionsResponse,
 } from "./model";
 
@@ -23,7 +29,7 @@ export class AccountService {
    * Altera a senha do usuário após validar a senha atual via Argon2id.
    * Não altera nada no banco se a senha atual for incorreta.
    * Revoga as outras sessões na mesma transação da troca de senha (#192).
-   * A sessão atual permanece ativa; revogação manual é tratada na #333.
+   * A sessão atual permanece ativa; revogação manual é realizada via revokeSession/revokeOtherSessions (#333).
    */
   async changePassword(
     userId: string,
@@ -45,6 +51,7 @@ export class AccountService {
     }
 
     const newHash = await hash(body.newPassword);
+    const now = new Date();
     await this.deps.prisma.$transaction(async (tx) => {
       await tx.user.update({
         where: { id: userId },
@@ -52,7 +59,7 @@ export class AccountService {
       });
       await tx.session.updateMany({
         where: { userId, id: { not: currentSessionId }, revokedAt: null },
-        data: { revokedAt: new Date() },
+        data: { revokedAt: now },
       });
     });
 
@@ -67,11 +74,12 @@ export class AccountService {
     userId: string,
     currentSessionId: string,
   ): Promise<SessionsResponse> {
+    const now = new Date();
     const sessions = await this.deps.prisma.session.findMany({
       where: {
         userId,
         revokedAt: null,
-        expiresAt: { gt: new Date() },
+        expiresAt: { gt: now },
       },
       select: {
         id: true,
@@ -91,6 +99,73 @@ export class AccountService {
         lastActiveAt: s.lastActiveAt.toISOString(),
       })),
     };
+  }
+
+  /**
+   * Revoga uma sessão ativa específica da própria conta e registra auditoria na mesma transação.
+   * Sessão inexistente, expirada, já revogada ou de outra conta retorna 404 NOT_FOUND sem gerar auditoria.
+   */
+  async revokeSession(
+    userId: string,
+    actorSessionId: string,
+    targetSessionId: string,
+  ): Promise<RevokeSessionResponse> {
+    const action: SessionRevocationAction = "SINGLE";
+    return this.deps.prisma.$transaction(async (tx) => {
+      const now = new Date();
+      const result = await tx.session.updateMany({
+        where: {
+          id: targetSessionId,
+          userId,
+          revokedAt: null,
+          expiresAt: { gt: now },
+        },
+        data: { revokedAt: now },
+      });
+      if (result.count === 0) throw SessionNotFound();
+      await tx.sessionRevocationAudit.create({
+        data: {
+          userId,
+          actorSessionId,
+          targetSessionId,
+          action,
+          revokedCount: result.count,
+        },
+      });
+      return { revokedCount: result.count };
+    });
+  }
+
+  /**
+   * Revoga todas as outras sessões ativas da própria conta (preservando a atual)
+   * e registra auditoria na mesma transação, inclusive quando nenhuma outra sessão estava ativa.
+   */
+  async revokeOtherSessions(
+    userId: string,
+    currentSessionId: string,
+  ): Promise<RevokeSessionResponse> {
+    const action: SessionRevocationAction = "OTHER";
+    return this.deps.prisma.$transaction(async (tx) => {
+      const now = new Date();
+      const result = await tx.session.updateMany({
+        where: {
+          userId,
+          id: { not: currentSessionId },
+          revokedAt: null,
+          expiresAt: { gt: now },
+        },
+        data: { revokedAt: now },
+      });
+      await tx.sessionRevocationAudit.create({
+        data: {
+          userId,
+          actorSessionId: currentSessionId,
+          action,
+          revokedCount: result.count,
+        },
+      });
+      return { revokedCount: result.count };
+    });
   }
 
   async getProfile(userId: string): Promise<ProfileResponse> {

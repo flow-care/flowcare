@@ -25,7 +25,7 @@ Este documento é a fonte de verdade para o contrato HTTP entre a API (`apps/api
 | **Tipagem e Contrato** | Os tipos de entrada e saída são derivados estritamente dos schemas Elysia/TypeBox e OpenAPI gerados. |
 
 > [!NOTE]
-> **Decisão #192 para o MVP:** A API usa `Authorization: Bearer <JWT>`. O JWT expira em 12 horas e exige uma `Session` ativa no banco. O Next.js guarda o token em cookie `HttpOnly`, `SameSite=Lax` e `Secure` em produção. Não há renovação automática; depois de 12 horas a pessoa faz login novamente. Logout da API e revogação manual ainda estão pendentes.
+> **Decisão #192 para o MVP:** A API usa `Authorization: Bearer <JWT>`. O JWT expira em 12 horas e exige uma `Session` ativa no banco. O Next.js guarda o token em cookie `HttpOnly`, `SameSite=Lax` e `Secure` em produção. Não há renovação automática; depois de 12 horas a pessoa faz login novamente. Logout da API ainda está pendente; revogação manual está disponível em `/me/sessions`.
 
 ### Contexto Organizacional Ativo
 
@@ -639,12 +639,13 @@ O fluxo obrigatório é:
 #### `DELETE /me/sessions/:sessionId`
 * **Descrição:** Revoga uma sessão específica.
 * **Permissão:** Autenticado.
-* **Respostas:** `200 OK`.
+* **Respostas:** `200 OK` (`{ "revokedCount": 1 }`); `404 NOT_FOUND` para sessão inexistente, expirada, já revogada ou de outra conta. Revogar a sessão atual invalida o token na próxima requisição.
 
 #### `DELETE /me/sessions/other`
 * **Descrição:** Revoga todas as outras sessões ativas, exceto a atual.
 * **Permissão:** Autenticado.
 * **Respostas:** `200 OK` (`{ "revokedCount": 2 }`).
+* **Auditoria:** Os dois comandos registram conta, sessão autora, alvo quando aplicável, quantidade e horário na mesma transação da revogação. O comando `other` é auditado mesmo quando a quantidade é zero.
 
 ---
 

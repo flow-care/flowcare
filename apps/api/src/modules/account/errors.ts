@@ -9,3 +9,6 @@ export const InvalidCurrentPassword = () =>
 
 export const UserNotFound = () =>
   new ApiError("NOT_FOUND", 404, "Usuário não encontrado.");
+
+export const SessionNotFound = () =>
+  new ApiError("NOT_FOUND", 404, "Sessão não encontrada.");

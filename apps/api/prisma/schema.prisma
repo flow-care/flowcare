@@ -91,6 +91,20 @@ model Session {
   @@index([userId])
 }
 
+// Registro permanente dos comandos de revogação da própria conta.
+// IDs são mantidos como valores históricos, sem FK para sessões que possam ser removidas.
+model SessionRevocationAudit {
+  id             String   @id @default(uuid()) @db.Uuid
+  userId         String   @db.Uuid
+  actorSessionId String   @db.Uuid
+  targetSessionId String?  @db.Uuid
+  action         String
+  revokedCount   Int
+  createdAt      DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
 // Tokens de uso único (verificação de e-mail, reset de senha).
 // O token em si NUNCA é armazenado: guardamos apenas o SHA-256.
 model VerificationToken {
