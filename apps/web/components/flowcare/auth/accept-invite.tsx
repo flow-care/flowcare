@@ -70,7 +70,7 @@ export function AcceptInvite({
   // Estado 1: Convite inválido, revogado ou expirado
   if (!invite) {
     return (
-      <Card className="rounded-xl border border-border bg-card">
+      <Card>
         <CardHeader className="text-center pb-2">
           <CardTitle className="text-xl font-semibold tracking-tight text-foreground">
             Convite indisponível
@@ -100,7 +100,7 @@ export function AcceptInvite({
   // Estado 2: Usuário não autenticado
   if (!currentUser) {
     return (
-      <Card className="rounded-xl border border-border bg-card">
+      <Card>
         <CardHeader className="text-center pb-2">
           <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
             Convite para clínica
@@ -162,7 +162,7 @@ export function AcceptInvite({
 
   if (isEmailMismatch) {
     return (
-      <Card className="rounded-xl border border-border bg-card">
+      <Card>
         <CardHeader className="text-center pb-2">
           <CardTitle className="text-xl font-semibold tracking-tight text-foreground">
             E-mail incompatível
@@ -221,7 +221,7 @@ export function AcceptInvite({
 
   // Estado 4: Usuário autenticado com e-mail correto — pronto para aceitar
   return (
-    <Card className="rounded-xl border border-border bg-card">
+    <Card>
       <CardHeader className="text-center pb-2">
         <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
           Convite para clínica
