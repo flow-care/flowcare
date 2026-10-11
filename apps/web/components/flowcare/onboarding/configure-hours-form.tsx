@@ -283,7 +283,8 @@ export function ConfigureHoursForm({ initial }: { initial: Schedule }) {
                       onChange={(event) => {
                         const startTime = event.target.value;
                         updateDay(index, (current) => {
-                          const target = current.intervals[0] ?? emptyInterval();
+                          const target =
+                            current.intervals[0] ?? emptyInterval();
                           return {
                             ...current,
                             intervals: [
@@ -315,7 +316,8 @@ export function ConfigureHoursForm({ initial }: { initial: Schedule }) {
                       onChange={(event) => {
                         const endTime = event.target.value;
                         updateDay(index, (current) => {
-                          const target = current.intervals[0] ?? emptyInterval();
+                          const target =
+                            current.intervals[0] ?? emptyInterval();
                           return {
                             ...current,
                             intervals: [
