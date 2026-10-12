@@ -104,6 +104,7 @@ model User {
   sessions           Session[]
   tokens             VerificationToken[]
   memberships        Membership[]
+  anamnesisTopicConfigs AnamnesisTopicConfig[]
   onboarding         OnboardingProgress?
   ownedOrganizations Organization[]      @relation("OrganizationOwner")
   activeOrganizationId String? @db.Uuid
@@ -191,6 +192,7 @@ model Organization {
 
   owner        User          @relation("OrganizationOwner", fields: [ownerId], references: [id], onDelete: Restrict)
   memberships  Membership[]
+  anamnesisTopicConfigs AnamnesisTopicConfig[]
   subscription Subscription?
   invites       OrganizationInvite[]
   storageObjects StorageObject[]
@@ -460,6 +462,35 @@ model Membership {
 
   @@unique([userId, organizationId])
   @@index([organizationId])
+}
+
+// The current revision is selected when a new anamnesis is created. Historical
+// revisions are immutable so an existing clinical record can retain its layout.
+model AnamnesisTopicConfig {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @db.Uuid
+  professionalId String   @db.Uuid
+  version        Int      @default(1)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  professional User @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  revisions AnamnesisTopicRevision[]
+
+  @@unique([organizationId, professionalId])
+}
+
+model AnamnesisTopicRevision {
+  id        String   @id @default(uuid()) @db.Uuid
+  configId  String   @db.Uuid
+  version   Int
+  topics    Json
+  createdAt DateTime @default(now())
+
+  config AnamnesisTopicConfig @relation(fields: [configId], references: [id], onDelete: Restrict)
+
+  @@unique([configId, version])
 }
 
 // Progresso do onboarding guiado (issue #215) — sobrevive a recarregar a página.

@@ -520,6 +520,19 @@ O fluxo obrigatório é:
 ---
 
 ### Módulo 7: Consultas Clínicas, Áudio & Anamnese
+
+#### `GET /organizations/:orgSlug/professionals/:professionalId/anamnesis-topics`
+* **Descrição:** Lista a configuração de tópicos do próprio profissional, na ordem de apresentação. Antes da primeira configuração retorna `version: 0`, `revisionId: null` e `topics: []`.
+* **Permissão:** Vínculo ativo `PROFESSIONAL` ou `ADMIN_PROFESSIONAL` do próprio `professionalId`. Administrador sem papel clínico e acesso a outro profissional recebem `403 PERMISSION_DENIED`.
+* **Resposta:** `200 OK` com `{ "professionalId": "uuid", "version": 1, "revisionId": "uuid", "topics": [{ "key": "history", "label": "Histórico", "active": true, "required": false, "order": 0 }] }`.
+
+#### `PUT /organizations/:orgSlug/professionals/:professionalId/anamnesis-topics`
+* **Descrição:** Substitui a lista ordenada e cria uma revisão imutável. A posição no array define a ordem. Chaves novas são opcionais; tópicos marcados como obrigatórios em uma revisão anterior não podem ser removidos nem desativados. A classificação obrigatória é controlada pelo sistema, não pelo payload.
+* **Permissão:** A mesma da leitura.
+* **Body:** `{ "version": 1, "topics": [{ "key": "history", "label": "Histórico", "active": true }] }`. `version` é a versão atual esperada, para evitar perda de alterações concorrentes. Máximo de 50 tópicos, chaves únicas.
+* **Respostas:** `200 OK` com a nova versão e `revisionId`; `400 VALIDATION_ERROR` para lista inválida ou retirada de obrigatório; `409 VERSION_CONFLICT` para versão desatualizada.
+
+O identificador `revisionId` da versão vigente deve ser armazenado pela futura criação de anamnese. O módulo de consultas/anamneses ainda não existe no backend; esta rota não altera anamneses existentes.
 *(Ref: Issues [#195](https://github.com/Flowcare-team/flowcare-monorepo/issues/195), [#262](https://github.com/Flowcare-team/flowcare-monorepo/issues/262)–[#267](https://github.com/Flowcare-team/flowcare-monorepo/issues/267))*
 
 #### `POST /organizations/:orgSlug/consultations`
