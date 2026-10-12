@@ -73,6 +73,7 @@ function fixture() {
             ]
           : [],
     },
+    scheduleException: { findFirst: async () => null },
     auditLog: {
       create: async ({ data }: { data: Record<string, unknown> }) => {
         audits.push(data);

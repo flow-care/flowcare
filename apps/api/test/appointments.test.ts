@@ -17,7 +17,7 @@ const professionalId = "33333333-3333-4333-8333-333333333333";
 const patientId = "44444444-4444-4444-8444-444444444444";
 const secret = "appointments-test-secret";
 
-function fixture(timezone = "America/Fortaleza") {
+function fixture(timezone = "America/Fortaleza", exception = false) {
   const appointmentQueries: Array<Record<string, unknown>> = [];
   let cursorOrganizationId = organizationId;
   let professionalOrganizationId = organizationId;
@@ -74,6 +74,17 @@ function fixture(timezone = "America/Fortaleza") {
         },
       ],
     },
+    scheduleException: {
+      findMany: async () =>
+        exception
+          ? [
+              {
+                startsAt: new Date("2026-10-12T11:00:00.000Z"),
+                endsAt: new Date("2026-10-12T11:30:00.000Z"),
+              },
+            ]
+          : [],
+    },
   } as unknown as PrismaClient;
 
   return {
@@ -104,7 +115,7 @@ type StoredAppointment = {
   createdAt: Date;
 };
 
-function bookingFixture(timezone = "America/Fortaleza") {
+function bookingFixture(timezone = "America/Fortaleza", exception = false) {
   const appointments: StoredAppointment[] = [];
   const auditEvents: Array<Record<string, unknown>> = [];
   const requests = new Map<
@@ -183,6 +194,15 @@ function bookingFixture(timezone = "America/Fortaleza") {
 
   const txClient = {
     $executeRaw: async () => 1,
+    scheduleException: {
+      findFirst: async () =>
+        exception
+          ? {
+              startsAt: new Date("2026-10-12T11:00:00.000Z"),
+              endsAt: new Date("2026-10-12T11:30:00.000Z"),
+            }
+          : null,
+    },
     organization: {
       findUniqueOrThrow: async () => ({ timezone }),
     },
@@ -498,6 +518,30 @@ describe("appointment queries (#236)", () => {
     });
   });
 
+  test("applies a clinic exception to available slots without deleting weekly rules", async () => {
+    const baseline = await fixture().service.availability(organizationId, {
+      date: "2026-10-12",
+      professionalId,
+    });
+    const blocked = await fixture(
+      "America/Fortaleza",
+      true,
+    ).service.availability(organizationId, {
+      date: "2026-10-12",
+      professionalId,
+    });
+    expect(
+      baseline.slots.some(
+        (slot) => slot.startsAt === "2026-10-12T11:00:00.000Z",
+      ),
+    ).toBe(true);
+    expect(
+      blocked.slots.some(
+        (slot) => slot.startsAt === "2026-10-12T11:00:00.000Z",
+      ),
+    ).toBe(false);
+  });
+
   test("does not accept a professional belonging only to another clinic", async () => {
     const f = fixture();
     f.setProfessionalOrganization(otherOrganizationId);
@@ -514,6 +558,21 @@ describe("appointment queries (#236)", () => {
 });
 
 describe("appointment booking (#237)", () => {
+  test("rejects a booking inside a clinic exception", async () => {
+    const f = bookingFixture("America/Fortaleza", true);
+    await expect(
+      f.service.create(organizationId, "booking-exception", {
+        patientId,
+        professionalId,
+        scheduledAt: "2026-10-12T11:00:00.000Z",
+        durationMinutes: 30,
+      }),
+    ).rejects.toMatchObject({
+      code: "SLOT_CONFLICT",
+      details: { reason: "SCHEDULE_PAUSE" },
+    });
+    expect(f.appointments).toHaveLength(0);
+  });
   test("creates a valid appointment within clinic weekly schedule rules", async () => {
     const f = bookingFixture();
     const result = await f.service.create(organizationId, "booking-key-0001", {

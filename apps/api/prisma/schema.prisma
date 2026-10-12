@@ -110,6 +110,7 @@ model User {
   activeOrganization Organization? @relation("ActiveOrganization", fields: [activeOrganizationId], references: [id], onDelete: SetNull)
   professionalAppointments Appointment[]
   professionalSchedulePauses ProfessionalSchedulePause[]
+  scheduleExceptions ScheduleException[]
   decidedConfirmations AppointmentConfirmation[] @relation("ConfirmationDecidedBy")
   confirmationDecisions ConfirmationDecision[]   @relation("ConfirmationDecisionAuthor")
   uploadedPatientAttachments PatientAttachment[] @relation("PatientAttachmentUploadedBy")
@@ -202,6 +203,7 @@ model Organization {
   confirmationDecisions ConfirmationDecision[]
   appointmentCreationRequests AppointmentCreationRequest[]
   professionalSchedulePauses ProfessionalSchedulePause[]
+  scheduleExceptions ScheduleException[]
   patients Patient[]
   patientCreationRequests PatientCreationRequest[]
   patientAttachments PatientAttachment[]
@@ -332,6 +334,22 @@ model ProfessionalSchedulePause {
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   professional User @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, professionalId, startsAt, endsAt])
+}
+
+model ScheduleException {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @db.Uuid
+  professionalId String?  @db.Uuid
+  startsAt       DateTime
+  endsAt         DateTime
+  timezone       String
+  reason         String?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  professional User? @relation(fields: [professionalId], references: [id], onDelete: Cascade)
 
   @@index([organizationId, professionalId, startsAt, endsAt])
 }

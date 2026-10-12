@@ -742,11 +742,31 @@ O fluxo obrigatório é:
 * **Permissão:** `organizations:read` (qualquer membro ativo da clínica).
 * **Respostas:** `200 OK` (`{ "downloadUrl": "...", "expiresInSeconds": 900 }`); `403 MEMBERSHIP_INACTIVE`; `404 NOT_FOUND` (sem vínculo ou sem logotipo cadastrado); `503 STORAGE_UNAVAILABLE`.
 
+#### `GET /organizations/:orgSlug/settings/schedule-rules`
+* **Permissão:** `settings:read` na clínica ativa.
+* **Resposta:** `200 OK` com `{ "timezone": "America/Fortaleza", "rules": [{ "dayOfWeek": "MONDAY", "startTime": "08:00", "endTime": "12:00", "slotDurationMinutes": 30 }] }`.
+
 #### `PUT /organizations/:orgSlug/settings/schedule-rules`
-* **Descrição:** Define os horários de funcionamento recorrentes e exceções/bloqueios na agenda.
+* **Descrição:** Substitui apenas a grade semanal da clínica; exceções permanecem. A alteração do fuso horário da clínica é explícita.
+* **Permissão:** `settings:write` (ADMIN ou ADMIN_PROFESSIONAL ativo).
+* **Body:** `{ "timezone": "America/Fortaleza", "rules": [{ "dayOfWeek": "MONDAY", "startTime": "08:00", "endTime": "12:00", "slotDurationMinutes": 30 }] }`. `rules: []` remove a grade.
+* **Respostas:** `200 OK` com o mesmo formato do GET; `400 VALIDATION_ERROR` para fuso, intervalo ou duração inválidos e sobreposição no mesmo dia.
+
+#### `GET /organizations/:orgSlug/settings/schedule-exceptions`
+* **Permissão:** `settings:read` na clínica ativa.
+* **Resposta:** `200 OK` com `{ "timezone": "America/Fortaleza", "exceptions": [{ "id": "<uuid>", "professionalId": null, "startsAt": "2026-12-25T00:00:00.000Z", "endsAt": "2026-12-26T00:00:00.000Z", "timezone": "America/Fortaleza", "reason": "Feriado" }] }`.
+
+#### `POST /organizations/:orgSlug/settings/schedule-exceptions`
+* **Descrição:** Cria bloqueio de intervalo UTC para toda a clínica (`professionalId` omitido) ou para um profissional ativo da clínica. Salva explicitamente o fuso da clínica no registro. A grade semanal não é alterada.
 * **Permissão:** `settings:write`.
-* **Body:** `{ "rules": [...], "blockedDates": ["2026-12-25"] }`
-* **Respostas:** `200 OK`.
+* **Body:** `{ "professionalId": "<uuid>", "startsAt": "2026-12-25T11:00:00.000Z", "endsAt": "2026-12-25T12:00:00.000Z", "reason": "Ausência" }`.
+* **Respostas:** `201 Created` com `{ "exception": { ... } }`; `400 VALIDATION_ERROR` para intervalo inválido; `404 NOT_FOUND` para profissional de outra clínica; `409 SCHEDULE_CONFLICT` para bloqueio sobreposto no mesmo escopo.
+
+#### `DELETE /organizations/:orgSlug/settings/schedule-exceptions/:exceptionId`
+* **Permissão:** `settings:write`.
+* **Respostas:** `200 OK` com `{ "deleted": true }`; `404 NOT_FOUND` para exceção inexistente ou de outra clínica.
+
+Bloqueios de clínica e profissional são aplicados por `GET /appointments/availability`, criação e alteração de agendamentos. Uma exceção não apaga a regra semanal; remover a exceção volta a expor os horários livres da grade.
 
 ---
 
