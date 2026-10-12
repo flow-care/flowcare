@@ -246,6 +246,15 @@ Em caso de falha (códigos HTTP 4xx e 5xx), a API responde com a seguinte estrut
 * **Descrição:** Retorna a última clínica escolhida somente enquanto o vínculo da conta com ela estiver ativo. É uma preferência de navegação, sem substituir a autorização por clínica.
 * **Respostas:** `200 OK` com `{ "activeOrganization": { "id": "...", "slug": "pet-saude" } }` ou `{ "activeOrganization": null }`; `401 UNAUTHENTICATED`.
 
+#### `GET /account/notifications/preferences`
+* **Descrição:** Lista somente as combinações de evento e canal disponíveis para a própria conta. No MVP atual, retorna `ACCOUNT_SECURITY` por `EMAIL`, com `enabled: true` e `required: true`. O evento cobre e-mails de verificação de conta e recuperação de senha. Canais de aplicativo e WhatsApp pessoal não são anunciados, pois não há entrega implementada. Preferências de WhatsApp para pacientes pertencem ao fluxo separado de comunicação por clínica.
+* **Respostas:** `200 OK` com `{ "preferences": [{ "event": "ACCOUNT_SECURITY", "channel": "EMAIL", "enabled": true, "required": true }] }`; `401 UNAUTHENTICATED`.
+
+#### `PUT /account/notifications/preferences`
+* **Descrição:** Substitui a lista de preferências da própria conta. O corpo deve conter exatamente as combinações oferecidas pelo GET, sem duplicatas. A preferência obrigatória deve permanecer habilitada.
+* **Body:** `{ "preferences": [{ "event": "ACCOUNT_SECURITY", "channel": "EMAIL", "enabled": true }] }`.
+* **Respostas:** `200 OK` com o mesmo formato do GET; `400 VALIDATION_ERROR` para combinação desconhecida ou lista incompleta; `400 REQUIRED_NOTIFICATION` ao tentar desabilitar um evento obrigatório; `401 UNAUTHENTICATED`.
+
 #### `GET /organizations/:orgSlug`
 * **Descrição:** Obtém os dados e preferências da clínica especificada pelo slug.
 * **Permissão:** Autenticado + Pertencer à clínica (`organizations:read`).
