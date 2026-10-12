@@ -384,11 +384,11 @@ O fluxo obrigatório é:
 * **Body:** `{ "fullName": "João Souza", "cpf": "529.982.247-25", "birthDate": "1985-05-20", "phone": "(11) 97777-6666", "distinctPersonConfirmed": false }`. `distinctPersonConfirmed` é opcional e deve ser enviado como `true` somente depois de a pessoa confirmar que o resultado sinalizado pertence a outro paciente.
 * **Respostas:** `201 Created` (`{ "patient": { "id", "fullName", "cpf", "birthDate", "phone", "version", "createdAt" } }`); `409 POSSIBLE_DUPLICATE` com `details.existingPatientId` e `details.matchedOn`; `409 IDEMPOTENCY_CONFLICT` quando a mesma chave é reutilizada com dados diferentes. Repetir o mesmo payload e a mesma chave retorna `201` com o cadastro original e não cria outro registro.
 
-#### `PATCH /organizations/:orgSlug/patients/:patientId`
-* **Descrição:** Atualiza os dados cadastrais do paciente com controle de concorrência.
+#### `PATCH /organizations/:orgSlug/patients/:patientId` (alias: `PUT /organizations/:orgSlug/patients/:patientId`)
+* **Descrição:** Atualiza os dados cadastrais permitidos do paciente (`fullName`, `cpf`, `birthDate`, `phone`) com controle de concorrência otimista (`version`) e registro em `AuditLog` (`PATIENT_UPDATED` com `actorUserId`, `changedFields`, `previousVersion`, `newVersion` e `updatedAt`) na mesma transação. Rejeita campos clínicos ou imutáveis no payload (`400 VALIDATION_ERROR`). Quando o `cpf` é alterado para o CPF de outro paciente da mesma clínica, exige `distinctPersonConfirmed: true` ou retorna `409 POSSIBLE_DUPLICATE`.
 * **Permissão:** `patients:write`.
-* **Body:** `{ "phone": "(11) 98888-5555", "version": 2 }`
-* **Respostas:** `200 OK`, `409 VERSION_CONFLICT`.
+* **Body:** `{ "fullName": "João Carlos Souza", "cpf": "529.982.247-25", "birthDate": "1985-05-20", "phone": "(11) 98888-5555", "distinctPersonConfirmed": false, "version": 2 }` (ao menos um campo cadastral além de `version` é obrigatório).
+* **Respostas:** `200 OK` (`{ "patient": { "id", "fullName", "cpf", "birthDate", "phone", "version", "createdAt", "updatedAt" } }`), `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 MEMBERSHIP_INACTIVE`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`, `409 POSSIBLE_DUPLICATE`, `409 VERSION_CONFLICT`.
 
 #### `GET /organizations/:orgSlug/patients/:patientId/timeline`
 * **Descrição:** Retorna a linha do tempo cronológica com consultas, documentos emitidos e anexos do paciente.
