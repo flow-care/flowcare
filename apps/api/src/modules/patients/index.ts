@@ -11,9 +11,14 @@ import {
   patientIdParams,
   patientOrganizationParams,
   patientOverviewResponse,
+  patientParams,
   patientResponse,
+  updatePatientBody,
 } from "./model";
-import { PatientsService } from "./service";
+import {
+  assertOnlyAllowedPatientUpdateFields,
+  PatientsService,
+} from "./service";
 
 export function patientsModule(deps: {
   prisma: PrismaClient;
@@ -76,6 +81,44 @@ export function patientsModule(deps: {
         body: createPatientBody,
         organizationAccess: "patients:write",
         response: { 201: patientResponse },
+      },
+    )
+    .patch(
+      "/organizations/:orgSlug/patients/:patientId",
+      ({ auth, organizationAccess, params, body }) =>
+        service.update(
+          organizationAccess.organizationId,
+          auth.userId,
+          params.patientId,
+          body,
+        ),
+      {
+        params: patientParams,
+        body: updatePatientBody,
+        transform({ body }) {
+          assertOnlyAllowedPatientUpdateFields(body);
+        },
+        organizationAccess: "patients:write",
+        response: { 200: patientResponse },
+      },
+    )
+    .put(
+      "/organizations/:orgSlug/patients/:patientId",
+      ({ auth, organizationAccess, params, body }) =>
+        service.update(
+          organizationAccess.organizationId,
+          auth.userId,
+          params.patientId,
+          body,
+        ),
+      {
+        params: patientParams,
+        body: updatePatientBody,
+        transform({ body }) {
+          assertOnlyAllowedPatientUpdateFields(body);
+        },
+        organizationAccess: "patients:write",
+        response: { 200: patientResponse },
       },
     );
 }
