@@ -114,6 +114,7 @@ model User {
   confirmationDecisions ConfirmationDecision[]   @relation("ConfirmationDecisionAuthor")
   uploadedPatientAttachments PatientAttachment[] @relation("PatientAttachmentUploadedBy")
   archivedPatientAttachments PatientAttachment[] @relation("PatientAttachmentArchivedBy")
+  notificationPreferences UserNotificationPreference[]
 
   @@index([email])
 }
@@ -131,6 +132,18 @@ model Session {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+model UserNotificationPreference {
+  userId String @db.Uuid
+  event String
+  channel String
+  enabled Boolean
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, event, channel])
 }
 
 // Registro permanente dos comandos de revogação da própria conta.

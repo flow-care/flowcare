@@ -9,6 +9,7 @@ import { authModule } from "./modules/auth";
 import type { AuthDeps } from "./modules/auth/service";
 import { communicationsModule } from "./modules/communications";
 import { inviteModule } from "./modules/invites";
+import { notificationsModule } from "./modules/notifications";
 import { onboardingModule } from "./modules/onboarding";
 import type { OnboardingDeps } from "./modules/onboarding/service";
 import { organizationsModule } from "./modules/organizations";
@@ -212,6 +213,7 @@ export function createApp(env: Env, deps: AppDeps) {
         photoStore,
       }),
     )
+    .use(notificationsModule({ prisma: deps.prisma, jwtSecret: env.jwtSecret }))
     .use(
       inviteModule({
         prisma: deps.prisma,
