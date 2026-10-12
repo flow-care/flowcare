@@ -1,14 +1,21 @@
 import type {
   AppointmentStatus,
+  ConfirmationDecisionOrigin,
+  ConfirmationDecisionStatus,
   PrismaClient,
   ReceptionQueueStatus,
 } from "../../generated/prisma/client";
 import { ApiError } from "../../lib/api-error";
 import type {
   AvailabilityQuery,
+  ConfirmationDecisionBody,
+  ConfirmationDecisionResponse,
+  ConfirmationItem,
   CreateAppointmentBody,
   CreateAppointmentResponse,
   ListQuery,
+  PendingConfirmationsQuery,
+  PendingConfirmationsResponse,
   ReceptionQueueItem,
   ReceptionQueueQuery,
   ReceptionQueueResponse,
@@ -36,6 +43,31 @@ export const RECEPTION_QUEUE_TRANSITIONS: Readonly<
   IN_SERVICE: ["COMPLETED"],
   COMPLETED: [],
   NO_SHOW: [],
+};
+
+type AppointmentSummaryRecord = {
+  id: string;
+  patientId: string;
+  professionalId: string;
+  scheduledAt: Date;
+  durationMinutes: number;
+  status: AppointmentStatus;
+};
+
+type ConfirmationRecord = {
+  id: string;
+  organizationId: string;
+  appointmentId: string;
+  status: ConfirmationDecisionStatus;
+  origin: ConfirmationDecisionOrigin | null;
+  originalMessage: string | null;
+  originalMessageId: string | null;
+  originalMessageAt: Date | null;
+  note: string | null;
+  decidedById: string | null;
+  decidedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
 };
 
 type CreatedAppointmentRecord = {
@@ -216,6 +248,48 @@ function isUniqueConflict(error: unknown) {
   );
 }
 
+function formatConfirmationItem(
+  confirmation: ConfirmationRecord,
+  appointment: AppointmentSummaryRecord,
+  timeZone: string,
+): ConfirmationItem {
+  return {
+    id: confirmation.id,
+    appointmentId: confirmation.appointmentId,
+    organizationId: confirmation.organizationId,
+    patientId: appointment.patientId,
+    professionalId: appointment.professionalId,
+    scheduledAt: appointment.scheduledAt.toISOString(),
+    localScheduledAt: localDateTime(appointment.scheduledAt, timeZone),
+    durationMinutes: appointment.durationMinutes,
+    appointmentStatus: appointment.status,
+    status: confirmation.status,
+    decision: confirmation.status,
+    origin: confirmation.origin,
+    source: confirmation.origin,
+    originalMessage: confirmation.originalMessage,
+    originalMessageId: confirmation.originalMessageId,
+    originalMessageAt: confirmation.originalMessageAt
+      ? confirmation.originalMessageAt.toISOString()
+      : null,
+    note: confirmation.note,
+    decidedById: confirmation.decidedById,
+    decidedAt: confirmation.decidedAt
+      ? confirmation.decidedAt.toISOString()
+      : null,
+    createdAt: confirmation.createdAt.toISOString(),
+    updatedAt: confirmation.updatedAt.toISOString(),
+  };
+}
+
+function nextStatusForDecision(
+  decision: ConfirmationDecisionStatus,
+): AppointmentStatus {
+  if (decision === "CONFIRMED") return "CONFIRMED";
+  if (decision === "DECLINED") return "CANCELLED";
+  return "RESERVED";
+}
+
 function isExclusionConflict(error: unknown) {
   if (typeof error !== "object" || error === null) return false;
   const err = error as {
@@ -256,7 +330,6 @@ function responseForCreated(
     },
   };
 }
-
 export class AppointmentsService {
   private readonly locks = new Map<string, Promise<void>>();
 
@@ -464,6 +537,354 @@ export class AppointmentsService {
       professionalId: query.professionalId,
       timeZone: organization.timezone,
       slots,
+    };
+  }
+
+  async listPendingConfirmations(
+    organizationId: string,
+    query: PendingConfirmationsQuery = {},
+  ): Promise<PendingConfirmationsResponse> {
+    const organization = await this.organization(organizationId);
+    const status: ConfirmationDecisionStatus = query.status ?? "PENDING";
+    const limit = query.limit ?? 20;
+
+    if (query.cursor) {
+      const cursor = await this.prisma.appointmentConfirmation.findFirst({
+        where: { id: query.cursor, organizationId },
+        select: { id: true },
+      });
+      if (!cursor)
+        throw new ApiError("VALIDATION_ERROR", 400, "Cursor inválido.");
+    }
+
+    const rows = await this.prisma.appointmentConfirmation.findMany({
+      where: {
+        organizationId,
+        status,
+        ...(query.professionalId
+          ? { appointment: { professionalId: query.professionalId } }
+          : {}),
+      },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      take: limit + 1,
+      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
+      include: {
+        appointment: {
+          select: {
+            id: true,
+            patientId: true,
+            professionalId: true,
+            scheduledAt: true,
+            durationMinutes: true,
+            status: true,
+          },
+        },
+      },
+    });
+
+    const hasNextPage = rows.length > limit;
+    const page = rows.slice(0, limit);
+
+    return {
+      timeZone: organization.timezone,
+      data: page.map((row) =>
+        formatConfirmationItem(row, row.appointment, organization.timezone),
+      ),
+      pageInfo: {
+        nextCursor: hasNextPage ? (page.at(-1)?.id ?? null) : null,
+        hasNextPage,
+      },
+    };
+  }
+
+  async recordConfirmationDecision(
+    organizationId: string,
+    actorUserId: string,
+    appointmentId: string,
+    body: ConfirmationDecisionBody,
+    idempotencyKey?: string,
+  ): Promise<ConfirmationDecisionResponse> {
+    if (!body.origin && !body.source) {
+      throw new ApiError(
+        "VALIDATION_ERROR",
+        400,
+        "Origem da decisão é obrigatória.",
+        { field: "origin" },
+      );
+    }
+    if (body.origin && body.source && body.origin !== body.source) {
+      throw new ApiError(
+        "VALIDATION_ERROR",
+        400,
+        "Origem da decisão inconsistente.",
+        { field: "origin" },
+      );
+    }
+
+    const origin = (body.origin ?? body.source)!;
+    const note = body.note?.trim() ? body.note.trim() : null;
+    const normalizedKey = idempotencyKey?.trim() || undefined;
+    const requestHash = new Bun.CryptoHasher("sha256")
+      .update(
+        JSON.stringify({
+          appointmentId,
+          decision: body.decision,
+          origin,
+          note,
+        }),
+      )
+      .digest("hex");
+
+    const organization = await this.organization(organizationId);
+
+    if (normalizedKey) {
+      const replay = await this.findDecisionReplay(
+        organizationId,
+        appointmentId,
+        normalizedKey,
+        requestHash,
+        organization.timezone,
+      );
+      if (replay) return replay;
+    }
+
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        if (normalizedKey) {
+          const existingByKey = await tx.confirmationDecision.findUnique({
+            where: {
+              organizationId_idempotencyKey: {
+                organizationId,
+                idempotencyKey: normalizedKey,
+              },
+            },
+            include: {
+              confirmation: true,
+              appointment: {
+                select: {
+                  id: true,
+                  patientId: true,
+                  professionalId: true,
+                  scheduledAt: true,
+                  durationMinutes: true,
+                  status: true,
+                },
+              },
+            },
+          });
+          if (existingByKey) {
+            if (
+              existingByKey.requestHash !== requestHash ||
+              existingByKey.appointmentId !== appointmentId
+            ) {
+              throw new ApiError(
+                "IDEMPOTENCY_CONFLICT",
+                409,
+                "A chave de idempotência já foi usada com outros dados.",
+              );
+            }
+            return {
+              confirmation: formatConfirmationItem(
+                existingByKey.confirmation,
+                existingByKey.appointment,
+                organization.timezone,
+              ),
+            };
+          }
+        }
+
+        const appointment = await tx.appointment.findFirst({
+          where: { id: appointmentId, organizationId },
+          select: {
+            id: true,
+            patientId: true,
+            professionalId: true,
+            scheduledAt: true,
+            durationMinutes: true,
+            status: true,
+          },
+        });
+        if (!appointment) {
+          throw new ApiError("NOT_FOUND", 404, "Agendamento não encontrado.");
+        }
+        if (
+          appointment.status === "COMPLETED" ||
+          appointment.status === "NO_SHOW"
+        ) {
+          throw new ApiError(
+            "BUSINESS_RULE_VIOLATION",
+            422,
+            "Não é possível registrar decisão de confirmação para agendamento já encerrado.",
+          );
+        }
+
+        const existingConfirmation = await tx.appointmentConfirmation.findFirst(
+          {
+            where: { appointmentId, organizationId },
+          },
+        );
+
+        if (
+          existingConfirmation &&
+          existingConfirmation.decidedAt !== null &&
+          existingConfirmation.status === body.decision &&
+          existingConfirmation.origin === origin &&
+          (existingConfirmation.note ?? null) === note
+        ) {
+          return {
+            confirmation: formatConfirmationItem(
+              existingConfirmation,
+              appointment,
+              organization.timezone,
+            ),
+          };
+        }
+
+        const nextAppointmentStatus = nextStatusForDecision(body.decision);
+        const updatedAppointment =
+          appointment.status === nextAppointmentStatus
+            ? appointment
+            : await tx.appointment.update({
+                where: { id: appointment.id },
+                data: { status: nextAppointmentStatus },
+                select: {
+                  id: true,
+                  patientId: true,
+                  professionalId: true,
+                  scheduledAt: true,
+                  durationMinutes: true,
+                  status: true,
+                },
+              });
+
+        const now = new Date();
+        // Original message fields (originalMessage, originalMessageId, originalMessageAt)
+        // are never included in update data so the original message remains immutable.
+        const savedConfirmation = existingConfirmation
+          ? await tx.appointmentConfirmation.update({
+              where: { id: existingConfirmation.id },
+              data: {
+                status: body.decision,
+                origin,
+                note,
+                decidedById: actorUserId,
+                decidedAt: now,
+              },
+            })
+          : await tx.appointmentConfirmation.create({
+              data: {
+                organizationId,
+                appointmentId: appointment.id,
+                status: body.decision,
+                origin,
+                note,
+                decidedById: actorUserId,
+                decidedAt: now,
+              },
+            });
+
+        const decisionRecord = await tx.confirmationDecision.create({
+          data: {
+            organizationId,
+            appointmentId: appointment.id,
+            confirmationId: savedConfirmation.id,
+            decision: body.decision,
+            origin,
+            note,
+            decidedById: actorUserId,
+            decidedAt: now,
+            idempotencyKey: normalizedKey ?? null,
+            requestHash,
+          },
+        });
+
+        await tx.auditLog.create({
+          data: {
+            organizationId,
+            actorUserId,
+            action: "MANUAL_CONFIRMATION_DECIDED",
+            targetType: "APPOINTMENT",
+            targetId: appointment.id,
+            metadata: {
+              confirmationId: savedConfirmation.id,
+              decisionId: decisionRecord.id,
+              previousStatus: existingConfirmation?.status ?? "PENDING",
+              decision: body.decision,
+              origin,
+              appointmentStatus: updatedAppointment.status,
+              decidedAt: now.toISOString(),
+            },
+          },
+        });
+
+        return {
+          confirmation: formatConfirmationItem(
+            savedConfirmation,
+            updatedAppointment,
+            organization.timezone,
+          ),
+        };
+      });
+    } catch (error) {
+      if (!normalizedKey || !isUniqueConflict(error)) throw error;
+      const concurrentReplay = await this.findDecisionReplay(
+        organizationId,
+        appointmentId,
+        normalizedKey,
+        requestHash,
+        organization.timezone,
+      );
+      if (concurrentReplay) return concurrentReplay;
+      throw new ApiError(
+        "IDEMPOTENCY_CONFLICT",
+        409,
+        "A chave de idempotência está em uso.",
+      );
+    }
+  }
+
+  private async findDecisionReplay(
+    organizationId: string,
+    appointmentId: string,
+    idempotencyKey: string,
+    requestHash: string,
+    timeZone: string,
+  ): Promise<ConfirmationDecisionResponse | null> {
+    const existing = await this.prisma.confirmationDecision.findUnique({
+      where: {
+        organizationId_idempotencyKey: { organizationId, idempotencyKey },
+      },
+      include: {
+        confirmation: true,
+        appointment: {
+          select: {
+            id: true,
+            patientId: true,
+            professionalId: true,
+            scheduledAt: true,
+            durationMinutes: true,
+            status: true,
+          },
+        },
+      },
+    });
+    if (!existing) return null;
+    if (
+      existing.requestHash !== requestHash ||
+      existing.appointmentId !== appointmentId
+    ) {
+      throw new ApiError(
+        "IDEMPOTENCY_CONFLICT",
+        409,
+        "A chave de idempotência já foi usada com outros dados.",
+      );
+    }
+    return {
+      confirmation: formatConfirmationItem(
+        existing.confirmation,
+        existing.appointment,
+        timeZone,
+      ),
     };
   }
 

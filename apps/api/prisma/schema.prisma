@@ -45,6 +45,19 @@ enum AppointmentStatus {
   NO_SHOW
 }
 
+enum ConfirmationDecisionStatus {
+  PENDING
+  CONFIRMED
+  DECLINED
+}
+
+enum ConfirmationDecisionOrigin {
+  PHONE_CALL
+  WHATSAPP_MANUAL
+  IN_PERSON
+  OTHER
+}
+
 enum ReceptionQueueStatus {
   WAITING
   ARRIVED
@@ -97,6 +110,8 @@ model User {
   activeOrganization Organization? @relation("ActiveOrganization", fields: [activeOrganizationId], references: [id], onDelete: SetNull)
   professionalAppointments Appointment[]
   professionalSchedulePauses ProfessionalSchedulePause[]
+  decidedConfirmations AppointmentConfirmation[] @relation("ConfirmationDecidedBy")
+  confirmationDecisions ConfirmationDecision[]   @relation("ConfirmationDecisionAuthor")
 
   @@index([email])
 }
@@ -181,6 +196,8 @@ model Organization {
   auditLogs    AuditLog[]
   documentTemplates DocumentTemplate[]
   appointments Appointment[]
+  appointmentConfirmations AppointmentConfirmation[]
+  confirmationDecisions ConfirmationDecision[]
   appointmentCreationRequests AppointmentCreationRequest[]
   professionalSchedulePauses ProfessionalSchedulePause[]
   patients Patient[]
@@ -222,10 +239,12 @@ model Appointment {
   createdAt        DateTime             @default(now())
   updatedAt        DateTime             @updatedAt
 
-  organization     Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  patient          Patient                      @relation(fields: [patientId], references: [id], onDelete: Restrict)
-  professional     User                         @relation(fields: [professionalId], references: [id], onDelete: Restrict)
-  creationRequests AppointmentCreationRequest[]
+  organization          Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  patient               Patient                      @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  professional          User                         @relation(fields: [professionalId], references: [id], onDelete: Restrict)
+  confirmation          AppointmentConfirmation?
+  confirmationDecisions ConfirmationDecision[]
+  creationRequests      AppointmentCreationRequest[]
 
   @@index([organizationId, scheduledAt, id])
   @@index([organizationId, professionalId, scheduledAt])
@@ -246,6 +265,54 @@ model AppointmentCreationRequest {
 
   @@unique([organizationId, idempotencyKey])
   @@index([appointmentId])
+}
+
+model AppointmentConfirmation {
+  id                String                      @id @default(uuid()) @db.Uuid
+  organizationId    String                      @db.Uuid
+  appointmentId     String                      @unique @db.Uuid
+  status            ConfirmationDecisionStatus  @default(PENDING)
+  origin            ConfirmationDecisionOrigin?
+  originalMessage   String?
+  originalMessageId String?
+  originalMessageAt DateTime?
+  note              String?
+  decidedById       String?                     @db.Uuid
+  decidedAt         DateTime?
+  createdAt         DateTime                    @default(now())
+  updatedAt         DateTime                    @updatedAt
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  appointment  Appointment            @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  decidedBy    User?                  @relation("ConfirmationDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+  decisions    ConfirmationDecision[]
+
+  @@index([organizationId, status, createdAt])
+  @@index([organizationId, appointmentId])
+}
+
+model ConfirmationDecision {
+  id             String                     @id @default(uuid()) @db.Uuid
+  organizationId String                     @db.Uuid
+  appointmentId  String                     @db.Uuid
+  confirmationId String                     @db.Uuid
+  decision       ConfirmationDecisionStatus
+  origin         ConfirmationDecisionOrigin
+  note           String?
+  decidedById    String                     @db.Uuid
+  decidedAt      DateTime                   @default(now())
+  idempotencyKey String?
+  requestHash    String?
+  createdAt      DateTime                   @default(now())
+
+  organization Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  appointment  Appointment             @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  confirmation AppointmentConfirmation @relation(fields: [confirmationId], references: [id], onDelete: Cascade)
+  decidedBy    User                    @relation("ConfirmationDecisionAuthor", fields: [decidedById], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, idempotencyKey])
+  @@index([organizationId, appointmentId, decidedAt])
+  @@index([confirmationId, decidedAt])
 }
 
 model ProfessionalSchedulePause {

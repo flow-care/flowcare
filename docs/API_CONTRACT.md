@@ -454,6 +454,20 @@ O fluxo obrigatório é:
 * **Body:** `{ "status": "ARRIVED", "version": 0 }` (ou `{ "queueStatus": "ARRIVED", "version": 0 }`).
 * **Respostas:** `200 OK` com o item atualizado da fila e `version` incrementado; `400 VALIDATION_ERROR`; `403 MEMBERSHIP_INACTIVE`; `403 PERMISSION_DENIED`; `404 NOT_FOUND`; `409 INVALID_STATE_TRANSITION` (com `details: { from, to, allowedTransitions }`); `409 VERSION_CONFLICT` quando `version` estiver desatualizada ou houver atualização concorrente.
 
+#### `GET /organizations/:orgSlug/confirmations/pending` (alias: `GET /organizations/:orgSlug/appointments/confirmations/pending`)
+* **Descrição:** Lista as pendências de confirmação da clínica ativa que exigiram contato humano (ex: resposta ambígua no WhatsApp ou falta de resposta). Quando resolvidas como `CONFIRMED` ou `DECLINED`, saem imediatamente da fila padrão (`status=PENDING`).
+* **Permissão:** `reception:read`.
+* **Query Params:** `?status=PENDING|CONFIRMED|DECLINED&professionalId=<uuid>&limit=20&cursor=<uuid>` (padrão `status=PENDING`, `limit=20`).
+* **Respostas:** `200 OK` (`{ "timeZone": "America/Fortaleza", "data": [{ "id": "...", "appointmentId": "...", "organizationId": "...", "patientId": "...", "professionalId": "...", "scheduledAt": "...", "localScheduledAt": "...", "durationMinutes": 30, "appointmentStatus": "RESERVED", "status": "PENDING", "decision": "PENDING", "origin": null, "source": null, "originalMessage": "...", "originalMessageId": "...", "originalMessageAt": "...", "note": null, "decidedById": null, "decidedAt": null, "createdAt": "...", "updatedAt": "..." }], "pageInfo": { "nextCursor": null, "hasNextPage": false } }`), `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 MEMBERSHIP_INACTIVE`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`.
+
+#### `POST /organizations/:orgSlug/confirmations/:appointmentId/decision` (aliases: `PATCH` e `POST /organizations/:orgSlug/appointments/:appointmentId/confirmation`)
+* **Descrição:** Registra uma decisão manual de confirmação (`CONFIRMED`, `DECLINED` ou `PENDING`) com origem (`PHONE_CALL`, `WHATSAPP_MANUAL`, `IN_PERSON` ou `OTHER`), autor (`decidedById`), horário (`decidedAt`) e trilha de auditoria (`MANUAL_CONFIRMATION_DECIDED`) na mesma transação. Atualiza o `status` do agendamento vinculado (`CONFIRMED` ou `CANCELLED`), preserva o texto e metadados da mensagem original inalterados e não dispara nenhuma mensagem automática.
+* **Permissão:** `reception:write` (`RECEPTIONIST`, `ADMIN` e `ADMIN_PROFESSIONAL`).
+* **Cabeçalho Opcional:** `Idempotency-Key` (8 a 128 caracteres).
+* **Body:** `{ "decision": "CONFIRMED" | "DECLINED" | "PENDING", "origin": "PHONE_CALL" | "WHATSAPP_MANUAL" | "IN_PERSON" | "OTHER", "note": "Confirmado por ligação" }` (`source` também é aceito como alias de `origin`).
+* **Idempotência:** Repetir a mesma decisão (com a mesma `Idempotency-Key` ou já no mesmo estado) retorna `200 OK` com o registro existente sem criar outra decisão, sem duplicar `AuditLog` e sem enviar mensagens. Reutilizar a mesma `Idempotency-Key` com dados divergentes retorna `409 IDEMPOTENCY_CONFLICT`.
+* **Respostas:** `200 OK` (`{ "confirmation": { ... } }`), `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 MEMBERSHIP_INACTIVE`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`, `409 IDEMPOTENCY_CONFLICT`, `422 BUSINESS_RULE_VIOLATION`.
+
 ---
 
 ### Módulo 7: Consultas Clínicas, Áudio & Anamnese
