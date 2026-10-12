@@ -172,6 +172,7 @@ model Organization {
   auditLogs    AuditLog[]
   documentTemplates DocumentTemplate[]
   appointments Appointment[]
+  appointmentCreationRequests AppointmentCreationRequest[]
   professionalSchedulePauses ProfessionalSchedulePause[]
   patients Patient[]
   patientCreationRequests PatientCreationRequest[]
@@ -207,15 +208,29 @@ model Appointment {
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  professional User @relation(fields: [professionalId], references: [id], onDelete: Restrict)
-
-  // A FK de patientId será adicionada junto ao módulo Patient; manter o UUID
-  // escopado permite que as duas migrations sejam integradas independentemente.
+  organization     Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  patient          Patient                      @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  professional     User                         @relation(fields: [professionalId], references: [id], onDelete: Restrict)
+  creationRequests AppointmentCreationRequest[]
 
   @@index([organizationId, scheduledAt, id])
   @@index([organizationId, professionalId, scheduledAt])
   @@index([organizationId, status, scheduledAt])
+}
+
+model AppointmentCreationRequest {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @db.Uuid
+  idempotencyKey String
+  requestHash    String
+  appointmentId  String   @db.Uuid
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  appointment  Appointment  @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, idempotencyKey])
+  @@index([appointmentId])
 }
 
 model ProfessionalSchedulePause {
@@ -246,6 +261,7 @@ model Patient {
 
   organization     Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   creationRequests PatientCreationRequest[]
+  appointments     Appointment[]
 
   @@index([organizationId, cpf])
   @@index([organizationId, fullName])
