@@ -1,4 +1,4 @@
-import { Elysia, t } from "elysia";
+import { Elysia, status } from "elysia";
 import type { PrismaClient } from "../../generated/prisma/client";
 import { authPlugin } from "../../plugins/auth";
 import { organizationAccessPlugin } from "../../plugins/organization-access";
@@ -20,7 +20,7 @@ export function appointmentsModule(deps: {
           ({ organizationAccess, query }) =>
             service.availability(organizationAccess.organizationId, query),
           {
-            params: t.Object({ orgSlug: t.String() }),
+            params: m.organizationParams,
             query: m.availabilityQuery,
             organizationAccess: "appointments:read",
             response: { 200: m.availabilityResponse },
@@ -31,10 +31,29 @@ export function appointmentsModule(deps: {
           ({ organizationAccess, query }) =>
             service.list(organizationAccess.organizationId, query),
           {
-            params: t.Object({ orgSlug: t.String() }),
+            params: m.organizationParams,
             query: m.listQuery,
             organizationAccess: "appointments:read",
             response: { 200: m.listResponse },
+          },
+        )
+        .post(
+          "",
+          async ({ organizationAccess, headers, body }) =>
+            status(
+              201,
+              await service.create(
+                organizationAccess.organizationId,
+                headers["idempotency-key"],
+                body,
+              ),
+            ),
+          {
+            params: m.organizationParams,
+            headers: m.idempotencyHeaders,
+            body: m.createAppointmentBody,
+            organizationAccess: "appointments:write",
+            response: { 201: m.createAppointmentResponse },
           },
         ),
     );
