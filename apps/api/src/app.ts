@@ -14,6 +14,7 @@ import { onboardingModule } from "./modules/onboarding";
 import type { OnboardingDeps } from "./modules/onboarding/service";
 import { organizationsModule } from "./modules/organizations";
 import { patientsModule } from "./modules/patients";
+import { scheduleModule } from "./modules/schedule";
 import { storageModule } from "./modules/storage";
 import { templatesModule } from "./modules/templates";
 import { createSesWebhook } from "./modules/webhooks/ses";
@@ -192,6 +193,7 @@ export function createApp(env: Env, deps: AppDeps) {
     .use(authModule(authDeps))
     .use(appointmentsModule({ prisma: deps.prisma, jwtSecret: env.jwtSecret }))
     .use(onboardingModule(onboardingDeps))
+    .use(scheduleModule({ prisma: deps.prisma, jwtSecret: env.jwtSecret }))
     .use(
       organizationsModule({
         prisma: deps.prisma,

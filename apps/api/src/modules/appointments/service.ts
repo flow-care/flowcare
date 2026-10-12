@@ -472,7 +472,7 @@ export class AppointmentsService {
       "00:00",
       organization.timezone,
     );
-    const [appointments, pauses] = await Promise.all([
+    const [appointments, pauses, exceptions] = await Promise.all([
       this.prisma.appointment.findMany({
         where: {
           organizationId,
@@ -494,6 +494,18 @@ export class AppointmentsService {
         },
         select: { startsAt: true, endsAt: true },
       }),
+      this.prisma.scheduleException.findMany({
+        where: {
+          organizationId,
+          OR: [
+            { professionalId: null },
+            { professionalId: query.professionalId },
+          ],
+          startsAt: { lt: dayEnd },
+          endsAt: { gt: dayStart },
+        },
+        select: { startsAt: true, endsAt: true },
+      }),
     ]);
     const blocked = [
       ...appointments.map((item) => ({
@@ -503,6 +515,7 @@ export class AppointmentsService {
         ),
       })),
       ...pauses.map((pause) => ({ start: pause.startsAt, end: pause.endsAt })),
+      ...exceptions.map((item) => ({ start: item.startsAt, end: item.endsAt })),
     ];
     const slots = [];
     for (const rule of rules) {
@@ -1261,6 +1274,22 @@ export class AppointmentsService {
               { reason: "OUTSIDE_WORKING_HOURS" },
             );
           }
+          const exception = await tx.scheduleException.findFirst({
+            where: {
+              organizationId,
+              OR: [{ professionalId: null }, { professionalId }],
+              startsAt: { lt: endsAt },
+              endsAt: { gt: scheduledAt },
+            },
+            select: { startsAt: true, endsAt: true },
+          });
+          if (exception)
+            throw new ApiError(
+              "SLOT_CONFLICT",
+              409,
+              "O horário conflita com uma exceção da agenda.",
+              { reason: "SCHEDULE_PAUSE" },
+            );
           const pauses = await tx.professionalSchedulePause.findMany({
             where: {
               organizationId,
@@ -1641,6 +1670,32 @@ export class AppointmentsService {
                 );
               }
 
+              const exception = await tx.scheduleException.findFirst({
+                where: {
+                  organizationId,
+                  OR: [
+                    { professionalId: null },
+                    { professionalId: body.professionalId },
+                  ],
+                  startsAt: { lt: endsAt },
+                  endsAt: { gt: scheduledAt },
+                },
+                select: { startsAt: true, endsAt: true },
+              });
+              if (exception)
+                throw new ApiError(
+                  "SLOT_CONFLICT",
+                  409,
+                  "O horário selecionado conflita com uma exceção da agenda.",
+                  {
+                    reason: "SCHEDULE_PAUSE",
+                    professionalId: body.professionalId,
+                    requestedStartsAt: scheduledAt.toISOString(),
+                    requestedEndsAt: endsAt.toISOString(),
+                    conflictingStartsAt: exception.startsAt.toISOString(),
+                    conflictingEndsAt: exception.endsAt.toISOString(),
+                  },
+                );
               const pauses = await tx.professionalSchedulePause.findMany({
                 where: {
                   organizationId,
