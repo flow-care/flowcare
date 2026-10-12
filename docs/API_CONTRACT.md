@@ -74,6 +74,7 @@ Em caso de falha (códigos HTTP 4xx e 5xx), a API responde com a seguinte estrut
 | **409** | `LAST_ADMIN_REQUIRED` | Tentativa de remover ou rebaixar o último administrador da organização. |
 | **409** | `MESSAGE_STATE_CONFLICT` | Tentativa de reenviar mensagem fora do estado permitido. |
 | **409** | `DOCUMENT_STATE_CONFLICT` | Tentativa de editar, emitir ou anular documento fora do estado permitido. |
+| **409** | `INVALID_STATE_TRANSITION` | Tentativa de aplicar transição fora da máquina de estados permitida para o recurso. |
 | **410** | `INVITE_EXPIRED` | O convite para a equipe expirou ou foi revogado. |
 | **422** | `BUSINESS_RULE_VIOLATION` | Violação de regra de negócio com estado válido (ex: campos clínicos obrigatórios ausentes para emissão). |
 | **429** | `RATE_LIMITED` | Limite de requisições excedido. |
@@ -371,10 +372,20 @@ O fluxo obrigatório é:
 *(Ref: Issues [#250](https://github.com/Flowcare-team/flowcare-monorepo/issues/250)–[#254](https://github.com/Flowcare-team/flowcare-monorepo/issues/254))*
 
 #### `GET /organizations/:orgSlug/patients`
-* **Descrição:** Consulta e filtra a lista de pacientes da clínica por nome, CPF ou telefone.
+* **Descrição:** Consulta e filtra a lista de pacientes da clínica ativa com normalização de acentos/caixa no nome (`normalizedName`) e normalização numérica para variações de formatação de telefone e CPF.
 * **Permissão:** `patients:read`.
-* **Query Params:** `?search=joao&cursor=xxx&limit=20`
-* **Respostas:** `200 OK` (`{ "data": [...], "pageInfo": { ... } }`).
+* **Query Params:** `?search=joao&cursor=<id>&limit=20` (`q` também aceito como alias de `search`; `limit` de 1 a 100, padrão 20).
+* **Respostas:** `200 OK` (`{ "data": [ { "id", "fullName", "cpf", "birthDate", "phone", "email", "healthInsurance", "insuranceNumber", "version", "createdAt", "updatedAt" } ], "pageInfo": { "nextCursor": null, "hasNextPage": false } }`), `400 VALIDATION_ERROR` (limite ou cursor inválido).
+
+#### `GET /organizations/:orgSlug/patients/:id`
+* **Descrição:** Retorna os detalhes cadastrais e de contato do paciente dentro da clínica ativa.
+* **Permissão:** `patients:read`.
+* **Respostas:** `200 OK` (`{ "patient": { "id", "fullName", "cpf", "birthDate", "phone", "email", "healthInsurance", "insuranceNumber", "version", "createdAt", "updatedAt" } }`), `404 NOT_FOUND` (ID inexistente ou pertencente a outra clínica, sem revelar dados).
+
+#### `GET /organizations/:orgSlug/patients/:id/overview`
+* **Descrição:** Retorna o resumo executivo do paciente na clínica ativa, incluindo dados essenciais de contato (`contact`), convênio ativo (`activeInsurance`, `healthInsurance`, `insuranceNumber`) e próximos agendamentos ativos (`upcomingAppointments` com status `RESERVED` ou `CONFIRMED` ordenados por `scheduledAt` crescente). Alertas clínicos (`allergies`, `comorbidities`, `clinicalAlerts`), notas médicas (`medicalNotes`) e o bloco `clinicalSummary` são incluídos exclusivamente quando o papel autenticado possui prerrogativa assistencial (`patients:read_history`: `PROFESSIONAL` ou `ADMIN_PROFESSIONAL`) e são omitidos para papéis exclusivamente administrativos/recepção (`ADMIN` e `RECEPTIONIST`).
+* **Permissão:** `patients:read` (com enriquecimento condicional por `patients:read_history`).
+* **Respostas:** `200 OK`, `404 NOT_FOUND` (ID inexistente ou pertencente a outra clínica).
 
 #### `POST /organizations/:orgSlug/patients`
 * **Descrição:** Cadastra um novo paciente. Executa verificação prévia de duplicidade pelo CPF normalizado, sempre dentro da clínica resolvida pela URL e pelo vínculo autenticado.
@@ -383,22 +394,39 @@ O fluxo obrigatório é:
 * **Body:** `{ "fullName": "João Souza", "cpf": "529.982.247-25", "birthDate": "1985-05-20", "phone": "(11) 97777-6666", "distinctPersonConfirmed": false }`. `distinctPersonConfirmed` é opcional e deve ser enviado como `true` somente depois de a pessoa confirmar que o resultado sinalizado pertence a outro paciente.
 * **Respostas:** `201 Created` (`{ "patient": { "id", "fullName", "cpf", "birthDate", "phone", "version", "createdAt" } }`); `409 POSSIBLE_DUPLICATE` com `details.existingPatientId` e `details.matchedOn`; `409 IDEMPOTENCY_CONFLICT` quando a mesma chave é reutilizada com dados diferentes. Repetir o mesmo payload e a mesma chave retorna `201` com o cadastro original e não cria outro registro.
 
-#### `PATCH /organizations/:orgSlug/patients/:patientId`
-* **Descrição:** Atualiza os dados cadastrais do paciente com controle de concorrência.
+#### `PATCH /organizations/:orgSlug/patients/:patientId` (alias: `PUT /organizations/:orgSlug/patients/:patientId`)
+* **Descrição:** Atualiza os dados cadastrais permitidos do paciente (`fullName`, `cpf`, `birthDate`, `phone`) com controle de concorrência otimista (`version`) e registro em `AuditLog` (`PATIENT_UPDATED` com `actorUserId`, `changedFields`, `previousVersion`, `newVersion` e `updatedAt`) na mesma transação. Rejeita campos clínicos ou imutáveis no payload (`400 VALIDATION_ERROR`). Quando o `cpf` é alterado para o CPF de outro paciente da mesma clínica, exige `distinctPersonConfirmed: true` ou retorna `409 POSSIBLE_DUPLICATE`.
 * **Permissão:** `patients:write`.
-* **Body:** `{ "phone": "(11) 98888-5555", "version": 2 }`
-* **Respostas:** `200 OK`, `409 VERSION_CONFLICT`.
+* **Body:** `{ "fullName": "João Carlos Souza", "cpf": "529.982.247-25", "birthDate": "1985-05-20", "phone": "(11) 98888-5555", "distinctPersonConfirmed": false, "version": 2 }` (ao menos um campo cadastral além de `version` é obrigatório).
+* **Respostas:** `200 OK` (`{ "patient": { "id", "fullName", "cpf", "birthDate", "phone", "version", "createdAt", "updatedAt" } }`), `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 MEMBERSHIP_INACTIVE`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`, `409 POSSIBLE_DUPLICATE`, `409 VERSION_CONFLICT`.
 
 #### `GET /organizations/:orgSlug/patients/:patientId/timeline`
 * **Descrição:** Retorna a linha do tempo cronológica com consultas, documentos emitidos e anexos do paciente.
 * **Permissão:** `patients:read_history`.
 * **Respostas:** `200 OK` (`{ "events": [ { "type": "CONSULTATION", "date": "...", "title": "Anamnese Cardiologia" } ] }`).
 
-#### `POST /organizations/:orgSlug/patients/:patientId/attachments`
-* **Descrição:** Upload de arquivo/exame privado para o prontuário do paciente.
-* **Permissão:** `patients:attachments:write`.
-* **Body:** `multipart/form-data` (`file`, `category`, `description`).
-* **Respostas:** `201 Created` (`{ "attachmentId": "att_123", "fileName": "exame_sangue.pdf" }`), `413 FILE_TOO_LARGE`.
+#### `POST /organizations/:orgSlug/patients/:id/attachments`
+* **Descrição:** Envia exame ou arquivo clínico privado para o prontuário do paciente na clínica ativa. O servidor valida o tamanho (máx. **10 MiB**) e a assinatura binária real (magic bytes) do arquivo (`application/pdf`, `image/jpeg`, `image/png`, `image/webp`), rejeitando arquivos disfarçados, grava o objeto no armazenamento privado sob `organizations/{organizationId}/patients/{patientId}/attachments/` (sem expor a chave interna ou URL pública permanente) e registra `PATIENT_ATTACHMENT_UPLOADED` em `AuditLog`.
+* **Permissão:** `patients:attachments:write` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL`).
+* **Body:** `multipart/form-data` (`file`, `category` opcional, `description` opcional).
+* **Respostas:** `201 Created` (`{ "attachmentId": "...", "fileName": "exame_sangue.pdf", "contentType": "application/pdf", "sizeBytes": 1024, "category": "LAB_EXAM", "description": "...", "createdAt": "...", "attachment": { ... } }`), `400 VALIDATION_ERROR` (tipo ou assinatura inválida), `403 PERMISSION_DENIED`, `404 NOT_FOUND`, `413 FILE_TOO_LARGE`, `503 STORAGE_UNAVAILABLE`.
+
+#### `GET /organizations/:orgSlug/patients/:id/attachments`
+* **Descrição:** Lista os metadados dos anexos privados do paciente na clínica ativa, sem expor URL pública permanente nem chave interna de objeto. Por padrão lista apenas anexos `ACTIVE`; com `?includeArchived=true`, inclui anexos arquivados para consulta de histórico.
+* **Permissão:** `patients:attachments:read` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL`).
+* **Query Params:** `?includeArchived=true&category=LAB_EXAM`.
+* **Respostas:** `200 OK` (`{ "data": [ { "id": "...", "attachmentId": "...", "patientId": "...", "fileName": "...", "contentType": "...", "sizeBytes": 1024, "category": "...", "description": "...", "uploadedById": "...", "status": "ACTIVE", "archivedAt": null, "archivedById": null, "archiveReason": null, "createdAt": "..." } ], "attachments": [...] }`), `403 PERMISSION_DENIED`, `404 NOT_FOUND`.
+
+#### `POST /organizations/:orgSlug/patients/:id/attachments/:attachmentId/download-url` (alias: `GET /organizations/:orgSlug/patients/:id/attachments/:attachmentId/download-url`)
+* **Descrição:** Autoriza a leitura temporária de um anexo ativo do paciente da clínica ativa, registrando `PATIENT_ATTACHMENT_DOWNLOAD_AUTHORIZED` em `AuditLog` e retornando uma URL privada assinada de curta duração (15 minutos / 900 segundos). Anexos arquivados ou pertencentes a outro paciente/clínica retornam `404 NOT_FOUND`.
+* **Permissão:** `patients:attachments:read` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL`).
+* **Respostas:** `200 OK` (`{ "attachmentId": "...", "downloadUrl": "...", "expiresInSeconds": 900, "expiresAt": "..." }`), `403 PERMISSION_DENIED`, `404 NOT_FOUND`, `503 STORAGE_UNAVAILABLE`.
+
+#### `POST /organizations/:orgSlug/patients/:id/attachments/:attachmentId/archive` (alias: `DELETE /organizations/:orgSlug/patients/:id/attachments/:attachmentId`)
+* **Descrição:** Realiza o arquivamento lógico do anexo (`archivedAt`, `archivedById`, `archiveReason`) e registra `PATIENT_ATTACHMENT_ARCHIVED` em `AuditLog` na mesma transação, preservando o registro histórico. Chamadas repetidas em anexo já arquivado são idempotentes.
+* **Permissão:** `patients:attachments:write` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL`).
+* **Body (opcional):** `{ "reason": "Motivo do arquivamento" }`.
+* **Respostas:** `200 OK` (`{ "archived": true, "attachment": { ... } }`), `403 PERMISSION_DENIED`, `404 NOT_FOUND`.
 
 ---
 
@@ -411,6 +439,7 @@ O fluxo obrigatório é:
 * **Query Params:** `?startDate=2026-09-01&endDate=2026-09-30&professionalId=<uuid>&status=CONFIRMED&limit=50&cursor=<uuid>`. `startDate` e `endDate` são datas locais inclusivas no fuso IANA da clínica; o intervalo máximo é de 31 dias. `limit` varia de 1 a 100 (padrão 50).
 * **Ordenação e paginação:** ordem estável por `scheduledAt` e `id`, ambos crescentes. `nextCursor` é `null` na última página.
 * **Respostas:** `200 OK` (`{ "timeZone": "America/Fortaleza", "appointments": [{ "id": "...", "patientId": "...", "professionalId": "...", "scheduledAt": "2026-09-01T12:00:00.000Z", "localScheduledAt": "2026-09-01T09:00:00", "durationMinutes": 30, "status": "CONFIRMED" }], "nextCursor": null }`). Observações não são expostas nesta listagem operacional.
+* Cada item inclui `version`, usada pelo cliente para alterações concorrentes.
 
 #### `GET /organizations/:orgSlug/appointments/availability`
 * **Descrição:** Lista slots livres do profissional na data local solicitada. Usa a grade semanal da clínica e exclui pausas do profissional e agendamentos `RESERVED` ou `CONFIRMED` que se sobreponham ao slot.
@@ -419,28 +448,59 @@ O fluxo obrigatório é:
 * **Respostas:** `200 OK` (`{ "date": "2026-09-01", "professionalId": "...", "timeZone": "America/Fortaleza", "slots": [{ "startsAt": "2026-09-01T12:00:00.000Z", "endsAt": "2026-09-01T12:30:00.000Z", "localStartsAt": "2026-09-01T09:00:00", "localEndsAt": "2026-09-01T09:30:00" }] }`), `404 NOT_FOUND` para profissional sem vínculo clínico ativo na organização.
 
 #### `POST /organizations/:orgSlug/appointments`
-* **Descrição:** Reserva um horário na agenda para um paciente. Valida disponibilidade para prevenir overlapping.
+* **Descrição:** Reserva um horário na agenda para um paciente com proteção contra dupla reserva concorrente. Valida que o paciente pertence à clínica ativa, que o profissional possui vínculo clínico ativo (`PROFESSIONAL` ou `ADMIN_PROFESSIONAL`) na clínica, que o intervalo `[scheduledAt, scheduledAt + durationMinutes)` cabe na grade semanal (`WeeklyScheduleRule`) no fuso da clínica, e que não há sobreposição com pausas (`ProfessionalSchedulePause`) nem com agendamentos ativos (`RESERVED` ou `CONFIRMED`).
 * **Permissão:** `appointments:write`.
 * **Cabeçalho Obrigatório:** `Idempotency-Key`
-* **Body:** `{ "patientId": "pat_1", "doctorId": "doc_1", "scheduledAt": "2026-10-05T14:00:00Z", "notes": "Consulta de rotina" }`
-* **Respostas:** `201 Created`, `409 SLOT_CONFLICT`.
+* **Body:** `{ "patientId": "<uuid>", "professionalId": "<uuid>", "scheduledAt": "2026-10-12T11:00:00.000Z", "durationMinutes": 30, "notes": "Consulta de rotina" }` (`notes` é opcional).
+* **Respostas:**
+  * `201 Created`: `{ "timeZone": "America/Fortaleza", "appointment": { "id": "...", "patientId": "...", "professionalId": "...", "scheduledAt": "2026-10-12T11:00:00.000Z", "endsAt": "2026-10-12T11:30:00.000Z", "localScheduledAt": "2026-10-12T08:00:00", "localEndsAt": "2026-10-12T08:30:00", "durationMinutes": 30, "status": "RESERVED", "notes": "Consulta de rotina", "createdAt": "..." } }`. Repetir o mesmo payload com a mesma `Idempotency-Key` retorna o agendamento original sem duplicar.
+  * `404 NOT_FOUND`: paciente ou profissional não pertence à clínica ativa (ou vínculo do profissional não é clínico ativo).
+  * `409 SLOT_CONFLICT`: horário indisponível ou em conflito, com `details` contendo `reason` (`APPOINTMENT_OVERLAP`, `SCHEDULE_PAUSE` ou `OUTSIDE_WORKING_HOURS`), `professionalId`, `requestedStartsAt`, `requestedEndsAt` e os limites do bloqueio conflitante (`conflictingStartsAt`, `conflictingEndsAt`, `conflictingAppointmentId`).
+  * `409 IDEMPOTENCY_CONFLICT`: reutilização da mesma `Idempotency-Key` com payload diferente.
+
+#### `PATCH /organizations/:orgSlug/appointments/:appointmentId`
+* **Descrição:** Atualiza parcialmente paciente, profissional, horário, duração ou observações de um agendamento `RESERVED` ou `CONFIRMED`. Revalida vínculo clínico, escala, pausas e colisões quando a agenda muda. A alteração e o registro de auditoria `APPOINTMENT_UPDATED` são atômicos.
+* **Permissão:** `appointments:write`.
+* **Body:** `{ "version": 0, "scheduledAt": "2026-10-12T12:00:00.000Z", "notes": "Retorno" }`. `version` e ao menos um campo alterado são obrigatórios; campos permitidos: `patientId`, `professionalId`, `scheduledAt`, `durationMinutes`, `notes` (inclusive `null`).
+* **Respostas:** `200 OK` (`{ "appointment": { "id": "...", "patientId": "...", "professionalId": "...", "scheduledAt": "...", "durationMinutes": 30, "status": "RESERVED", "notes": "Retorno", "version": 1, "updatedAt": "..." } }`), `404 NOT_FOUND` para agendamento/paciente/profissional fora da clínica, `409 VERSION_CONFLICT` para versão obsoleta, `409 SLOT_CONFLICT` para horário indisponível, `409 INVALID_STATE_TRANSITION` para agendamento terminal.
 
 #### `POST /organizations/:orgSlug/appointments/:appointmentId/cancel`
-* **Descrição:** Cancela um agendamento. Exige justificativa motivada obrigatória.
+* **Descrição:** Cancela um agendamento ativo, preservando o registro e liberando imediatamente o horário. A justificativa (10 a 500 caracteres após remover espaços nas extremidades), o autor e o instante são persistidos com a mudança de status e a auditoria `APPOINTMENT_CANCELLED` na mesma transação. Agendamentos `CANCELLED`, `COMPLETED` ou `NO_SHOW` não aceitam cancelamento.
 * **Permissão:** `appointments:write`.
-* **Body:** `{ "cancellationReason": "Paciente informou imprevisto de trabalho", "version": 1 }`
-* **Respostas:** `200 OK` (`{ "status": "CANCELLED" }`), `422 BUSINESS_RULE_VIOLATION`.
+* **Body:** `{ "cancellationReason": "Paciente informou imprevisto de trabalho", "version": 0 }`, com a versão atual do agendamento.
+* **Respostas:** `200 OK` (`{ "status": "CANCELLED", "cancellationReason": "...", "cancelledAt": "...", "cancelledById": "...", "version": 1 }`), `400 VALIDATION_ERROR` para justificativa ausente/inválida, `404 NOT_FOUND` para outra clínica, `409 INVALID_STATE_TRANSITION` para status terminal, `409 VERSION_CONFLICT` para edição concorrente.
 
-#### `GET /organizations/:orgSlug/reception/queue`
-* **Descrição:** Lista os pacientes na recepção aguardando atendimento no dia.
+#### `GET /organizations/:orgSlug/reception/queue` (alias: `GET /organizations/:orgSlug/appointments/queue`)
+* **Descrição:** Lista a fila operacional da recepção da clínica para uma data local no fuso configurado (padrão: hoje na clínica), ordenada por `scheduledAt` e `id`, excluindo agendamentos `CANCELLED`.
+* **Permissão:** `reception:read` (`ADMIN`, `ADMIN_PROFESSIONAL`, `PROFESSIONAL`, `RECEPTIONIST`).
+* **Query Params:** `?date=2026-10-12&professionalId=<uuid>&queueStatus=WAITING|ARRIVED|CALLED|IN_SERVICE|COMPLETED|NO_SHOW` (`status` aceito como alias de `queueStatus`).
+* **Respostas:** `200 OK` (`{ "date": "2026-10-12", "timeZone": "America/Fortaleza", "queue": [ { "id": "...", "appointmentId": "...", "patientId": "...", "professionalId": "...", "scheduledAt": "2026-10-12T11:00:00.000Z", "localScheduledAt": "2026-10-12T08:00:00", "durationMinutes": 30, "status": "CONFIRMED", "queueStatus": "ARRIVED", "arrivedAt": "2026-10-12T10:50:00.000Z", "queueUpdatedAt": "2026-10-12T10:50:00.000Z", "queueUpdatedById": "...", "version": 1 } ] }`), `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 MEMBERSHIP_INACTIVE`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`.
+
+#### `PATCH /organizations/:orgSlug/reception/queue/:appointmentId` (aliases: `PATCH /organizations/:orgSlug/appointments/:appointmentId/queue`, `PATCH /organizations/:orgSlug/appointments/:appointmentId/arrival`, `PATCH|POST /organizations/:orgSlug/appointments/:appointmentId/reception-status`)
+* **Descrição:** Registra a chegada e transiciona o estado operacional do agendamento na fila da recepção, gravando autor (`queueUpdatedById`), horário (`arrivedAt`, `queueUpdatedAt`), incremento de versão (`version`) e evento `RECEPTION_QUEUE_UPDATED` em `AuditLog` na mesma transação.
+* **Máquina de estados:**
+  * `WAITING` → `ARRIVED`, `NO_SHOW`
+  * `ARRIVED` → `CALLED`, `IN_SERVICE`, `NO_SHOW`
+  * `CALLED` → `IN_SERVICE`, `NO_SHOW`
+  * `IN_SERVICE` → `COMPLETED`
+  * `COMPLETED` e `NO_SHOW` são estados terminais (e sincronizam `Appointment.status` para `COMPLETED` ou `NO_SHOW`); agendamentos `CANCELLED` não aceitam transições na fila.
+* **Permissão:** `reception:write` (`ADMIN`, `ADMIN_PROFESSIONAL`, `RECEPTIONIST`).
+* **Body:** `{ "status": "ARRIVED", "version": 0 }` (ou `{ "queueStatus": "ARRIVED", "version": 0 }`).
+* **Respostas:** `200 OK` com o item atualizado da fila e `version` incrementado; `400 VALIDATION_ERROR`; `403 MEMBERSHIP_INACTIVE`; `403 PERMISSION_DENIED`; `404 NOT_FOUND`; `409 INVALID_STATE_TRANSITION` (com `details: { from, to, allowedTransitions }`); `409 VERSION_CONFLICT` quando `version` estiver desatualizada ou houver atualização concorrente.
+
+#### `GET /organizations/:orgSlug/confirmations/pending` (alias: `GET /organizations/:orgSlug/appointments/confirmations/pending`)
+* **Descrição:** Lista as pendências de confirmação da clínica ativa que exigiram contato humano (ex: resposta ambígua no WhatsApp ou falta de resposta). Quando resolvidas como `CONFIRMED` ou `DECLINED`, saem imediatamente da fila padrão (`status=PENDING`).
 * **Permissão:** `reception:read`.
-* **Respostas:** `200 OK` (`{ "queue": [ { "appointmentId": "app_1", "patientName": "...", "status": "WAITING" } ] }`).
+* **Query Params:** `?status=PENDING|CONFIRMED|DECLINED&professionalId=<uuid>&limit=20&cursor=<uuid>` (padrão `status=PENDING`, `limit=20`).
+* **Respostas:** `200 OK` (`{ "timeZone": "America/Fortaleza", "data": [{ "id": "...", "appointmentId": "...", "organizationId": "...", "patientId": "...", "professionalId": "...", "scheduledAt": "...", "localScheduledAt": "...", "durationMinutes": 30, "appointmentStatus": "RESERVED", "status": "PENDING", "decision": "PENDING", "origin": null, "source": null, "originalMessage": "...", "originalMessageId": "...", "originalMessageAt": "...", "note": null, "decidedById": null, "decidedAt": null, "createdAt": "...", "updatedAt": "..." }], "pageInfo": { "nextCursor": null, "hasNextPage": false } }`), `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 MEMBERSHIP_INACTIVE`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`.
 
-#### `POST /organizations/:orgSlug/appointments/:appointmentId/reception-status`
-* **Descrição:** Atualiza o fluxo da recepção (`ARRIVED`, `IN_SERVICE`, `COMPLETED`, `ABSENT`).
-* **Permissão:** `reception:write`.
-* **Body:** `{ "status": "ARRIVED", "version": 1 }`
-* **Respostas:** `200 OK`.
+#### `POST /organizations/:orgSlug/confirmations/:appointmentId/decision` (aliases: `PATCH` e `POST /organizations/:orgSlug/appointments/:appointmentId/confirmation`)
+* **Descrição:** Registra uma decisão manual de confirmação (`CONFIRMED`, `DECLINED` ou `PENDING`) com origem (`PHONE_CALL`, `WHATSAPP_MANUAL`, `IN_PERSON` ou `OTHER`), autor (`decidedById`), horário (`decidedAt`) e trilha de auditoria (`MANUAL_CONFIRMATION_DECIDED`) na mesma transação. Atualiza o `status` do agendamento vinculado (`CONFIRMED` ou `CANCELLED`), preserva o texto e metadados da mensagem original inalterados e não dispara nenhuma mensagem automática.
+* **Permissão:** `reception:write` (`RECEPTIONIST`, `ADMIN` e `ADMIN_PROFESSIONAL`).
+* **Cabeçalho Opcional:** `Idempotency-Key` (8 a 128 caracteres).
+* **Body:** `{ "decision": "CONFIRMED" | "DECLINED" | "PENDING", "origin": "PHONE_CALL" | "WHATSAPP_MANUAL" | "IN_PERSON" | "OTHER", "note": "Confirmado por ligação" }` (`source` também é aceito como alias de `origin`).
+* **Idempotência:** Repetir a mesma decisão (com a mesma `Idempotency-Key` ou já no mesmo estado) retorna `200 OK` com o registro existente sem criar outra decisão, sem duplicar `AuditLog` e sem enviar mensagens. Reutilizar a mesma `Idempotency-Key` com dados divergentes retorna `409 IDEMPOTENCY_CONFLICT`.
+* **Respostas:** `200 OK` (`{ "confirmation": { ... } }`), `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 MEMBERSHIP_INACTIVE`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`, `409 IDEMPOTENCY_CONFLICT`, `422 BUSINESS_RULE_VIOLATION`.
 
 ---
 
