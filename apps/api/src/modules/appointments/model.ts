@@ -137,6 +137,34 @@ export const createAppointmentBody = t.Object(
   { additionalProperties: false },
 );
 
+export const updateAppointmentBody = t.Object(
+  {
+    version: t.Integer({ minimum: 0 }),
+    patientId: t.Optional(uuid),
+    professionalId: t.Optional(uuid),
+    scheduledAt: t.Optional(isoUtcDateTime),
+    durationMinutes: t.Optional(t.Integer({ minimum: 1, maximum: 1440 })),
+    notes: t.Optional(t.Nullable(t.String({ maxLength: 2000 }))),
+  },
+  { additionalProperties: false, minProperties: 2 },
+);
+
+export const updatedAppointment = t.Object({
+  id: t.String(),
+  patientId: t.String(),
+  professionalId: t.String(),
+  scheduledAt: t.String(),
+  durationMinutes: t.Integer(),
+  status: appointmentStatus,
+  notes: t.Nullable(t.String()),
+  version: t.Integer(),
+  updatedAt: t.String(),
+});
+
+export const updateAppointmentResponse = t.Object({
+  appointment: updatedAppointment,
+});
+
 export const appointment = t.Object({
   id: t.String(),
   patientId: t.String(),
@@ -145,6 +173,7 @@ export const appointment = t.Object({
   localScheduledAt: t.String(),
   durationMinutes: t.Integer(),
   status: appointmentStatus,
+  version: t.Optional(t.Integer()),
 });
 
 export const createdAppointment = t.Object({
@@ -159,6 +188,7 @@ export const createdAppointment = t.Object({
   status: appointmentStatus,
   notes: t.Nullable(t.String()),
   createdAt: t.String(),
+  version: t.Optional(t.Integer()),
 });
 
 export const createAppointmentResponse = t.Object({
@@ -262,3 +292,5 @@ export type ReceptionQueueItem = typeof receptionQueueItem.static;
 export type ReceptionQueueResponse = typeof receptionQueueResponse.static;
 export type CreateAppointmentBody = typeof createAppointmentBody.static;
 export type CreateAppointmentResponse = typeof createAppointmentResponse.static;
+export type UpdateAppointmentBody = typeof updateAppointmentBody.static;
+export type UpdateAppointmentResponse = typeof updateAppointmentResponse.static;

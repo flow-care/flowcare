@@ -170,6 +170,22 @@ export function appointmentsModule(deps: {
           },
         )
         .patch(
+          "/:appointmentId",
+          ({ auth, organizationAccess, params, body }) =>
+            service.update(
+              organizationAccess.organizationId,
+              auth.userId,
+              params.appointmentId,
+              body,
+            ),
+          {
+            params: m.appointmentParams,
+            body: m.updateAppointmentBody,
+            organizationAccess: "appointments:write",
+            response: { 200: m.updateAppointmentResponse },
+          },
+        )
+        .patch(
           "/:appointmentId/queue",
           ({ auth, organizationAccess, params, body }) =>
             service.transitionReceptionQueue(

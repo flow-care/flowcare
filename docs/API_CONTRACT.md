@@ -439,6 +439,7 @@ O fluxo obrigatório é:
 * **Query Params:** `?startDate=2026-09-01&endDate=2026-09-30&professionalId=<uuid>&status=CONFIRMED&limit=50&cursor=<uuid>`. `startDate` e `endDate` são datas locais inclusivas no fuso IANA da clínica; o intervalo máximo é de 31 dias. `limit` varia de 1 a 100 (padrão 50).
 * **Ordenação e paginação:** ordem estável por `scheduledAt` e `id`, ambos crescentes. `nextCursor` é `null` na última página.
 * **Respostas:** `200 OK` (`{ "timeZone": "America/Fortaleza", "appointments": [{ "id": "...", "patientId": "...", "professionalId": "...", "scheduledAt": "2026-09-01T12:00:00.000Z", "localScheduledAt": "2026-09-01T09:00:00", "durationMinutes": 30, "status": "CONFIRMED" }], "nextCursor": null }`). Observações não são expostas nesta listagem operacional.
+* Cada item inclui `version`, usada pelo cliente para alterações concorrentes.
 
 #### `GET /organizations/:orgSlug/appointments/availability`
 * **Descrição:** Lista slots livres do profissional na data local solicitada. Usa a grade semanal da clínica e exclui pausas do profissional e agendamentos `RESERVED` ou `CONFIRMED` que se sobreponham ao slot.
@@ -456,6 +457,12 @@ O fluxo obrigatório é:
   * `404 NOT_FOUND`: paciente ou profissional não pertence à clínica ativa (ou vínculo do profissional não é clínico ativo).
   * `409 SLOT_CONFLICT`: horário indisponível ou em conflito, com `details` contendo `reason` (`APPOINTMENT_OVERLAP`, `SCHEDULE_PAUSE` ou `OUTSIDE_WORKING_HOURS`), `professionalId`, `requestedStartsAt`, `requestedEndsAt` e os limites do bloqueio conflitante (`conflictingStartsAt`, `conflictingEndsAt`, `conflictingAppointmentId`).
   * `409 IDEMPOTENCY_CONFLICT`: reutilização da mesma `Idempotency-Key` com payload diferente.
+
+#### `PATCH /organizations/:orgSlug/appointments/:appointmentId`
+* **Descrição:** Atualiza parcialmente paciente, profissional, horário, duração ou observações de um agendamento `RESERVED` ou `CONFIRMED`. Revalida vínculo clínico, escala, pausas e colisões quando a agenda muda. A alteração e o registro de auditoria `APPOINTMENT_UPDATED` são atômicos.
+* **Permissão:** `appointments:write`.
+* **Body:** `{ "version": 0, "scheduledAt": "2026-10-12T12:00:00.000Z", "notes": "Retorno" }`. `version` e ao menos um campo alterado são obrigatórios; campos permitidos: `patientId`, `professionalId`, `scheduledAt`, `durationMinutes`, `notes` (inclusive `null`).
+* **Respostas:** `200 OK` (`{ "appointment": { "id": "...", "patientId": "...", "professionalId": "...", "scheduledAt": "...", "durationMinutes": 30, "status": "RESERVED", "notes": "Retorno", "version": 1, "updatedAt": "..." } }`), `404 NOT_FOUND` para agendamento/paciente/profissional fora da clínica, `409 VERSION_CONFLICT` para versão obsoleta, `409 SLOT_CONFLICT` para horário indisponível, `409 INVALID_STATE_TRANSITION` para agendamento terminal.
 
 #### `POST /organizations/:orgSlug/appointments/:appointmentId/cancel`
 * **Descrição:** Cancela um agendamento. Exige justificativa motivada obrigatória.
