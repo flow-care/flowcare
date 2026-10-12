@@ -37,6 +37,14 @@ enum TokenType {
   PASSWORD_RESET
 }
 
+enum AppointmentStatus {
+  RESERVED
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+}
+
 model OrganizationInvite {
   id             String         @id @default(uuid()) @db.Uuid
   organizationId String         @db.Uuid
@@ -78,6 +86,8 @@ model User {
   ownedOrganizations Organization[]      @relation("OrganizationOwner")
   activeOrganizationId String? @db.Uuid
   activeOrganization Organization? @relation("ActiveOrganization", fields: [activeOrganizationId], references: [id], onDelete: SetNull)
+  professionalAppointments Appointment[]
+  professionalSchedulePauses ProfessionalSchedulePause[]
 
   @@index([email])
 }
@@ -155,10 +165,50 @@ model Organization {
   invites       OrganizationInvite[]
   storageObjects StorageObject[]
   weeklyScheduleRules WeeklyScheduleRule[]
+  appointments Appointment[]
+  professionalSchedulePauses ProfessionalSchedulePause[]
   patients Patient[]
   patientCreationRequests PatientCreationRequest[]
   whatsappSession WhatsAppSession?
   activeUsers User[] @relation("ActiveOrganization")
+}
+
+model Appointment {
+  id              String            @id @default(uuid()) @db.Uuid
+  organizationId  String            @db.Uuid
+  patientId       String            @db.Uuid
+  professionalId  String            @db.Uuid
+  scheduledAt     DateTime
+  durationMinutes Int
+  status           AppointmentStatus @default(RESERVED)
+  notes            String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  professional User @relation(fields: [professionalId], references: [id], onDelete: Restrict)
+
+  // A FK de patientId será adicionada junto ao módulo Patient; manter o UUID
+  // escopado permite que as duas migrations sejam integradas independentemente.
+
+  @@index([organizationId, scheduledAt, id])
+  @@index([organizationId, professionalId, scheduledAt])
+  @@index([organizationId, status, scheduledAt])
+}
+
+model ProfessionalSchedulePause {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @db.Uuid
+  professionalId String   @db.Uuid
+  startsAt       DateTime
+  endsAt         DateTime
+  reason         String?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  professional User @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, professionalId, startsAt, endsAt])
 }
 
 model Patient {

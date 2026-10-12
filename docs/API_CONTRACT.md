@@ -408,8 +408,15 @@ O fluxo obrigatório é:
 #### `GET /organizations/:orgSlug/appointments`
 * **Descrição:** Lista os agendamentos da clínica filtrados por intervalo de datas, profissional ou status.
 * **Permissão:** `appointments:read`.
-* **Query Params:** `?startDate=2026-09-01&endDate=2026-09-30&doctorId=doc_1`
-* **Respostas:** `200 OK`.
+* **Query Params:** `?startDate=2026-09-01&endDate=2026-09-30&professionalId=<uuid>&status=CONFIRMED&limit=50&cursor=<uuid>`. `startDate` e `endDate` são datas locais inclusivas no fuso IANA da clínica; o intervalo máximo é de 31 dias. `limit` varia de 1 a 100 (padrão 50).
+* **Ordenação e paginação:** ordem estável por `scheduledAt` e `id`, ambos crescentes. `nextCursor` é `null` na última página.
+* **Respostas:** `200 OK` (`{ "timeZone": "America/Fortaleza", "appointments": [{ "id": "...", "patientId": "...", "professionalId": "...", "scheduledAt": "2026-09-01T12:00:00.000Z", "localScheduledAt": "2026-09-01T09:00:00", "durationMinutes": 30, "status": "CONFIRMED" }], "nextCursor": null }`). Observações não são expostas nesta listagem operacional.
+
+#### `GET /organizations/:orgSlug/appointments/availability`
+* **Descrição:** Lista slots livres do profissional na data local solicitada. Usa a grade semanal da clínica e exclui pausas do profissional e agendamentos `RESERVED` ou `CONFIRMED` que se sobreponham ao slot.
+* **Permissão:** `appointments:read`.
+* **Query Params:** `?date=2026-09-01&professionalId=<uuid>`.
+* **Respostas:** `200 OK` (`{ "date": "2026-09-01", "professionalId": "...", "timeZone": "America/Fortaleza", "slots": [{ "startsAt": "2026-09-01T12:00:00.000Z", "endsAt": "2026-09-01T12:30:00.000Z", "localStartsAt": "2026-09-01T09:00:00", "localEndsAt": "2026-09-01T09:30:00" }] }`), `404 NOT_FOUND` para profissional sem vínculo clínico ativo na organização.
 
 #### `POST /organizations/:orgSlug/appointments`
 * **Descrição:** Reserva um horário na agenda para um paciente. Valida disponibilidade para prevenir overlapping.
