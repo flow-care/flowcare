@@ -482,6 +482,7 @@ describe("appointment booking (#237)", () => {
         localEndsAt: "2026-10-12T08:30:00",
         durationMinutes: 30,
         status: "RESERVED",
+        version: 0,
         notes: "Primeira consulta",
         createdAt: "2026-10-12T10:00:00.000Z",
       },
