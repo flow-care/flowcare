@@ -68,6 +68,7 @@ Em caso de falha (códigos HTTP 4xx e 5xx), a API responde com a seguinte estrut
 | **404** | `NOT_FOUND` | Recurso não encontrado (usado também para ocultar existência de recursos de outros tenants). |
 | **409** | `VERSION_CONFLICT` | Concorrência otimista violada (o recurso foi modificado por outro usuário). |
 | **409** | `IDEMPOTENCY_CONFLICT` | A chave de idempotência está em uso por uma requisição concorrente ainda em processamento. |
+| **409** | `POSSIBLE_DUPLICATE` | O cadastro de paciente corresponde a outro paciente da mesma clínica e requer confirmação explícita. |
 | **409** | `ALREADY_EXISTS` | Conflito de duplicidade de chave única (ex: e-mail já cadastrado, slug já utilizado). |
 | **409** | `SLOT_CONFLICT` | Horário de agendamento já reservado por outro paciente. |
 | **409** | `LAST_ADMIN_REQUIRED` | Tentativa de remover ou rebaixar o último administrador da organização. |
@@ -376,11 +377,11 @@ O fluxo obrigatório é:
 * **Respostas:** `200 OK` (`{ "data": [...], "pageInfo": { ... } }`).
 
 #### `POST /organizations/:orgSlug/patients`
-* **Descrição:** Cadastra um novo paciente. Executa verificação prévia de duplicidade por CPF.
+* **Descrição:** Cadastra um novo paciente. Executa verificação prévia de duplicidade pelo CPF normalizado, sempre dentro da clínica resolvida pela URL e pelo vínculo autenticado.
 * **Permissão:** `patients:write`.
 * **Cabeçalho Obrigatório:** `Idempotency-Key`
-* **Body:** `{ "fullName": "João Souza", "cpf": "123.456.789-00", "birthDate": "1985-05-20", "phone": "(11) 97777-6666" }`
-* **Respostas:** `201 Created`, `409 ALREADY_EXISTS`.
+* **Body:** `{ "fullName": "João Souza", "cpf": "529.982.247-25", "birthDate": "1985-05-20", "phone": "(11) 97777-6666", "distinctPersonConfirmed": false }`. `distinctPersonConfirmed` é opcional e deve ser enviado como `true` somente depois de a pessoa confirmar que o resultado sinalizado pertence a outro paciente.
+* **Respostas:** `201 Created` (`{ "patient": { "id", "fullName", "cpf", "birthDate", "phone", "version", "createdAt" } }`); `409 POSSIBLE_DUPLICATE` com `details.existingPatientId` e `details.matchedOn`; `409 IDEMPOTENCY_CONFLICT` quando a mesma chave é reutilizada com dados diferentes. Repetir o mesmo payload e a mesma chave retorna `201` com o cadastro original e não cria outro registro.
 
 #### `PATCH /organizations/:orgSlug/patients/:patientId`
 * **Descrição:** Atualiza os dados cadastrais do paciente com controle de concorrência.
