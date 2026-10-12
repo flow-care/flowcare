@@ -420,11 +420,15 @@ O fluxo obrigatório é:
 * **Respostas:** `200 OK` (`{ "date": "2026-09-01", "professionalId": "...", "timeZone": "America/Fortaleza", "slots": [{ "startsAt": "2026-09-01T12:00:00.000Z", "endsAt": "2026-09-01T12:30:00.000Z", "localStartsAt": "2026-09-01T09:00:00", "localEndsAt": "2026-09-01T09:30:00" }] }`), `404 NOT_FOUND` para profissional sem vínculo clínico ativo na organização.
 
 #### `POST /organizations/:orgSlug/appointments`
-* **Descrição:** Reserva um horário na agenda para um paciente. Valida disponibilidade para prevenir overlapping.
+* **Descrição:** Reserva um horário na agenda para um paciente com proteção contra dupla reserva concorrente. Valida que o paciente pertence à clínica ativa, que o profissional possui vínculo clínico ativo (`PROFESSIONAL` ou `ADMIN_PROFESSIONAL`) na clínica, que o intervalo `[scheduledAt, scheduledAt + durationMinutes)` cabe na grade semanal (`WeeklyScheduleRule`) no fuso da clínica, e que não há sobreposição com pausas (`ProfessionalSchedulePause`) nem com agendamentos ativos (`RESERVED` ou `CONFIRMED`).
 * **Permissão:** `appointments:write`.
 * **Cabeçalho Obrigatório:** `Idempotency-Key`
-* **Body:** `{ "patientId": "pat_1", "doctorId": "doc_1", "scheduledAt": "2026-10-05T14:00:00Z", "notes": "Consulta de rotina" }`
-* **Respostas:** `201 Created`, `409 SLOT_CONFLICT`.
+* **Body:** `{ "patientId": "<uuid>", "professionalId": "<uuid>", "scheduledAt": "2026-10-12T11:00:00.000Z", "durationMinutes": 30, "notes": "Consulta de rotina" }` (`notes` é opcional).
+* **Respostas:**
+  * `201 Created`: `{ "timeZone": "America/Fortaleza", "appointment": { "id": "...", "patientId": "...", "professionalId": "...", "scheduledAt": "2026-10-12T11:00:00.000Z", "endsAt": "2026-10-12T11:30:00.000Z", "localScheduledAt": "2026-10-12T08:00:00", "localEndsAt": "2026-10-12T08:30:00", "durationMinutes": 30, "status": "RESERVED", "notes": "Consulta de rotina", "createdAt": "..." } }`. Repetir o mesmo payload com a mesma `Idempotency-Key` retorna o agendamento original sem duplicar.
+  * `404 NOT_FOUND`: paciente ou profissional não pertence à clínica ativa (ou vínculo do profissional não é clínico ativo).
+  * `409 SLOT_CONFLICT`: horário indisponível ou em conflito, com `details` contendo `reason` (`APPOINTMENT_OVERLAP`, `SCHEDULE_PAUSE` ou `OUTSIDE_WORKING_HOURS`), `professionalId`, `requestedStartsAt`, `requestedEndsAt` e os limites do bloqueio conflitante (`conflictingStartsAt`, `conflictingEndsAt`, `conflictingAppointmentId`).
+  * `409 IDEMPOTENCY_CONFLICT`: reutilização da mesma `Idempotency-Key` com payload diferente.
 
 #### `POST /organizations/:orgSlug/appointments/:appointmentId/cancel`
 * **Descrição:** Cancela um agendamento. Exige justificativa motivada obrigatória.

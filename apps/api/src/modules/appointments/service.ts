@@ -6,6 +6,8 @@ import type {
 import { ApiError } from "../../lib/api-error";
 import type {
   AvailabilityQuery,
+  CreateAppointmentBody,
+  CreateAppointmentResponse,
   ListQuery,
   ReceptionQueueItem,
   ReceptionQueueQuery,
@@ -34,6 +36,17 @@ export const RECEPTION_QUEUE_TRANSITIONS: Readonly<
   IN_SERVICE: ["COMPLETED"],
   COMPLETED: [],
   NO_SHOW: [],
+};
+
+type CreatedAppointmentRecord = {
+  id: string;
+  patientId: string;
+  professionalId: string;
+  scheduledAt: Date;
+  durationMinutes: number;
+  status: AppointmentStatus;
+  notes: string | null;
+  createdAt: Date;
 };
 
 function dateParts(date: Date, timeZone: string) {
@@ -109,6 +122,24 @@ function parseDate(date: string) {
   return parsed;
 }
 
+function parseUtcDateTime(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?Z$/.test(value)) {
+    throw new ApiError("VALIDATION_ERROR", 400, "Horário inválido.", {
+      field: "scheduledAt",
+    });
+  }
+  const parsed = new Date(value);
+  if (
+    Number.isNaN(parsed.getTime()) ||
+    parsed.toISOString().slice(0, 10) !== value.slice(0, 10)
+  ) {
+    throw new ApiError("VALIDATION_ERROR", 400, "Horário inválido.", {
+      field: "scheduledAt",
+    });
+  }
+  return parsed;
+}
+
 function addDays(date: string, days: number) {
   const parsed = parseDate(date);
   parsed.setUTCDate(parsed.getUTCDate() + days);
@@ -176,8 +207,79 @@ function toReceptionQueueItem(
   };
 }
 
+function isUniqueConflict(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "P2002"
+  );
+}
+
+function isExclusionConflict(error: unknown) {
+  if (typeof error !== "object" || error === null) return false;
+  const err = error as {
+    code?: string;
+    message?: string;
+    meta?: { code?: string; constraint?: string };
+  };
+  return (
+    err.code === "23P01" ||
+    err.meta?.code === "23P01" ||
+    (typeof err.message === "string" &&
+      (err.message.includes("23P01") ||
+        err.message.includes("Appointment_no_overlapping_active_slots")))
+  );
+}
+
+function responseForCreated(
+  appointment: CreatedAppointmentRecord,
+  timeZone: string,
+): CreateAppointmentResponse {
+  const endsAt = new Date(
+    appointment.scheduledAt.getTime() + appointment.durationMinutes * 60_000,
+  );
+  return {
+    timeZone,
+    appointment: {
+      id: appointment.id,
+      patientId: appointment.patientId,
+      professionalId: appointment.professionalId,
+      scheduledAt: appointment.scheduledAt.toISOString(),
+      endsAt: endsAt.toISOString(),
+      localScheduledAt: localDateTime(appointment.scheduledAt, timeZone),
+      localEndsAt: localDateTime(endsAt, timeZone),
+      durationMinutes: appointment.durationMinutes,
+      status: appointment.status,
+      notes: appointment.notes,
+      createdAt: appointment.createdAt.toISOString(),
+    },
+  };
+}
+
 export class AppointmentsService {
+  private readonly locks = new Map<string, Promise<void>>();
+
   constructor(private readonly prisma: PrismaClient) {}
+
+  private async withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+    const previous = this.locks.get(key) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const chain = previous.then(() => current);
+    this.locks.set(key, chain);
+    await previous;
+    try {
+      return await fn();
+    } finally {
+      release();
+      if (this.locks.get(key) === chain) {
+        this.locks.delete(key);
+      }
+    }
+  }
 
   private async organization(organizationId: string) {
     const organization = await this.prisma.organization.findUniqueOrThrow({
@@ -585,5 +687,327 @@ export class AppointmentsService {
         organization.timezone,
       );
     });
+  }
+
+  async create(
+    organizationId: string,
+    idempotencyKey: string,
+    body: CreateAppointmentBody,
+  ): Promise<CreateAppointmentResponse> {
+    const key = idempotencyKey.trim();
+    if (!key) {
+      throw new ApiError(
+        "VALIDATION_ERROR",
+        400,
+        "Cabeçalho Idempotency-Key é obrigatório.",
+        { field: "idempotencyKey" },
+      );
+    }
+
+    const scheduledAt = parseUtcDateTime(body.scheduledAt);
+    if (
+      !Number.isInteger(body.durationMinutes) ||
+      body.durationMinutes < 1 ||
+      body.durationMinutes > 1440
+    ) {
+      throw new ApiError(
+        "VALIDATION_ERROR",
+        400,
+        "Duração do agendamento inválida.",
+        { field: "durationMinutes" },
+      );
+    }
+
+    const notes =
+      body.notes !== undefined && body.notes !== null
+        ? body.notes.trim() || null
+        : null;
+    const endsAt = new Date(
+      scheduledAt.getTime() + body.durationMinutes * 60_000,
+    );
+    const requestHash = new Bun.CryptoHasher("sha256")
+      .update(
+        JSON.stringify({
+          patientId: body.patientId,
+          professionalId: body.professionalId,
+          scheduledAt: scheduledAt.toISOString(),
+          durationMinutes: body.durationMinutes,
+          notes,
+        }),
+      )
+      .digest("hex");
+
+    const organization = await this.organization(organizationId);
+
+    return this.withLock(`${organizationId}:idempotency:${key}`, async () => {
+      const replay = await this.findReplay(organizationId, key, requestHash);
+      if (replay) return responseForCreated(replay, organization.timezone);
+
+      return this.withLock(
+        `${organizationId}:professional:${body.professionalId}`,
+        async () => {
+          const innerReplay = await this.findReplay(
+            organizationId,
+            key,
+            requestHash,
+          );
+          if (innerReplay)
+            return responseForCreated(innerReplay, organization.timezone);
+
+          try {
+            return await this.prisma.$transaction(async (tx) => {
+              if (
+                typeof (tx as { $executeRaw?: unknown }).$executeRaw ===
+                "function"
+              ) {
+                await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${organizationId}), hashtext(${body.professionalId}))`;
+              }
+
+              const patient = await tx.patient.findFirst({
+                where: { id: body.patientId, organizationId },
+                select: { id: true },
+              });
+              if (!patient)
+                throw new ApiError(
+                  "NOT_FOUND",
+                  404,
+                  "Paciente não encontrado.",
+                );
+
+              const professional = await tx.membership.findFirst({
+                where: {
+                  organizationId,
+                  userId: body.professionalId,
+                  status: "ACTIVE",
+                  role: { in: ["PROFESSIONAL", "ADMIN_PROFESSIONAL"] },
+                },
+                select: { id: true },
+              });
+              if (!professional)
+                throw new ApiError(
+                  "NOT_FOUND",
+                  404,
+                  "Profissional não encontrado.",
+                );
+
+              const localParts = dateParts(scheduledAt, organization.timezone);
+              const localDate = `${localParts.year}-${localParts.month}-${localParts.day}`;
+              const dayOfWeek =
+                DAY_NAMES[parseDate(localDate).getUTCDay()] ?? "SUNDAY";
+              const rules = await tx.weeklyScheduleRule.findMany({
+                where: { organizationId, dayOfWeek },
+                orderBy: { startTime: "asc" },
+              });
+              const fitsSchedule = rules.some((rule) => {
+                const intervalStart = zonedDateTimeToUtc(
+                  localDate,
+                  rule.startTime,
+                  organization.timezone,
+                );
+                const intervalEnd = zonedDateTimeToUtc(
+                  localDate,
+                  rule.endTime,
+                  organization.timezone,
+                );
+                return (
+                  scheduledAt.getTime() >= intervalStart.getTime() &&
+                  endsAt.getTime() <= intervalEnd.getTime()
+                );
+              });
+              if (!fitsSchedule) {
+                throw new ApiError(
+                  "SLOT_CONFLICT",
+                  409,
+                  "O horário selecionado está fora do expediente configurado para a clínica.",
+                  {
+                    reason: "OUTSIDE_WORKING_HOURS",
+                    professionalId: body.professionalId,
+                    requestedStartsAt: scheduledAt.toISOString(),
+                    requestedEndsAt: endsAt.toISOString(),
+                    dayOfWeek,
+                    timeZone: organization.timezone,
+                  },
+                );
+              }
+
+              const pauses = await tx.professionalSchedulePause.findMany({
+                where: {
+                  organizationId,
+                  professionalId: body.professionalId,
+                  startsAt: { lt: endsAt },
+                  endsAt: { gt: scheduledAt },
+                },
+                orderBy: { startsAt: "asc" },
+                select: { startsAt: true, endsAt: true },
+              });
+              const conflictingPause = pauses.find((pause) =>
+                overlaps(scheduledAt, endsAt, pause.startsAt, pause.endsAt),
+              );
+              if (conflictingPause) {
+                throw new ApiError(
+                  "SLOT_CONFLICT",
+                  409,
+                  "O horário selecionado conflita com uma pausa na agenda do profissional.",
+                  {
+                    reason: "SCHEDULE_PAUSE",
+                    professionalId: body.professionalId,
+                    requestedStartsAt: scheduledAt.toISOString(),
+                    requestedEndsAt: endsAt.toISOString(),
+                    conflictingStartsAt:
+                      conflictingPause.startsAt.toISOString(),
+                    conflictingEndsAt: conflictingPause.endsAt.toISOString(),
+                  },
+                );
+              }
+
+              const existingAppointments = await tx.appointment.findMany({
+                where: {
+                  organizationId,
+                  professionalId: body.professionalId,
+                  status: { in: ACTIVE_STATUSES },
+                  scheduledAt: {
+                    gte: new Date(scheduledAt.getTime() - 86_400_000),
+                    lt: endsAt,
+                  },
+                },
+                orderBy: [{ scheduledAt: "asc" }, { id: "asc" }],
+                select: {
+                  id: true,
+                  scheduledAt: true,
+                  durationMinutes: true,
+                },
+              });
+              const conflictingAppointment = existingAppointments.find((item) =>
+                overlaps(
+                  scheduledAt,
+                  endsAt,
+                  item.scheduledAt,
+                  new Date(
+                    item.scheduledAt.getTime() + item.durationMinutes * 60_000,
+                  ),
+                ),
+              );
+              if (conflictingAppointment) {
+                const conflictingEnd = new Date(
+                  conflictingAppointment.scheduledAt.getTime() +
+                    conflictingAppointment.durationMinutes * 60_000,
+                );
+                throw new ApiError(
+                  "SLOT_CONFLICT",
+                  409,
+                  "O horário selecionado conflita com outro agendamento do profissional.",
+                  {
+                    reason: "APPOINTMENT_OVERLAP",
+                    professionalId: body.professionalId,
+                    requestedStartsAt: scheduledAt.toISOString(),
+                    requestedEndsAt: endsAt.toISOString(),
+                    conflictingAppointmentId: conflictingAppointment.id,
+                    conflictingStartsAt:
+                      conflictingAppointment.scheduledAt.toISOString(),
+                    conflictingEndsAt: conflictingEnd.toISOString(),
+                  },
+                );
+              }
+
+              const appointment = await tx.appointment.create({
+                data: {
+                  organizationId,
+                  patientId: body.patientId,
+                  professionalId: body.professionalId,
+                  scheduledAt,
+                  durationMinutes: body.durationMinutes,
+                  status: "RESERVED",
+                  notes,
+                },
+                select: {
+                  id: true,
+                  patientId: true,
+                  professionalId: true,
+                  scheduledAt: true,
+                  durationMinutes: true,
+                  status: true,
+                  notes: true,
+                  createdAt: true,
+                },
+              });
+              await tx.appointmentCreationRequest.create({
+                data: {
+                  organizationId,
+                  idempotencyKey: key,
+                  requestHash,
+                  appointmentId: appointment.id,
+                },
+              });
+              return responseForCreated(appointment, organization.timezone);
+            });
+          } catch (error) {
+            if (isExclusionConflict(error)) {
+              throw new ApiError(
+                "SLOT_CONFLICT",
+                409,
+                "O horário selecionado conflita com outro agendamento do profissional.",
+                {
+                  reason: "APPOINTMENT_OVERLAP",
+                  professionalId: body.professionalId,
+                  requestedStartsAt: scheduledAt.toISOString(),
+                  requestedEndsAt: endsAt.toISOString(),
+                },
+              );
+            }
+            if (!isUniqueConflict(error)) throw error;
+            const concurrentReplay = await this.findReplay(
+              organizationId,
+              key,
+              requestHash,
+            );
+            if (concurrentReplay)
+              return responseForCreated(
+                concurrentReplay,
+                organization.timezone,
+              );
+            throw new ApiError(
+              "IDEMPOTENCY_CONFLICT",
+              409,
+              "A chave de idempotência está em uso.",
+            );
+          }
+        },
+      );
+    });
+  }
+
+  private async findReplay(
+    organizationId: string,
+    idempotencyKey: string,
+    requestHash: string,
+  ): Promise<CreatedAppointmentRecord | null> {
+    const request = await this.prisma.appointmentCreationRequest.findUnique({
+      where: {
+        organizationId_idempotencyKey: { organizationId, idempotencyKey },
+      },
+      select: {
+        requestHash: true,
+        appointment: {
+          select: {
+            id: true,
+            patientId: true,
+            professionalId: true,
+            scheduledAt: true,
+            durationMinutes: true,
+            status: true,
+            notes: true,
+            createdAt: true,
+          },
+        },
+      },
+    });
+    if (!request) return null;
+    if (request.requestHash !== requestHash)
+      throw new ApiError(
+        "IDEMPOTENCY_CONFLICT",
+        409,
+        "A chave de idempotência já foi usada com outros dados.",
+      );
+    return request.appointment;
   }
 }
