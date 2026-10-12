@@ -334,7 +334,22 @@ O fluxo obrigatório é:
 * **Permissão:** `team:invite`.
 * **Cabeçalho Obrigatório:** `Idempotency-Key`
 * **Body:** `{ "email": "recepcao@exemplo.com", "role": "RECEPTIONIST" }`
-* **Respostas:** `201 Created` (`{ "invite": { "id": "inv_1", "email": "...", "expiresAt": "..." } }`), `409 ALREADY_EXISTS`.
+* **Respostas:** `201 Created` (`{ "id": "...", "email": "...", "expiresAt": "..." }`), `409 ALREADY_EXISTS` para vínculo ativo/convidado ou convite pendente ao mesmo e-mail na clínica.
+
+#### `GET /organizations/:orgSlug/invites`
+* **Descrição:** Lista até 100 convites pendentes e válidos da clínica, sem tokens.
+* **Permissão:** Gestão de equipe (`ADMIN` ou `ADMIN_PROFESSIONAL`).
+* **Resposta:** `200 OK` com `data` contendo `id`, `email`, `role` e `expiresAt`.
+
+#### `DELETE /organizations/:orgSlug/invites/:inviteId`
+* **Descrição:** Revoga um convite pendente da clínica imediatamente.
+* **Permissão:** `team:manage`.
+* **Respostas:** `200 OK` ou `404 NOT_FOUND` quando o convite não pertence à clínica ou já não está pendente.
+
+#### `POST /organizations/:orgSlug/invites/:inviteId/resend`
+* **Descrição:** Substitui o token anterior e inicia novo prazo de sete dias, inclusive para convite vencido ainda não revogado nem aceito.
+* **Permissão:** `team:invite`.
+* **Respostas:** `200 OK` com `id`, `email` e `expiresAt`; `404 NOT_FOUND` para convite inexistente, revogado ou aceito; `409 ALREADY_EXISTS` se a pessoa já tem vínculo ativo ou convidado na clínica.
 
 #### `GET /organizations/:orgSlug/invites`
 * **Descrição:** Lista até 100 convites pendentes e não expirados da clínica, junto com os papéis aceitos atualmente pela API.

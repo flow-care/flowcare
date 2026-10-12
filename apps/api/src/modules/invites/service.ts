@@ -259,14 +259,17 @@ export class InviteService {
 
   async revoke(adminId: string, slug: string, inviteId: string) {
     const organization = await this.authorizeAdmin(adminId, slug);
-    await this.deps.prisma.organizationInvite.updateMany({
+    const result = await this.deps.prisma.organizationInvite.updateMany({
       where: {
         id: inviteId,
         organizationId: organization.id,
         acceptedAt: null,
+        revokedAt: null,
       },
       data: { revokedAt: new Date() },
     });
+    if (result.count === 0)
+      throw new ApiError("NOT_FOUND", 404, "Convite pendente não encontrado.");
     return { message: "Convite revogado." };
   }
 
@@ -280,15 +283,39 @@ export class InviteService {
         revokedAt: null,
       },
     });
-    if (!current || current.expiresAt <= new Date())
+    if (!current)
       throw new ApiError("NOT_FOUND", 404, "Convite pendente não encontrado.");
+    const existingMember = await this.deps.prisma.membership.findFirst({
+      where: {
+        organizationId: organization.id,
+        user: { email: current.email },
+        status: { in: ["ACTIVE", "INVITED"] },
+      },
+    });
+    if (existingMember)
+      throw new ApiError(
+        "ALREADY_EXISTS",
+        409,
+        "Esta pessoa já está vinculada à clínica.",
+      );
     const token = generateToken();
-    const invite = await this.deps.prisma.organizationInvite.update({
-      where: { id: current.id },
+    const updated = await this.deps.prisma.organizationInvite.updateMany({
+      where: {
+        id: current.id,
+        organizationId: organization.id,
+        tokenHash: current.tokenHash,
+        acceptedAt: null,
+        revokedAt: null,
+      },
       data: {
         tokenHash: hashToken(token),
         expiresAt: new Date(Date.now() + TTL_MS),
       },
+    });
+    if (updated.count === 0)
+      throw new ApiError("NOT_FOUND", 404, "Convite pendente não encontrado.");
+    const invite = await this.deps.prisma.organizationInvite.findUniqueOrThrow({
+      where: { id: current.id },
     });
     await this.send(invite.email, organization.name, token);
     return {

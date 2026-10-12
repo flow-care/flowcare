@@ -10,6 +10,41 @@ const future = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 const past = new Date(now.getTime() - 1000);
 
 describe("Módulo de convites (Issue #213)", () => {
+  test("create rejects an email that already belongs to the clinic", async () => {
+    let inviteCreated = false;
+    const prisma = {
+      membership: {
+        findFirst: async ({
+          where,
+        }: {
+          where: { userId?: string; user?: { email: string } };
+        }) => {
+          if (where.userId)
+            return { organization: { id: "org-1", name: "Clínica" } };
+          expect(where.user?.email).toBe("pessoa@exemplo.com");
+          return { id: "member-1" };
+        },
+      },
+      organizationInvite: {
+        create: async () => {
+          inviteCreated = true;
+        },
+      },
+    } as unknown as PrismaClient;
+    const service = new InviteService({
+      prisma,
+      mailer: {} as never,
+      webAppUrl: "",
+    });
+    await expect(
+      service.create("admin-1", "clinica", {
+        email: " Pessoa@Exemplo.com ",
+        role: "PROFESSIONAL",
+      }),
+    ).rejects.toMatchObject({ code: "ALREADY_EXISTS", httpStatus: 409 });
+    expect(inviteCreated).toBe(false);
+  });
+
   test("list retorna só convites pendentes da clínica autorizada sem expor tokens", async () => {
     let queriedOrganization: string | undefined;
     const prisma = {
@@ -54,9 +89,12 @@ describe("Módulo de convites (Issue #213)", () => {
   test("resend informa falha de entrega para permitir nova tentativa", async () => {
     const prisma = {
       membership: {
-        findFirst: async () => ({
-          organization: { id: "org-1", name: "Clínica" },
-        }),
+        findFirst: async ({ where }: any) =>
+          where.user
+            ? null
+            : {
+                organization: { id: "org-1", name: "Clínica" },
+              },
       },
       organizationInvite: {
         findFirst: async () => ({
@@ -64,7 +102,8 @@ describe("Módulo de convites (Issue #213)", () => {
           email: "pessoa@exemplo.com",
           expiresAt: future,
         }),
-        update: async () => ({
+        updateMany: async () => ({ count: 1 }),
+        findUniqueOrThrow: async () => ({
           id: "inv-1",
           email: "pessoa@exemplo.com",
           expiresAt: future,
@@ -86,6 +125,97 @@ describe("Módulo de convites (Issue #213)", () => {
       code: "EMAIL_DELIVERY_FAILED",
       httpStatus: 503,
     });
+  });
+
+  test("resend renews an expired invite and invalidates its old token", async () => {
+    const oldHash = hashToken("old-token");
+    let storedHash = oldHash;
+    let expiresAt = past;
+    let sentToken = "";
+    const prisma = {
+      membership: {
+        findFirst: async ({ where }: any) =>
+          where.user
+            ? null
+            : { organization: { id: "org-1", name: "Clínica" } },
+      },
+      organizationInvite: {
+        findFirst: async () => ({
+          id: "inv-1",
+          email: "pessoa@exemplo.com",
+          tokenHash: oldHash,
+          expiresAt: past,
+        }),
+        updateMany: async ({ where, data }: any) => {
+          expect(where.organizationId).toBe("org-1");
+          expect(where.tokenHash).toBe(oldHash);
+          storedHash = data.tokenHash;
+          expiresAt = data.expiresAt;
+          return { count: 1 };
+        },
+        findUniqueOrThrow: async () => ({
+          id: "inv-1",
+          email: "pessoa@exemplo.com",
+          expiresAt,
+        }),
+        findUnique: async ({ where }: any) =>
+          where.tokenHash === storedHash
+            ? {
+                email: "pessoa@exemplo.com",
+                role: "PROFESSIONAL",
+                expiresAt,
+                revokedAt: null,
+                acceptedAt: null,
+                organization: { name: "Clínica", slug: "clinica", owner: null },
+              }
+            : null,
+      },
+    } as unknown as PrismaClient;
+    const service = new InviteService({
+      prisma,
+      mailer: {
+        send: async ({ text }: any) => {
+          sentToken = text.split("/accept-invite/")[1];
+        },
+      },
+      webAppUrl: "http://localhost:3000",
+    });
+    const result = await service.resend("admin-1", "clinica", "inv-1");
+    expect(storedHash).toBe(hashToken(sentToken));
+    expect(storedHash).not.toBe(oldHash);
+    expect(new Date(result.expiresAt).getTime()).toBeGreaterThan(
+      Date.now() + 6 * 24 * 60 * 60 * 1000,
+    );
+    await expect(service.getDetails("old-token")).rejects.toMatchObject({
+      code: "INVITE_EXPIRED",
+    });
+  });
+
+  test("revoke rejects an invite outside the clinic and does not change it", async () => {
+    let scopedOrganization = "";
+    const prisma = {
+      membership: {
+        findFirst: async () => ({ organization: { id: "org-1" } }),
+      },
+      organizationInvite: {
+        updateMany: async ({ where }: any) => {
+          scopedOrganization = where.organizationId;
+          return { count: 0 };
+        },
+      },
+    } as unknown as PrismaClient;
+    const service = new InviteService({
+      prisma,
+      mailer: {} as never,
+      webAppUrl: "",
+    });
+    await expect(
+      service.revoke("admin-1", "clinica", "other-invite"),
+    ).rejects.toMatchObject({
+      code: "NOT_FOUND",
+      httpStatus: 404,
+    });
+    expect(scopedOrganization).toBe("org-1");
   });
 
   test("getDetails retorna dados da clínica para convite ativo", async () => {
