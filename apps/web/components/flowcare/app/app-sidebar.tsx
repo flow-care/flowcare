@@ -1,17 +1,13 @@
 "use client";
 
-import {
-  Building2,
-  Check,
-  ChevronsUpDown,
-  LayoutDashboard,
-} from "lucide-react";
+import { Check, ChevronsUpDown, LayoutDashboard } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 import { toast } from "sonner";
 import { chooseOrganization } from "@/app/select-organization/actions";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -93,9 +89,16 @@ export function AppSidebar({
                   aria-label={`Clínica atual: ${current.name}. Trocar clínica`}
                   disabled={pending}
                 >
-                  <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
-                    <Building2 className="size-4" />
-                  </span>
+                  <Avatar className="after:hidden">
+                    <AvatarImage
+                      src={`https://api.dicebear.com/10.x/initials/svg?seed=${encodeURIComponent(current.name.trim() || current.slug)}&lettersVariant=single`}
+                      alt=""
+                      referrerPolicy="no-referrer"
+                    />
+                    <AvatarFallback>
+                      {current.name.trim().charAt(0).toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
                   <span className="min-w-0 flex-1 text-left leading-tight">
                     <span className="block truncate font-semibold">
                       {current.name}
