@@ -70,14 +70,14 @@ export function AppSidebar({
         <Link
           href="/app"
           aria-label="Flowcare — início"
-          className="flex h-12 items-center px-2"
+          className="flex h-12 items-center px-2 group-data-[collapsible=icon]:invisible"
         >
           <Image
-            src="/logo-2.png"
+            src="/logo-1.png"
             alt="Flowcare"
-            width={638}
-            height={582}
-            className="size-8 object-contain"
+            width={1024}
+            height={409}
+            className="h-auto w-28"
           />
         </Link>
         <SidebarMenu>
