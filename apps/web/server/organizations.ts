@@ -10,7 +10,12 @@ const organizationsResponse = z.object({
       id: z.string(),
       name: z.string(),
       slug: z.string(),
-      role: z.enum(["ADMIN", "PROFESSIONAL", "RECEPTIONIST"]),
+      role: z.enum([
+        "ADMIN",
+        "ADMIN_PROFESSIONAL",
+        "PROFESSIONAL",
+        "RECEPTIONIST",
+      ]),
     }),
   ),
 });

@@ -4,7 +4,7 @@ export type OrganizationSummary = {
   id: string;
   name: string;
   slug: string;
-  role: "ADMIN" | "PROFESSIONAL" | "RECEPTIONIST";
+  role: "ADMIN" | "ADMIN_PROFESSIONAL" | "PROFESSIONAL" | "RECEPTIONIST";
   isOwner: boolean;
 };
 
