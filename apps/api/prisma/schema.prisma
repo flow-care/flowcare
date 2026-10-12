@@ -45,6 +45,15 @@ enum AppointmentStatus {
   NO_SHOW
 }
 
+enum ReceptionQueueStatus {
+  WAITING
+  ARRIVED
+  CALLED
+  IN_SERVICE
+  COMPLETED
+  NO_SHOW
+}
+
 model OrganizationInvite {
   id             String         @id @default(uuid()) @db.Uuid
   organizationId String         @db.Uuid
@@ -197,16 +206,21 @@ model AuditLog {
 }
 
 model Appointment {
-  id              String            @id @default(uuid()) @db.Uuid
-  organizationId  String            @db.Uuid
-  patientId       String            @db.Uuid
-  professionalId  String            @db.Uuid
-  scheduledAt     DateTime
-  durationMinutes Int
-  status           AppointmentStatus @default(RESERVED)
+  id               String               @id @default(uuid()) @db.Uuid
+  organizationId   String               @db.Uuid
+  patientId        String               @db.Uuid
+  professionalId   String               @db.Uuid
+  scheduledAt      DateTime
+  durationMinutes  Int
+  status           AppointmentStatus    @default(RESERVED)
+  queueStatus      ReceptionQueueStatus @default(WAITING)
+  arrivedAt        DateTime?
+  queueUpdatedAt   DateTime?
+  queueUpdatedById String?              @db.Uuid
+  version          Int                  @default(0)
   notes            String?
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
 
   organization     Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   patient          Patient                      @relation(fields: [patientId], references: [id], onDelete: Restrict)
@@ -216,6 +230,7 @@ model Appointment {
   @@index([organizationId, scheduledAt, id])
   @@index([organizationId, professionalId, scheduledAt])
   @@index([organizationId, status, scheduledAt])
+  @@index([organizationId, queueStatus, scheduledAt])
 }
 
 model AppointmentCreationRequest {

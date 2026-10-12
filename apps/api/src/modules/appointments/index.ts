@@ -13,6 +13,55 @@ export function appointmentsModule(deps: {
   return new Elysia({ name: "appointments" })
     .use(authPlugin(deps))
     .use(organizationAccessPlugin(deps))
+    .group("/organizations/:orgSlug/reception", (group) =>
+      group
+        .get(
+          "/queue",
+          ({ organizationAccess, query }) =>
+            service.listReceptionQueue(
+              organizationAccess.organizationId,
+              query,
+            ),
+          {
+            params: m.orgSlugParams,
+            query: m.receptionQueueQuery,
+            organizationAccess: "reception:read",
+            response: { 200: m.receptionQueueResponse },
+          },
+        )
+        .patch(
+          "/queue/:appointmentId",
+          ({ auth, organizationAccess, params, body }) =>
+            service.transitionReceptionQueue(
+              organizationAccess.organizationId,
+              auth.userId,
+              params.appointmentId,
+              body,
+            ),
+          {
+            params: m.appointmentParams,
+            body: m.receptionQueueTransitionBody,
+            organizationAccess: "reception:write",
+            response: { 200: m.receptionQueueItem },
+          },
+        )
+        .post(
+          "/queue/:appointmentId",
+          ({ auth, organizationAccess, params, body }) =>
+            service.transitionReceptionQueue(
+              organizationAccess.organizationId,
+              auth.userId,
+              params.appointmentId,
+              body,
+            ),
+          {
+            params: m.appointmentParams,
+            body: m.receptionQueueTransitionBody,
+            organizationAccess: "reception:write",
+            response: { 200: m.receptionQueueItem },
+          },
+        ),
+    )
     .group("/organizations/:orgSlug/appointments", (group) =>
       group
         .get(
@@ -24,6 +73,20 @@ export function appointmentsModule(deps: {
             query: m.availabilityQuery,
             organizationAccess: "appointments:read",
             response: { 200: m.availabilityResponse },
+          },
+        )
+        .get(
+          "/queue",
+          ({ organizationAccess, query }) =>
+            service.listReceptionQueue(
+              organizationAccess.organizationId,
+              query,
+            ),
+          {
+            params: m.orgSlugParams,
+            query: m.receptionQueueQuery,
+            organizationAccess: "reception:read",
+            response: { 200: m.receptionQueueResponse },
           },
         )
         .get(
@@ -54,6 +117,70 @@ export function appointmentsModule(deps: {
             body: m.createAppointmentBody,
             organizationAccess: "appointments:write",
             response: { 201: m.createAppointmentResponse },
+          },
+        )
+        .patch(
+          "/:appointmentId/queue",
+          ({ auth, organizationAccess, params, body }) =>
+            service.transitionReceptionQueue(
+              organizationAccess.organizationId,
+              auth.userId,
+              params.appointmentId,
+              body,
+            ),
+          {
+            params: m.appointmentParams,
+            body: m.receptionQueueTransitionBody,
+            organizationAccess: "reception:write",
+            response: { 200: m.receptionQueueItem },
+          },
+        )
+        .patch(
+          "/:appointmentId/arrival",
+          ({ auth, organizationAccess, params, body }) =>
+            service.transitionReceptionQueue(
+              organizationAccess.organizationId,
+              auth.userId,
+              params.appointmentId,
+              body,
+            ),
+          {
+            params: m.appointmentParams,
+            body: m.receptionQueueTransitionBody,
+            organizationAccess: "reception:write",
+            response: { 200: m.receptionQueueItem },
+          },
+        )
+        .patch(
+          "/:appointmentId/reception-status",
+          ({ auth, organizationAccess, params, body }) =>
+            service.transitionReceptionQueue(
+              organizationAccess.organizationId,
+              auth.userId,
+              params.appointmentId,
+              body,
+            ),
+          {
+            params: m.appointmentParams,
+            body: m.receptionQueueTransitionBody,
+            organizationAccess: "reception:write",
+            response: { 200: m.receptionQueueItem },
+          },
+        )
+        .post(
+          "/:appointmentId/reception-status",
+          ({ auth, organizationAccess, params, body }) =>
+            service.transitionReceptionQueue(
+              organizationAccess.organizationId,
+              auth.userId,
+              params.appointmentId,
+              body,
+            ),
+          {
+            params: m.appointmentParams,
+            body: m.receptionQueueTransitionBody,
+            organizationAccess: "reception:write",
+            response: { 200: m.receptionQueueItem },
           },
         ),
     );
