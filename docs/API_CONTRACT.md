@@ -372,10 +372,20 @@ O fluxo obrigatório é:
 *(Ref: Issues [#250](https://github.com/Flowcare-team/flowcare-monorepo/issues/250)–[#254](https://github.com/Flowcare-team/flowcare-monorepo/issues/254))*
 
 #### `GET /organizations/:orgSlug/patients`
-* **Descrição:** Consulta e filtra a lista de pacientes da clínica por nome, CPF ou telefone.
+* **Descrição:** Consulta e filtra a lista de pacientes da clínica ativa com normalização de acentos/caixa no nome (`normalizedName`) e normalização numérica para variações de formatação de telefone e CPF.
 * **Permissão:** `patients:read`.
-* **Query Params:** `?search=joao&cursor=xxx&limit=20`
-* **Respostas:** `200 OK` (`{ "data": [...], "pageInfo": { ... } }`).
+* **Query Params:** `?search=joao&cursor=<id>&limit=20` (`q` também aceito como alias de `search`; `limit` de 1 a 100, padrão 20).
+* **Respostas:** `200 OK` (`{ "data": [ { "id", "fullName", "cpf", "birthDate", "phone", "email", "healthInsurance", "insuranceNumber", "version", "createdAt", "updatedAt" } ], "pageInfo": { "nextCursor": null, "hasNextPage": false } }`), `400 VALIDATION_ERROR` (limite ou cursor inválido).
+
+#### `GET /organizations/:orgSlug/patients/:id`
+* **Descrição:** Retorna os detalhes cadastrais e de contato do paciente dentro da clínica ativa.
+* **Permissão:** `patients:read`.
+* **Respostas:** `200 OK` (`{ "patient": { "id", "fullName", "cpf", "birthDate", "phone", "email", "healthInsurance", "insuranceNumber", "version", "createdAt", "updatedAt" } }`), `404 NOT_FOUND` (ID inexistente ou pertencente a outra clínica, sem revelar dados).
+
+#### `GET /organizations/:orgSlug/patients/:id/overview`
+* **Descrição:** Retorna o resumo executivo do paciente na clínica ativa, incluindo dados essenciais de contato (`contact`), convênio ativo (`activeInsurance`, `healthInsurance`, `insuranceNumber`) e próximos agendamentos ativos (`upcomingAppointments` com status `RESERVED` ou `CONFIRMED` ordenados por `scheduledAt` crescente). Alertas clínicos (`allergies`, `comorbidities`, `clinicalAlerts`), notas médicas (`medicalNotes`) e o bloco `clinicalSummary` são incluídos exclusivamente quando o papel autenticado possui prerrogativa assistencial (`patients:read_history`: `PROFESSIONAL` ou `ADMIN_PROFESSIONAL`) e são omitidos para papéis exclusivamente administrativos/recepção (`ADMIN` e `RECEPTIONIST`).
+* **Permissão:** `patients:read` (com enriquecimento condicional por `patients:read_history`).
+* **Respostas:** `200 OK`, `404 NOT_FOUND` (ID inexistente ou pertencente a outra clínica).
 
 #### `POST /organizations/:orgSlug/patients`
 * **Descrição:** Cadastra um novo paciente. Executa verificação prévia de duplicidade pelo CPF normalizado, sempre dentro da clínica resolvida pela URL e pelo vínculo autenticado.
