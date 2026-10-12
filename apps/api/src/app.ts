@@ -183,7 +183,13 @@ export function createApp(env: Env, deps: AppDeps) {
     .use(authModule(authDeps))
     .use(appointmentsModule({ prisma: deps.prisma, jwtSecret: env.jwtSecret }))
     .use(onboardingModule(onboardingDeps))
-    .use(organizationsModule({ prisma: deps.prisma, jwtSecret: env.jwtSecret }))
+    .use(
+      organizationsModule({
+        prisma: deps.prisma,
+        jwtSecret: env.jwtSecret,
+        logoStore: photoStore,
+      }),
+    )
     .use(patientsModule({ prisma: deps.prisma, jwtSecret: env.jwtSecret }))
     .use(
       accountModule({

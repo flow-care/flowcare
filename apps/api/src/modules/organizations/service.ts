@@ -1,12 +1,21 @@
+import { fileType } from "elysia";
 import type { PrismaClient } from "../../generated/prisma/client";
 import { ApiError } from "../../lib/api-error";
 import { slugify } from "../../lib/slug";
+import {
+  PROFILE_PHOTO_URL_TTL_SECONDS,
+  type ProfilePhotoStore,
+} from "../../services/profile-photo-store";
 import type {
   ClinicAddressBody,
   ClinicContactBody,
   ClinicDetailsResponse,
+  ClinicLogoUrlResponse,
+  ClinicSettingsResponse,
   CreateAdditionalOrganizationBody,
   OrganizationsResponse,
+  PatchClinicSettingsBody,
+  PutClinicSettingsBody,
 } from "./model";
 
 const MAX_USER_ORGANIZATIONS = 100;
@@ -33,6 +42,67 @@ type ClinicStepData = ClinicContactStepData | ClinicAddressStepData;
 
 type ClinicStep = "CLINIC_DETAILS" | "CLINIC_ADDRESS";
 
+type SettingsFieldKey = Exclude<
+  keyof PatchClinicSettingsBody,
+  "version" | "id" | "organizationId" | "slug" | "ownerId"
+>;
+
+const SETTINGS_FIELD_NORMALIZERS: {
+  [K in SettingsFieldKey]-?: (
+    value: NonNullable<PatchClinicSettingsBody[K]>,
+  ) => string | null;
+} = {
+  name: (v) => v.trim(),
+  legalName: (v) => v.trim(),
+  taxId: (v) => v.replace(/\D/g, "") || null,
+  contactEmail: (v) => v.trim().toLowerCase(),
+  contactPhone: (v) => v.replace(/\D/g, ""),
+  postalCode: (v) => v.replace(/\D/g, ""),
+  state: (v) => v.toUpperCase(),
+  city: (v) => v.trim(),
+  district: (v) => v.trim(),
+  street: (v) => v.trim(),
+  streetNumber: (v) => v.trim(),
+  addressComplement: (v) => v.trim() || null,
+};
+
+const REQUIRED_CLINIC_DETAIL_FIELDS = [
+  "legalName",
+  "contactEmail",
+  "contactPhone",
+  "postalCode",
+  "state",
+  "city",
+  "district",
+  "street",
+  "streetNumber",
+] as const;
+
+function normalizeClinicSettingsUpdate(
+  body: PatchClinicSettingsBody | PutClinicSettingsBody,
+): { data: Record<string, string | null>; changedFields: string[] } {
+  const data: Record<string, string | null> = {};
+  const changedFields: string[] = [];
+  for (const key of Object.keys(
+    SETTINGS_FIELD_NORMALIZERS,
+  ) as SettingsFieldKey[]) {
+    const raw = body[key];
+    if (raw !== undefined) {
+      data[key] = SETTINGS_FIELD_NORMALIZERS[key](raw);
+      changedFields.push(key);
+    }
+  }
+  return { data, changedFields };
+}
+
+function isClinicDetailsComplete(
+  record: Partial<
+    Record<(typeof REQUIRED_CLINIC_DETAIL_FIELDS)[number], string | null>
+  >,
+): boolean {
+  return REQUIRED_CLINIC_DETAIL_FIELDS.every((field) => Boolean(record[field]));
+}
+
 function canSaveClinicStep(
   step: ClinicStep,
   progress: { currentStep: string; completed: boolean } | null,
@@ -48,7 +118,10 @@ function canSaveClinicStep(
 }
 
 export class OrganizationsService {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly logoStore?: ProfilePhotoStore | null,
+  ) {}
 
   async createAdditional(
     userId: string,
@@ -141,6 +214,20 @@ export class OrganizationsService {
     };
   }
 
+  private async memberClinic(userId: string, slug: string) {
+    const membership = await this.prisma.membership.findFirst({
+      where: {
+        userId,
+        status: "ACTIVE",
+        organization: { slug },
+      },
+      select: { organization: true },
+    });
+    if (!membership)
+      throw new ApiError("NOT_FOUND", 404, "Clínica não encontrada.");
+    return membership.organization;
+  }
+
   private async editableClinic(userId: string, slug: string) {
     const membership = await this.prisma.membership.findFirst({
       where: {
@@ -156,11 +243,23 @@ export class OrganizationsService {
     return membership.organization;
   }
 
-  async getClinicDetails(
-    userId: string,
-    slug: string,
-  ): Promise<ClinicDetailsResponse> {
-    const org = await this.editableClinic(userId, slug);
+  private toClinicDetailsResponse(org: {
+    name: string;
+    slug: string;
+    detailsVersion: number;
+    detailsCompletedAt: Date | null;
+    legalName?: string | null;
+    taxId?: string | null;
+    contactEmail?: string | null;
+    contactPhone?: string | null;
+    postalCode?: string | null;
+    state?: string | null;
+    city?: string | null;
+    district?: string | null;
+    street?: string | null;
+    streetNumber?: string | null;
+    addressComplement?: string | null;
+  }): ClinicDetailsResponse {
     return {
       name: org.name,
       slug: org.slug,
@@ -178,6 +277,222 @@ export class OrganizationsService {
       streetNumber: org.streetNumber ?? "",
       addressComplement: org.addressComplement ?? "",
     };
+  }
+
+  private toClinicSettingsResponse(org: {
+    id: string;
+    name: string;
+    slug: string;
+    detailsVersion: number;
+    detailsCompletedAt: Date | null;
+    legalName?: string | null;
+    taxId?: string | null;
+    contactEmail?: string | null;
+    contactPhone?: string | null;
+    postalCode?: string | null;
+    state?: string | null;
+    city?: string | null;
+    district?: string | null;
+    street?: string | null;
+    streetNumber?: string | null;
+    addressComplement?: string | null;
+    logoContentType?: string | null;
+    logoSizeBytes?: number | null;
+    logoUpdatedAt?: Date | null;
+  }): ClinicSettingsResponse {
+    return {
+      id: org.id,
+      ...this.toClinicDetailsResponse(org),
+      logo:
+        org.logoContentType &&
+        org.logoSizeBytes !== null &&
+        org.logoSizeBytes !== undefined &&
+        org.logoUpdatedAt
+          ? {
+              contentType: org.logoContentType,
+              sizeBytes: org.logoSizeBytes,
+              updatedAt: org.logoUpdatedAt.toISOString(),
+            }
+          : null,
+    };
+  }
+
+  async getOrganizationBySlug(
+    userId: string,
+    slug: string,
+  ): Promise<ClinicSettingsResponse> {
+    const org = await this.memberClinic(userId, slug);
+    return this.toClinicSettingsResponse(org);
+  }
+
+  async getClinicSettings(
+    userId: string,
+    slug: string,
+  ): Promise<ClinicSettingsResponse> {
+    const org = await this.editableClinic(userId, slug);
+    return this.toClinicSettingsResponse(org);
+  }
+
+  async updateClinicSettings(
+    userId: string,
+    slug: string,
+    body: PatchClinicSettingsBody | PutClinicSettingsBody,
+  ): Promise<ClinicSettingsResponse> {
+    const org = await this.editableClinic(userId, slug);
+    if (body.version !== org.detailsVersion) {
+      throw new ApiError(
+        "VERSION_CONFLICT",
+        409,
+        "A clínica foi alterada em outra sessão. Recarregue os dados.",
+      );
+    }
+    const { data, changedFields } = normalizeClinicSettingsUpdate(body);
+    const merged = { ...org, ...data };
+    const shouldCompleteDetails =
+      org.detailsCompletedAt === null && isClinicDetailsComplete(merged);
+
+    await this.prisma.$transaction(async (tx) => {
+      const stillAdmin = await tx.membership.findFirst({
+        where: {
+          userId,
+          organizationId: org.id,
+          role: { in: ["ADMIN", "ADMIN_PROFESSIONAL"] },
+          status: "ACTIVE",
+        },
+        select: { id: true },
+      });
+      if (!stillAdmin)
+        throw new ApiError("NOT_FOUND", 404, "Clínica não encontrada.");
+      const updated = await tx.organization.updateMany({
+        where: { id: org.id, detailsVersion: body.version },
+        data: {
+          ...data,
+          ...(shouldCompleteDetails ? { detailsCompletedAt: new Date() } : {}),
+          detailsVersion: { increment: 1 },
+        },
+      });
+      if (!updated.count) {
+        throw new ApiError(
+          "VERSION_CONFLICT",
+          409,
+          "A clínica foi alterada em outra sessão. Recarregue os dados.",
+        );
+      }
+      await tx.auditLog.create({
+        data: {
+          organizationId: org.id,
+          actorUserId: userId,
+          action: "ORGANIZATION_SETTINGS_UPDATED",
+          targetType: "ORGANIZATION",
+          targetId: org.id,
+          metadata: {
+            changedFields,
+            version: body.version + 1,
+          },
+        },
+      });
+    });
+
+    return this.getClinicSettings(userId, slug);
+  }
+
+  async uploadClinicLogo(
+    userId: string,
+    slug: string,
+    file: File,
+  ): Promise<ClinicSettingsResponse> {
+    await fileType(file, file.type);
+    const store = this.logoStore;
+    if (!store) {
+      throw new ApiError(
+        "STORAGE_UNAVAILABLE",
+        503,
+        "Armazenamento indisponível.",
+      );
+    }
+    const org = await this.editableClinic(userId, slug);
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const key = `organizations/${org.id}/logo/${crypto.randomUUID()}`;
+    const now = new Date();
+    await store.put(key, bytes, file.type);
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        const stillAdmin = await tx.membership.findFirst({
+          where: {
+            userId,
+            organizationId: org.id,
+            role: { in: ["ADMIN", "ADMIN_PROFESSIONAL"] },
+            status: "ACTIVE",
+          },
+          select: { id: true },
+        });
+        if (!stillAdmin)
+          throw new ApiError("NOT_FOUND", 404, "Clínica não encontrada.");
+        const updated = await tx.organization.updateMany({
+          where: { id: org.id },
+          data: {
+            logoObjectKey: key,
+            logoContentType: file.type,
+            logoSizeBytes: bytes.length,
+            logoUpdatedAt: now,
+            detailsVersion: { increment: 1 },
+          },
+        });
+        if (!updated.count)
+          throw new ApiError("NOT_FOUND", 404, "Clínica não encontrada.");
+        await tx.auditLog.create({
+          data: {
+            organizationId: org.id,
+            actorUserId: userId,
+            action: "ORGANIZATION_LOGO_UPDATED",
+            targetType: "ORGANIZATION",
+            targetId: org.id,
+            metadata: {
+              contentType: file.type,
+              sizeBytes: bytes.length,
+              replacedPreviousLogo: Boolean(org.logoObjectKey),
+            },
+          },
+        });
+      });
+    } catch (error) {
+      await store.delete(key).catch(() => {});
+      throw error;
+    }
+    if (org.logoObjectKey) {
+      await store.delete(org.logoObjectKey).catch(() => {});
+    }
+    return this.getClinicSettings(userId, slug);
+  }
+
+  async getClinicLogoDownloadUrl(
+    userId: string,
+    slug: string,
+  ): Promise<ClinicLogoUrlResponse> {
+    const org = await this.memberClinic(userId, slug);
+    if (!org.logoObjectKey) {
+      throw new ApiError("NOT_FOUND", 404, "Logotipo não encontrado.");
+    }
+    const store = this.logoStore;
+    if (!store) {
+      throw new ApiError(
+        "STORAGE_UNAVAILABLE",
+        503,
+        "Armazenamento indisponível.",
+      );
+    }
+    return {
+      downloadUrl: await store.downloadUrl(org.logoObjectKey),
+      expiresInSeconds: PROFILE_PHOTO_URL_TTL_SECONDS,
+    };
+  }
+
+  async getClinicDetails(
+    userId: string,
+    slug: string,
+  ): Promise<ClinicDetailsResponse> {
+    const org = await this.editableClinic(userId, slug);
+    return this.toClinicDetailsResponse(org);
   }
 
   async saveClinicContact(
@@ -200,7 +515,7 @@ export class OrganizationsService {
     body: ClinicAddressBody,
   ): Promise<ClinicDetailsResponse> {
     return this.saveClinicStep(userId, slug, "CLINIC_ADDRESS", body.version, {
-      postalCode: body.postalCode,
+      postalCode: body.postalCode.replace(/\D/g, ""),
       state: body.state.toUpperCase(),
       city: body.city.trim(),
       district: body.district.trim(),
@@ -284,6 +599,22 @@ export class OrganizationsService {
       await tx.onboardingProgress.update({
         where: { userId },
         data: { currentStep: step, completed: true, version: { increment: 1 } },
+      });
+      await tx.auditLog?.create({
+        data: {
+          organizationId: org.id,
+          actorUserId: userId,
+          action: "ORGANIZATION_SETTINGS_UPDATED",
+          targetType: "ORGANIZATION",
+          targetId: org.id,
+          metadata: {
+            step,
+            changedFields: Object.keys(stepData).filter(
+              (key) => key !== "detailsCompletedAt",
+            ),
+            version: version + 1,
+          },
+        },
       });
     });
     return this.getClinicDetails(userId, slug);

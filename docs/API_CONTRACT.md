@@ -661,15 +661,26 @@ O fluxo obrigatório é:
 *(Ref: Issues [#303](https://github.com/Flowcare-team/flowcare-monorepo/issues/303)–[#306](https://github.com/Flowcare-team/flowcare-monorepo/issues/306))*
 
 #### `GET /organizations/:orgSlug/settings`
-* **Descrição:** Consulta as configurações institucionais, dados cadastrais e logotipo da clínica.
-* **Permissão:** `settings:read`.
-* **Respostas:** `200 OK`.
+* **Descrição:** Consulta as configurações institucionais, endereço completo e metadados do logotipo da clínica ativa.
+* **Permissão:** `settings:read` (`ADMIN` ou `ADMIN_PROFESSIONAL`).
+* **Respostas:** `200 OK` com `id`, `name`, `slug`, `version`, `completed`, `legalName`, `taxId`, `contactEmail`, `contactPhone`, `postalCode`, `state`, `city`, `district`, `street`, `streetNumber`, `addressComplement` e `logo` (`{ "contentType": "image/png", "sizeBytes": 1024, "updatedAt": "..." } | null`). Nenhum URL público ou chave de armazenamento é exposto. `401 UNAUTHENTICATED`, `403 MEMBERSHIP_INACTIVE`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`.
 
-#### `PATCH /organizations/:orgSlug/settings`
-* **Descrição:** Atualiza os dados cadastrais da clínica.
-* **Permissão:** `settings:write`.
-* **Body:** `{ "phone": "(11) 98888-0000", "version": 2 }`
-* **Respostas:** `200 OK`.
+#### `PATCH /organizations/:orgSlug/settings` e `PUT /organizations/:orgSlug/settings`
+* **Descrição:** Atualiza os dados institucionais, contato e/ou endereço da clínica ativa com controle de concorrência otimista (`version`) e gravação de evento `ORGANIZATION_SETTINGS_UPDATED` em `AuditLog` na mesma transação. `slug`, `id`, `organizationId` e `ownerId` são imutáveis e rejeitados.
+* **Permissão:** `settings:write` (`ADMIN` ou `ADMIN_PROFESSIONAL`).
+* **Body (`PATCH`):** `{ "version": 2, "name": "Clínica Vida", "legalName": "Clínica Vida Ltda", "taxId": "11.222.333/0001-81", "contactEmail": "contato@vida.com.br", "contactPhone": "(85) 99999-0000", "postalCode": "60000-000", "state": "CE", "city": "Fortaleza", "district": "Aldeota", "street": "Av. Santos Dumont", "streetNumber": "1000", "addressComplement": "Sala 10" }` (exige `version` e ao menos um campo editável; `PUT` exige todos os campos institucionais e de endereço).
+* **Respostas:** `200 OK` com o DTO atualizado e `version` incrementado; `400 VALIDATION_ERROR` com `error.details.field`; `403 MEMBERSHIP_INACTIVE`; `403 PERMISSION_DENIED`; `404 NOT_FOUND`; `409 VERSION_CONFLICT`.
+
+#### `POST /organizations/:orgSlug/settings/logo` (alias `POST /organizations/:orgSlug/logo`)
+* **Descrição:** Envia ou substitui o logotipo oficial da clínica por `multipart/form-data` no campo `file`. O servidor valida assinatura binária (magic bytes) e grava no armazenamento privado sob `organizations/{organizationId}/logo/`. O logotipo anterior é removido após o commit e a troca gera registro `ORGANIZATION_LOGO_UPDATED` em `AuditLog`.
+* **Permissão:** `settings:write` (`ADMIN` ou `ADMIN_PROFESSIONAL`).
+* **Limite:** JPEG, PNG ou WebP, até **5 MiB (5.242.880 bytes)**.
+* **Respostas:** `200 OK` com o DTO de `GET /organizations/:orgSlug/settings`; `400 VALIDATION_ERROR`; `403 PERMISSION_DENIED`; `404 NOT_FOUND`; `413 FILE_TOO_LARGE`; `503 STORAGE_UNAVAILABLE`.
+
+#### `GET /organizations/:orgSlug/settings/logo/download-url` (alias `GET /organizations/:orgSlug/logo/download-url`)
+* **Descrição:** Gera URL temporária assinada (15 minutos) para leitura do logotipo privado da clínica ativa.
+* **Permissão:** `organizations:read` (qualquer membro ativo da clínica).
+* **Respostas:** `200 OK` (`{ "downloadUrl": "...", "expiresInSeconds": 900 }`); `403 MEMBERSHIP_INACTIVE`; `404 NOT_FOUND` (sem vínculo ou sem logotipo cadastrado); `503 STORAGE_UNAVAILABLE`.
 
 #### `PUT /organizations/:orgSlug/settings/schedule-rules`
 * **Descrição:** Define os horários de funcionamento recorrentes e exceções/bloqueios na agenda.
