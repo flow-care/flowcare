@@ -74,6 +74,7 @@ Em caso de falha (códigos HTTP 4xx e 5xx), a API responde com a seguinte estrut
 | **409** | `LAST_ADMIN_REQUIRED` | Tentativa de remover ou rebaixar o último administrador da organização. |
 | **409** | `MESSAGE_STATE_CONFLICT` | Tentativa de reenviar mensagem fora do estado permitido. |
 | **409** | `DOCUMENT_STATE_CONFLICT` | Tentativa de editar, emitir ou anular documento fora do estado permitido. |
+| **409** | `INVALID_STATE_TRANSITION` | Tentativa de aplicar transição fora da máquina de estados permitida para o recurso. |
 | **410** | `INVITE_EXPIRED` | O convite para a equipe expirou ou foi revogado. |
 | **422** | `BUSINESS_RULE_VIOLATION` | Violação de regra de negócio com estado válido (ex: campos clínicos obrigatórios ausentes para emissão). |
 | **429** | `RATE_LIMITED` | Limite de requisições excedido. |
@@ -419,11 +420,15 @@ O fluxo obrigatório é:
 * **Respostas:** `200 OK` (`{ "date": "2026-09-01", "professionalId": "...", "timeZone": "America/Fortaleza", "slots": [{ "startsAt": "2026-09-01T12:00:00.000Z", "endsAt": "2026-09-01T12:30:00.000Z", "localStartsAt": "2026-09-01T09:00:00", "localEndsAt": "2026-09-01T09:30:00" }] }`), `404 NOT_FOUND` para profissional sem vínculo clínico ativo na organização.
 
 #### `POST /organizations/:orgSlug/appointments`
-* **Descrição:** Reserva um horário na agenda para um paciente. Valida disponibilidade para prevenir overlapping.
+* **Descrição:** Reserva um horário na agenda para um paciente com proteção contra dupla reserva concorrente. Valida que o paciente pertence à clínica ativa, que o profissional possui vínculo clínico ativo (`PROFESSIONAL` ou `ADMIN_PROFESSIONAL`) na clínica, que o intervalo `[scheduledAt, scheduledAt + durationMinutes)` cabe na grade semanal (`WeeklyScheduleRule`) no fuso da clínica, e que não há sobreposição com pausas (`ProfessionalSchedulePause`) nem com agendamentos ativos (`RESERVED` ou `CONFIRMED`).
 * **Permissão:** `appointments:write`.
 * **Cabeçalho Obrigatório:** `Idempotency-Key`
-* **Body:** `{ "patientId": "pat_1", "doctorId": "doc_1", "scheduledAt": "2026-10-05T14:00:00Z", "notes": "Consulta de rotina" }`
-* **Respostas:** `201 Created`, `409 SLOT_CONFLICT`.
+* **Body:** `{ "patientId": "<uuid>", "professionalId": "<uuid>", "scheduledAt": "2026-10-12T11:00:00.000Z", "durationMinutes": 30, "notes": "Consulta de rotina" }` (`notes` é opcional).
+* **Respostas:**
+  * `201 Created`: `{ "timeZone": "America/Fortaleza", "appointment": { "id": "...", "patientId": "...", "professionalId": "...", "scheduledAt": "2026-10-12T11:00:00.000Z", "endsAt": "2026-10-12T11:30:00.000Z", "localScheduledAt": "2026-10-12T08:00:00", "localEndsAt": "2026-10-12T08:30:00", "durationMinutes": 30, "status": "RESERVED", "notes": "Consulta de rotina", "createdAt": "..." } }`. Repetir o mesmo payload com a mesma `Idempotency-Key` retorna o agendamento original sem duplicar.
+  * `404 NOT_FOUND`: paciente ou profissional não pertence à clínica ativa (ou vínculo do profissional não é clínico ativo).
+  * `409 SLOT_CONFLICT`: horário indisponível ou em conflito, com `details` contendo `reason` (`APPOINTMENT_OVERLAP`, `SCHEDULE_PAUSE` ou `OUTSIDE_WORKING_HOURS`), `professionalId`, `requestedStartsAt`, `requestedEndsAt` e os limites do bloqueio conflitante (`conflictingStartsAt`, `conflictingEndsAt`, `conflictingAppointmentId`).
+  * `409 IDEMPOTENCY_CONFLICT`: reutilização da mesma `Idempotency-Key` com payload diferente.
 
 #### `POST /organizations/:orgSlug/appointments/:appointmentId/cancel`
 * **Descrição:** Cancela um agendamento. Exige justificativa motivada obrigatória.
@@ -431,16 +436,23 @@ O fluxo obrigatório é:
 * **Body:** `{ "cancellationReason": "Paciente informou imprevisto de trabalho", "version": 1 }`
 * **Respostas:** `200 OK` (`{ "status": "CANCELLED" }`), `422 BUSINESS_RULE_VIOLATION`.
 
-#### `GET /organizations/:orgSlug/reception/queue`
-* **Descrição:** Lista os pacientes na recepção aguardando atendimento no dia.
-* **Permissão:** `reception:read`.
-* **Respostas:** `200 OK` (`{ "queue": [ { "appointmentId": "app_1", "patientName": "...", "status": "WAITING" } ] }`).
+#### `GET /organizations/:orgSlug/reception/queue` (alias: `GET /organizations/:orgSlug/appointments/queue`)
+* **Descrição:** Lista a fila operacional da recepção da clínica para uma data local no fuso configurado (padrão: hoje na clínica), ordenada por `scheduledAt` e `id`, excluindo agendamentos `CANCELLED`.
+* **Permissão:** `reception:read` (`ADMIN`, `ADMIN_PROFESSIONAL`, `PROFESSIONAL`, `RECEPTIONIST`).
+* **Query Params:** `?date=2026-10-12&professionalId=<uuid>&queueStatus=WAITING|ARRIVED|CALLED|IN_SERVICE|COMPLETED|NO_SHOW` (`status` aceito como alias de `queueStatus`).
+* **Respostas:** `200 OK` (`{ "date": "2026-10-12", "timeZone": "America/Fortaleza", "queue": [ { "id": "...", "appointmentId": "...", "patientId": "...", "professionalId": "...", "scheduledAt": "2026-10-12T11:00:00.000Z", "localScheduledAt": "2026-10-12T08:00:00", "durationMinutes": 30, "status": "CONFIRMED", "queueStatus": "ARRIVED", "arrivedAt": "2026-10-12T10:50:00.000Z", "queueUpdatedAt": "2026-10-12T10:50:00.000Z", "queueUpdatedById": "...", "version": 1 } ] }`), `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 MEMBERSHIP_INACTIVE`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`.
 
-#### `POST /organizations/:orgSlug/appointments/:appointmentId/reception-status`
-* **Descrição:** Atualiza o fluxo da recepção (`ARRIVED`, `IN_SERVICE`, `COMPLETED`, `ABSENT`).
-* **Permissão:** `reception:write`.
-* **Body:** `{ "status": "ARRIVED", "version": 1 }`
-* **Respostas:** `200 OK`.
+#### `PATCH /organizations/:orgSlug/reception/queue/:appointmentId` (aliases: `PATCH /organizations/:orgSlug/appointments/:appointmentId/queue`, `PATCH /organizations/:orgSlug/appointments/:appointmentId/arrival`, `PATCH|POST /organizations/:orgSlug/appointments/:appointmentId/reception-status`)
+* **Descrição:** Registra a chegada e transiciona o estado operacional do agendamento na fila da recepção, gravando autor (`queueUpdatedById`), horário (`arrivedAt`, `queueUpdatedAt`), incremento de versão (`version`) e evento `RECEPTION_QUEUE_UPDATED` em `AuditLog` na mesma transação.
+* **Máquina de estados:**
+  * `WAITING` → `ARRIVED`, `NO_SHOW`
+  * `ARRIVED` → `CALLED`, `IN_SERVICE`, `NO_SHOW`
+  * `CALLED` → `IN_SERVICE`, `NO_SHOW`
+  * `IN_SERVICE` → `COMPLETED`
+  * `COMPLETED` e `NO_SHOW` são estados terminais (e sincronizam `Appointment.status` para `COMPLETED` ou `NO_SHOW`); agendamentos `CANCELLED` não aceitam transições na fila.
+* **Permissão:** `reception:write` (`ADMIN`, `ADMIN_PROFESSIONAL`, `RECEPTIONIST`).
+* **Body:** `{ "status": "ARRIVED", "version": 0 }` (ou `{ "queueStatus": "ARRIVED", "version": 0 }`).
+* **Respostas:** `200 OK` com o item atualizado da fila e `version` incrementado; `400 VALIDATION_ERROR`; `403 MEMBERSHIP_INACTIVE`; `403 PERMISSION_DENIED`; `404 NOT_FOUND`; `409 INVALID_STATE_TRANSITION` (com `details: { from, to, allowedTransitions }`); `409 VERSION_CONFLICT` quando `version` estiver desatualizada ou houver atualização concorrente.
 
 #### `GET /organizations/:orgSlug/confirmations/pending` (alias: `GET /organizations/:orgSlug/appointments/confirmations/pending`)
 * **Descrição:** Lista as pendências de confirmação da clínica ativa que exigiram contato humano (ex: resposta ambígua no WhatsApp ou falta de resposta). Quando resolvidas como `CONFIRMED` ou `DECLINED`, saem imediatamente da fila padrão (`status=PENDING`).
