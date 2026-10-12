@@ -1,0 +1,291 @@
+import type {
+  AppointmentStatus,
+  PrismaClient,
+} from "../../generated/prisma/client";
+import { ApiError } from "../../lib/api-error";
+import type { AvailabilityQuery, ListQuery } from "./model";
+
+const MAX_RANGE_DAYS = 31;
+const ACTIVE_STATUSES: AppointmentStatus[] = ["RESERVED", "CONFIRMED"];
+const DAY_NAMES = [
+  "SUNDAY",
+  "MONDAY",
+  "TUESDAY",
+  "WEDNESDAY",
+  "THURSDAY",
+  "FRIDAY",
+  "SATURDAY",
+] as const;
+
+function dateParts(date: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  return Object.fromEntries(parts.map((part) => [part.type, part.value]));
+}
+
+function zonedDateTimeToUtc(date: string, time: string, timeZone: string) {
+  const [year, month, day] = date.split("-").map(Number) as [
+    number,
+    number,
+    number,
+  ];
+  const [hour, minute] = time.split(":").map(Number) as [number, number];
+  const target = Date.UTC(year, month - 1, day, hour, minute);
+  let candidate = target;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const parts = dateParts(new Date(candidate), timeZone);
+    const represented = Date.UTC(
+      Number(parts.year),
+      Number(parts.month) - 1,
+      Number(parts.day),
+      Number(parts.hour),
+      Number(parts.minute),
+      Number(parts.second),
+    );
+    candidate += target - represented;
+  }
+  const result = new Date(candidate);
+  const parts = dateParts(result, timeZone);
+  if (
+    parts.year !== String(year).padStart(4, "0") ||
+    parts.month !== String(month).padStart(2, "0") ||
+    parts.day !== String(day).padStart(2, "0") ||
+    parts.hour !== String(hour).padStart(2, "0") ||
+    parts.minute !== String(minute).padStart(2, "0")
+  ) {
+    throw new ApiError(
+      "VALIDATION_ERROR",
+      400,
+      "Data ou horário inválido no fuso da clínica.",
+    );
+  }
+  return result;
+}
+
+function localDateTime(date: Date, timeZone: string) {
+  const parts = dateParts(date, timeZone);
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}`;
+}
+
+function parseDate(date: string) {
+  const parsed = new Date(`${date}T00:00:00Z`);
+  if (
+    Number.isNaN(parsed.getTime()) ||
+    parsed.toISOString().slice(0, 10) !== date
+  )
+    throw new ApiError("VALIDATION_ERROR", 400, "Data inválida.");
+  return parsed;
+}
+
+function addDays(date: string, days: number) {
+  const parsed = parseDate(date);
+  parsed.setUTCDate(parsed.getUTCDate() + days);
+  return parsed.toISOString().slice(0, 10);
+}
+
+function overlaps(
+  start: Date,
+  end: Date,
+  blockedStart: Date,
+  blockedEnd: Date,
+) {
+  return start < blockedEnd && blockedStart < end;
+}
+
+export class AppointmentsService {
+  constructor(private readonly prisma: PrismaClient) {}
+
+  private async organization(organizationId: string) {
+    const organization = await this.prisma.organization.findUniqueOrThrow({
+      where: { id: organizationId },
+      select: { timezone: true },
+    });
+    try {
+      new Intl.DateTimeFormat("en", { timeZone: organization.timezone });
+    } catch {
+      throw new ApiError("INTERNAL", 500, "Fuso horário da clínica inválido.");
+    }
+    return organization;
+  }
+
+  async list(organizationId: string, query: ListQuery) {
+    const organization = await this.organization(organizationId);
+    const start = parseDate(query.startDate);
+    const end = parseDate(query.endDate);
+    const rangeDays =
+      Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1;
+    if (rangeDays < 1 || rangeDays > MAX_RANGE_DAYS)
+      throw new ApiError(
+        "VALIDATION_ERROR",
+        400,
+        "O período deve ter entre 1 e 31 dias.",
+      );
+
+    const startAt = zonedDateTimeToUtc(
+      query.startDate,
+      "00:00",
+      organization.timezone,
+    );
+    const endAt = zonedDateTimeToUtc(
+      addDays(query.endDate, 1),
+      "00:00",
+      organization.timezone,
+    );
+    const limit = query.limit ?? 50;
+    if (query.cursor) {
+      const cursor = await this.prisma.appointment.findFirst({
+        where: { id: query.cursor, organizationId },
+        select: { id: true },
+      });
+      if (!cursor)
+        throw new ApiError("VALIDATION_ERROR", 400, "Cursor inválido.");
+    }
+    const rows = await this.prisma.appointment.findMany({
+      where: {
+        organizationId,
+        scheduledAt: { gte: startAt, lt: endAt },
+        ...(query.professionalId
+          ? { professionalId: query.professionalId }
+          : {}),
+        ...(query.status ? { status: query.status } : {}),
+      },
+      orderBy: [{ scheduledAt: "asc" }, { id: "asc" }],
+      take: limit + 1,
+      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
+      select: {
+        id: true,
+        patientId: true,
+        professionalId: true,
+        scheduledAt: true,
+        durationMinutes: true,
+        status: true,
+      },
+    });
+    const hasMore = rows.length > limit;
+    const page = rows.slice(0, limit);
+    return {
+      timeZone: organization.timezone,
+      appointments: page.map((row) => ({
+        ...row,
+        scheduledAt: row.scheduledAt.toISOString(),
+        localScheduledAt: localDateTime(row.scheduledAt, organization.timezone),
+      })),
+      nextCursor: hasMore ? (page.at(-1)?.id ?? null) : null,
+    };
+  }
+
+  async availability(organizationId: string, query: AvailabilityQuery) {
+    const organization = await this.organization(organizationId);
+    const date = parseDate(query.date);
+    const professional = await this.prisma.membership.findFirst({
+      where: {
+        organizationId,
+        userId: query.professionalId,
+        status: "ACTIVE",
+        role: { in: ["PROFESSIONAL", "ADMIN_PROFESSIONAL"] },
+      },
+      select: { id: true },
+    });
+    if (!professional)
+      throw new ApiError("NOT_FOUND", 404, "Profissional não encontrado.");
+
+    const dayOfWeek = DAY_NAMES[date.getUTCDay()];
+    const rules = await this.prisma.weeklyScheduleRule.findMany({
+      where: { organizationId, dayOfWeek },
+      orderBy: { startTime: "asc" },
+    });
+    const dayStart = zonedDateTimeToUtc(
+      query.date,
+      "00:00",
+      organization.timezone,
+    );
+    const dayEnd = zonedDateTimeToUtc(
+      addDays(query.date, 1),
+      "00:00",
+      organization.timezone,
+    );
+    const [appointments, pauses] = await Promise.all([
+      this.prisma.appointment.findMany({
+        where: {
+          organizationId,
+          professionalId: query.professionalId,
+          status: { in: ACTIVE_STATUSES },
+          scheduledAt: {
+            gte: new Date(dayStart.getTime() - 86_400_000),
+            lt: dayEnd,
+          },
+        },
+        select: { scheduledAt: true, durationMinutes: true },
+      }),
+      this.prisma.professionalSchedulePause.findMany({
+        where: {
+          organizationId,
+          professionalId: query.professionalId,
+          startsAt: { lt: dayEnd },
+          endsAt: { gt: dayStart },
+        },
+        select: { startsAt: true, endsAt: true },
+      }),
+    ]);
+    const blocked = [
+      ...appointments.map((item) => ({
+        start: item.scheduledAt,
+        end: new Date(
+          item.scheduledAt.getTime() + item.durationMinutes * 60_000,
+        ),
+      })),
+      ...pauses.map((pause) => ({ start: pause.startsAt, end: pause.endsAt })),
+    ];
+    const slots = [];
+    for (const rule of rules) {
+      const intervalStart = zonedDateTimeToUtc(
+        query.date,
+        rule.startTime,
+        organization.timezone,
+      );
+      const intervalEnd = zonedDateTimeToUtc(
+        query.date,
+        rule.endTime,
+        organization.timezone,
+      );
+      for (
+        let startsAt = intervalStart;
+        startsAt.getTime() + rule.slotDurationMinutes * 60_000 <=
+        intervalEnd.getTime();
+        startsAt = new Date(
+          startsAt.getTime() + rule.slotDurationMinutes * 60_000,
+        )
+      ) {
+        const endsAt = new Date(
+          startsAt.getTime() + rule.slotDurationMinutes * 60_000,
+        );
+        if (
+          blocked.some((item) =>
+            overlaps(startsAt, endsAt, item.start, item.end),
+          )
+        )
+          continue;
+        slots.push({
+          startsAt: startsAt.toISOString(),
+          endsAt: endsAt.toISOString(),
+          localStartsAt: localDateTime(startsAt, organization.timezone),
+          localEndsAt: localDateTime(endsAt, organization.timezone),
+        });
+      }
+    }
+    return {
+      date: query.date,
+      professionalId: query.professionalId,
+      timeZone: organization.timezone,
+      slots,
+    };
+  }
+}

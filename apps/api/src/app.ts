@@ -4,13 +4,17 @@ import type { Env } from "./config/env";
 import type { PrismaClient } from "./generated/prisma/client";
 import { ApiError } from "./lib/api-error";
 import { accountModule } from "./modules/account";
+import { appointmentsModule } from "./modules/appointments";
 import { authModule } from "./modules/auth";
 import type { AuthDeps } from "./modules/auth/service";
+import { communicationsModule } from "./modules/communications";
 import { inviteModule } from "./modules/invites";
 import { onboardingModule } from "./modules/onboarding";
 import type { OnboardingDeps } from "./modules/onboarding/service";
 import { organizationsModule } from "./modules/organizations";
+import { patientsModule } from "./modules/patients";
 import { storageModule } from "./modules/storage";
+import { templatesModule } from "./modules/templates";
 import { createSesWebhook } from "./modules/webhooks/ses";
 import { requestLogger } from "./plugins/request-logger";
 import type { Mailer } from "./services/mailer";
@@ -19,6 +23,7 @@ import {
   PROFILE_PHOTO_MAX_BYTES,
   type ProfilePhotoStore,
 } from "./services/profile-photo-store";
+import { WahaClient, type WhatsAppProvider } from "./services/waha-client";
 
 /**
  * Aplicação Elysia — montada via `createApp(env, deps)` para manter o app
@@ -33,6 +38,7 @@ export interface AppDeps {
   prisma: PrismaClient;
   mailer: Mailer;
   profilePhotoStore?: ProfilePhotoStore | null;
+  whatsappProvider?: WhatsAppProvider;
 }
 
 const WAHA_PROBE_TIMEOUT_MS = 1500;
@@ -83,6 +89,9 @@ export function createApp(env: Env, deps: AppDeps) {
     deps.profilePhotoStore === undefined
       ? createProfilePhotoStore(env)
       : deps.profilePhotoStore;
+  const whatsappProvider =
+    deps.whatsappProvider ??
+    new WahaClient({ baseUrl: env.wahaBaseUrl, apiKey: env.wahaApiKey });
 
   const app = new Elysia({ prefix: "/api" })
     .use(requestLogger)
@@ -172,6 +181,7 @@ export function createApp(env: Env, deps: AppDeps) {
       }
     })
     .use(authModule(authDeps))
+    .use(appointmentsModule({ prisma: deps.prisma, jwtSecret: env.jwtSecret }))
     .use(onboardingModule(onboardingDeps))
     .use(
       organizationsModule({
@@ -180,6 +190,7 @@ export function createApp(env: Env, deps: AppDeps) {
         logoStore: photoStore,
       }),
     )
+    .use(patientsModule({ prisma: deps.prisma, jwtSecret: env.jwtSecret }))
     .use(
       accountModule({
         prisma: deps.prisma,
@@ -196,6 +207,13 @@ export function createApp(env: Env, deps: AppDeps) {
       }),
     )
     .use(
+      communicationsModule({
+        prisma: deps.prisma,
+        jwtSecret: env.jwtSecret,
+        provider: whatsappProvider,
+      }),
+    )
+    .use(
       storageModule({
         prisma: deps.prisma,
         jwtSecret: env.jwtSecret,
@@ -207,7 +225,8 @@ export function createApp(env: Env, deps: AppDeps) {
           secretAccessKey: env.storageSecretAccessKey ?? null,
         },
       }),
-    );
+    )
+    .use(templatesModule({ prisma: deps.prisma, jwtSecret: env.jwtSecret }));
 
   return app;
 }
