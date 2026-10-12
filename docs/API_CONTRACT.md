@@ -405,11 +405,28 @@ O fluxo obrigatório é:
 * **Permissão:** `patients:read_history`.
 * **Respostas:** `200 OK` (`{ "events": [ { "type": "CONSULTATION", "date": "...", "title": "Anamnese Cardiologia" } ] }`).
 
-#### `POST /organizations/:orgSlug/patients/:patientId/attachments`
-* **Descrição:** Upload de arquivo/exame privado para o prontuário do paciente.
-* **Permissão:** `patients:attachments:write`.
-* **Body:** `multipart/form-data` (`file`, `category`, `description`).
-* **Respostas:** `201 Created` (`{ "attachmentId": "att_123", "fileName": "exame_sangue.pdf" }`), `413 FILE_TOO_LARGE`.
+#### `POST /organizations/:orgSlug/patients/:id/attachments`
+* **Descrição:** Envia exame ou arquivo clínico privado para o prontuário do paciente na clínica ativa. O servidor valida o tamanho (máx. **10 MiB**) e a assinatura binária real (magic bytes) do arquivo (`application/pdf`, `image/jpeg`, `image/png`, `image/webp`), rejeitando arquivos disfarçados, grava o objeto no armazenamento privado sob `organizations/{organizationId}/patients/{patientId}/attachments/` (sem expor a chave interna ou URL pública permanente) e registra `PATIENT_ATTACHMENT_UPLOADED` em `AuditLog`.
+* **Permissão:** `patients:attachments:write` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL`).
+* **Body:** `multipart/form-data` (`file`, `category` opcional, `description` opcional).
+* **Respostas:** `201 Created` (`{ "attachmentId": "...", "fileName": "exame_sangue.pdf", "contentType": "application/pdf", "sizeBytes": 1024, "category": "LAB_EXAM", "description": "...", "createdAt": "...", "attachment": { ... } }`), `400 VALIDATION_ERROR` (tipo ou assinatura inválida), `403 PERMISSION_DENIED`, `404 NOT_FOUND`, `413 FILE_TOO_LARGE`, `503 STORAGE_UNAVAILABLE`.
+
+#### `GET /organizations/:orgSlug/patients/:id/attachments`
+* **Descrição:** Lista os metadados dos anexos privados do paciente na clínica ativa, sem expor URL pública permanente nem chave interna de objeto. Por padrão lista apenas anexos `ACTIVE`; com `?includeArchived=true`, inclui anexos arquivados para consulta de histórico.
+* **Permissão:** `patients:attachments:read` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL`).
+* **Query Params:** `?includeArchived=true&category=LAB_EXAM`.
+* **Respostas:** `200 OK` (`{ "data": [ { "id": "...", "attachmentId": "...", "patientId": "...", "fileName": "...", "contentType": "...", "sizeBytes": 1024, "category": "...", "description": "...", "uploadedById": "...", "status": "ACTIVE", "archivedAt": null, "archivedById": null, "archiveReason": null, "createdAt": "..." } ], "attachments": [...] }`), `403 PERMISSION_DENIED`, `404 NOT_FOUND`.
+
+#### `POST /organizations/:orgSlug/patients/:id/attachments/:attachmentId/download-url` (alias: `GET /organizations/:orgSlug/patients/:id/attachments/:attachmentId/download-url`)
+* **Descrição:** Autoriza a leitura temporária de um anexo ativo do paciente da clínica ativa, registrando `PATIENT_ATTACHMENT_DOWNLOAD_AUTHORIZED` em `AuditLog` e retornando uma URL privada assinada de curta duração (15 minutos / 900 segundos). Anexos arquivados ou pertencentes a outro paciente/clínica retornam `404 NOT_FOUND`.
+* **Permissão:** `patients:attachments:read` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL`).
+* **Respostas:** `200 OK` (`{ "attachmentId": "...", "downloadUrl": "...", "expiresInSeconds": 900, "expiresAt": "..." }`), `403 PERMISSION_DENIED`, `404 NOT_FOUND`, `503 STORAGE_UNAVAILABLE`.
+
+#### `POST /organizations/:orgSlug/patients/:id/attachments/:attachmentId/archive` (alias: `DELETE /organizations/:orgSlug/patients/:id/attachments/:attachmentId`)
+* **Descrição:** Realiza o arquivamento lógico do anexo (`archivedAt`, `archivedById`, `archiveReason`) e registra `PATIENT_ATTACHMENT_ARCHIVED` em `AuditLog` na mesma transação, preservando o registro histórico. Chamadas repetidas em anexo já arquivado são idempotentes.
+* **Permissão:** `patients:attachments:write` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL`).
+* **Body (opcional):** `{ "reason": "Motivo do arquivamento" }`.
+* **Respostas:** `200 OK` (`{ "archived": true, "attachment": { ... } }`), `403 PERMISSION_DENIED`, `404 NOT_FOUND`.
 
 ---
 

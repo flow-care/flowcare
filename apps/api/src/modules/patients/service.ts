@@ -1,3 +1,4 @@
+import { fileType } from "elysia";
 import type {
   AppointmentStatus,
   Prisma,
@@ -5,16 +6,28 @@ import type {
 } from "../../generated/prisma/client";
 import { ApiError } from "../../lib/api-error";
 import { isValidCpf, normalizeCpf } from "../../lib/cpf";
+import type { ProfilePhotoStore } from "../../services/profile-photo-store";
 import {
   ALLOWED_PATIENT_UPDATE_FIELDS,
+  type ArchivePatientAttachmentBody,
+  type ArchivePatientAttachmentResponse,
   type CreatePatientBody,
+  type ListPatientAttachmentsQuery,
+  type ListPatientAttachmentsResponse,
   type ListPatientsQuery,
   type ListPatientsResponse,
+  PATIENT_ATTACHMENT_ALLOWED_TYPES,
+  PATIENT_ATTACHMENT_MAX_BYTES,
+  PATIENT_ATTACHMENT_URL_TTL_SECONDS,
+  type PatientAttachmentDownloadUrlResponse,
+  type PatientAttachmentItem,
   type PatientDetailItem,
   type PatientDetailResponse,
   type PatientOverviewResponse,
   type PatientResponse,
   type UpdatePatientBody,
+  type UploadPatientAttachmentBody,
+  type UploadPatientAttachmentResponse,
 } from "./model";
 
 type PatientRecord = {
@@ -65,6 +78,135 @@ export function assertOnlyAllowedPatientUpdateFields(body: unknown) {
       );
     }
   }
+}
+
+type PatientAttachmentRecord = {
+  id: string;
+  organizationId: string;
+  patientId: string;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+  objectKey: string;
+  category: string | null;
+  description: string | null;
+  uploadedById: string;
+  archivedAt: Date | null;
+  archivedById: string | null;
+  archiveReason: string | null;
+  createdAt: Date;
+};
+
+const PDF_MAGIC_HEADER = [0x25, 0x50, 0x44, 0x46, 0x2d] as const;
+
+function hasPdfMagicHeader(bytes: Uint8Array): boolean {
+  if (bytes.length < PDF_MAGIC_HEADER.length) return false;
+  return PDF_MAGIC_HEADER.every((byte, idx) => bytes[idx] === byte);
+}
+
+async function validateAttachmentFile(file: File): Promise<Uint8Array> {
+  if (!file || file.size <= 0) {
+    throw new ApiError("VALIDATION_ERROR", 400, "Arquivo inválido ou vazio.", {
+      field: "file",
+    });
+  }
+  if (file.size > PATIENT_ATTACHMENT_MAX_BYTES) {
+    throw new ApiError(
+      "FILE_TOO_LARGE",
+      413,
+      "Arquivo excede o limite de 10 MiB.",
+    );
+  }
+  if (
+    !(PATIENT_ATTACHMENT_ALLOWED_TYPES as readonly string[]).includes(file.type)
+  ) {
+    throw new ApiError(
+      "VALIDATION_ERROR",
+      400,
+      "Tipo de arquivo não permitido.",
+      { field: "file" },
+    );
+  }
+  try {
+    const matches = await fileType(file, file.type);
+    if (!matches) {
+      throw new ApiError(
+        "VALIDATION_ERROR",
+        400,
+        "Assinatura do arquivo não corresponde ao formato declarado.",
+        { field: "file" },
+      );
+    }
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    throw new ApiError(
+      "VALIDATION_ERROR",
+      400,
+      "Assinatura do arquivo não corresponde ao formato declarado.",
+      { field: "file" },
+    );
+  }
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (file.type === "application/pdf" && !hasPdfMagicHeader(bytes)) {
+    throw new ApiError("VALIDATION_ERROR", 400, "Assinatura PDF inválida.", {
+      field: "file",
+    });
+  }
+  return bytes;
+}
+
+function sanitizeFileName(rawName: string | undefined): string {
+  const trimmed = (rawName ?? "").trim();
+  const baseName = trimmed.split(/[/\\]/).pop()?.trim() ?? "";
+  if (!baseName) return "attachment";
+  return baseName.slice(0, 200);
+}
+
+function buildObjectKey(
+  organizationId: string,
+  patientId: string,
+  fileName: string,
+): string {
+  const safeKeyName =
+    fileName.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 120) || "attachment";
+  return `organizations/${organizationId}/patients/${patientId}/attachments/${crypto.randomUUID()}-${safeKeyName}`;
+}
+
+function toAttachmentItem(
+  record: PatientAttachmentRecord,
+): PatientAttachmentItem {
+  return {
+    id: record.id,
+    attachmentId: record.id,
+    patientId: record.patientId,
+    fileName: record.fileName,
+    contentType: record.contentType,
+    sizeBytes: record.sizeBytes,
+    category: record.category,
+    description: record.description,
+    uploadedById: record.uploadedById,
+    status: record.archivedAt ? "ARCHIVED" : "ACTIVE",
+    archivedAt: record.archivedAt ? record.archivedAt.toISOString() : null,
+    archivedById: record.archivedById,
+    archiveReason: record.archiveReason,
+    createdAt: record.createdAt.toISOString(),
+  };
+}
+
+function toUploadAttachmentResponse(
+  record: PatientAttachmentRecord,
+): UploadPatientAttachmentResponse {
+  const item = toAttachmentItem(record);
+  return {
+    attachmentId: item.id,
+    fileName: item.fileName,
+    contentType: item.contentType,
+    sizeBytes: item.sizeBytes,
+    category: item.category,
+    description: item.description,
+    createdAt: item.createdAt,
+    attachment: item,
+  };
 }
 
 function parseBirthDate(value: string) {
@@ -186,7 +328,10 @@ function isUniqueConflict(error: unknown) {
 }
 
 export class PatientsService {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly attachmentStore?: ProfilePhotoStore | null,
+  ) {}
 
   async list(
     organizationId: string,
@@ -705,6 +850,252 @@ export class PatientsService {
           createdAt: current.createdAt.toISOString(),
           updatedAt: now.toISOString(),
         },
+      };
+    });
+  }
+
+  async uploadAttachment(
+    organizationId: string,
+    patientId: string,
+    actorUserId: string,
+    body: UploadPatientAttachmentBody,
+  ): Promise<UploadPatientAttachmentResponse> {
+    const patient = await this.prisma.patient.findFirst({
+      where: { id: patientId, organizationId },
+      select: { id: true },
+    });
+    if (!patient) {
+      throw new ApiError("NOT_FOUND", 404, "Paciente não encontrado.");
+    }
+
+    const bytes = await validateAttachmentFile(body.file);
+    const store = this.attachmentStore;
+    if (!store) {
+      throw new ApiError(
+        "STORAGE_UNAVAILABLE",
+        503,
+        "Armazenamento indisponível.",
+      );
+    }
+
+    const fileName = sanitizeFileName(body.file.name);
+    const category = body.category?.trim() || null;
+    const description = body.description?.trim() || null;
+    const objectKey = buildObjectKey(organizationId, patientId, fileName);
+
+    await store.put(objectKey, bytes, body.file.type);
+    try {
+      const created = await this.prisma.$transaction(async (tx) => {
+        const verifiedPatient = await tx.patient.findFirst({
+          where: { id: patientId, organizationId },
+          select: { id: true },
+        });
+        if (!verifiedPatient) {
+          throw new ApiError("NOT_FOUND", 404, "Paciente não encontrado.");
+        }
+
+        const attachment = await tx.patientAttachment.create({
+          data: {
+            organizationId,
+            patientId,
+            fileName,
+            contentType: body.file.type,
+            sizeBytes: bytes.length,
+            objectKey,
+            category,
+            description,
+            uploadedById: actorUserId,
+          },
+        });
+
+        await tx.auditLog.create({
+          data: {
+            organizationId,
+            actorUserId,
+            action: "PATIENT_ATTACHMENT_UPLOADED",
+            targetType: "PATIENT_ATTACHMENT",
+            targetId: attachment.id,
+            metadata: {
+              patientId,
+              fileName: attachment.fileName,
+              contentType: attachment.contentType,
+              sizeBytes: attachment.sizeBytes,
+              category: attachment.category,
+            },
+          },
+        });
+
+        return attachment;
+      });
+
+      return toUploadAttachmentResponse(created);
+    } catch (error) {
+      await store.delete(objectKey).catch(() => {});
+      throw error;
+    }
+  }
+
+  async listAttachments(
+    organizationId: string,
+    patientId: string,
+    query: ListPatientAttachmentsQuery = {},
+  ): Promise<ListPatientAttachmentsResponse> {
+    const patient = await this.prisma.patient.findFirst({
+      where: { id: patientId, organizationId },
+      select: { id: true },
+    });
+    if (!patient) {
+      throw new ApiError("NOT_FOUND", 404, "Paciente não encontrado.");
+    }
+
+    const records = await this.prisma.patientAttachment.findMany({
+      where: {
+        organizationId,
+        patientId,
+        ...(query.includeArchived ? {} : { archivedAt: null }),
+        ...(query.category ? { category: query.category.trim() } : {}),
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+    });
+
+    const items = records.map(toAttachmentItem);
+    return {
+      data: items,
+      attachments: items,
+    };
+  }
+
+  async createDownloadUrl(
+    organizationId: string,
+    patientId: string,
+    attachmentId: string,
+    actorUserId: string,
+  ): Promise<PatientAttachmentDownloadUrlResponse> {
+    const attachment = await this.prisma.patientAttachment.findFirst({
+      where: {
+        id: attachmentId,
+        patientId,
+        organizationId,
+      },
+    });
+    if (!attachment || attachment.archivedAt !== null) {
+      throw new ApiError("NOT_FOUND", 404, "Anexo não encontrado.");
+    }
+
+    const store = this.attachmentStore;
+    if (!store) {
+      throw new ApiError(
+        "STORAGE_UNAVAILABLE",
+        503,
+        "Armazenamento indisponível.",
+      );
+    }
+
+    const downloadUrl = await store.downloadUrl(attachment.objectKey);
+    const expiresInSeconds = PATIENT_ATTACHMENT_URL_TTL_SECONDS;
+    const expiresAt = new Date(
+      Date.now() + expiresInSeconds * 1000,
+    ).toISOString();
+
+    await this.prisma.auditLog.create({
+      data: {
+        organizationId,
+        actorUserId,
+        action: "PATIENT_ATTACHMENT_DOWNLOAD_AUTHORIZED",
+        targetType: "PATIENT_ATTACHMENT",
+        targetId: attachment.id,
+        metadata: {
+          patientId: attachment.patientId,
+          fileName: attachment.fileName,
+          contentType: attachment.contentType,
+          expiresInSeconds,
+          expiresAt,
+        },
+      },
+    });
+
+    return {
+      attachmentId: attachment.id,
+      downloadUrl,
+      expiresInSeconds,
+      expiresAt,
+    };
+  }
+
+  async archiveAttachment(
+    organizationId: string,
+    patientId: string,
+    attachmentId: string,
+    actorUserId: string,
+    body?: ArchivePatientAttachmentBody | null,
+  ): Promise<ArchivePatientAttachmentResponse> {
+    const reason = body?.reason?.trim() || null;
+
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.patientAttachment.findFirst({
+        where: {
+          id: attachmentId,
+          patientId,
+          organizationId,
+        },
+      });
+      if (!existing) {
+        throw new ApiError("NOT_FOUND", 404, "Anexo não encontrado.");
+      }
+      if (existing.archivedAt !== null) {
+        return {
+          archived: true as const,
+          attachment: toAttachmentItem(existing),
+        };
+      }
+
+      const now = new Date();
+      const claimed = await tx.patientAttachment.updateMany({
+        where: { id: existing.id, organizationId, patientId, archivedAt: null },
+        data: {
+          archivedAt: now,
+          archivedById: actorUserId,
+          archiveReason: reason,
+        },
+      });
+      if (claimed.count === 0) {
+        const archived = await tx.patientAttachment.findFirst({
+          where: { id: existing.id, organizationId, patientId },
+        });
+        if (!archived) {
+          throw new ApiError("NOT_FOUND", 404, "Anexo não encontrado.");
+        }
+        return {
+          archived: true as const,
+          attachment: toAttachmentItem(archived),
+        };
+      }
+
+      const updated = {
+        ...existing,
+        archivedAt: now,
+        archivedById: actorUserId,
+        archiveReason: reason,
+      };
+
+      await tx.auditLog.create({
+        data: {
+          organizationId,
+          actorUserId,
+          action: "PATIENT_ATTACHMENT_ARCHIVED",
+          targetType: "PATIENT_ATTACHMENT",
+          targetId: existing.id,
+          metadata: {
+            patientId: existing.patientId,
+            fileName: existing.fileName,
+            reason,
+          },
+        },
+      });
+
+      return {
+        archived: true as const,
+        attachment: toAttachmentItem(updated),
       };
     });
   }

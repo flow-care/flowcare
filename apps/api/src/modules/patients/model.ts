@@ -17,6 +17,15 @@ export const ALLOWED_PATIENT_UPDATE_FIELDS = [
   "distinctPersonConfirmed",
 ] as const;
 
+export const PATIENT_ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
+export const PATIENT_ATTACHMENT_URL_TTL_SECONDS = 900;
+export const PATIENT_ATTACHMENT_ALLOWED_TYPES = [
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+] as const;
+
 export const patientOrganizationParams = t.Object({
   orgSlug: t.String({ minLength: 2, maxLength: 60 }),
 });
@@ -33,6 +42,12 @@ export const patientParams = t.Object({
     maxLength: 120,
     pattern: "^\\S+$",
   }),
+});
+
+export const patientAttachmentParams = t.Object({
+  orgSlug: t.String({ minLength: 2, maxLength: 60 }),
+  id: t.String({ minLength: 1, maxLength: 128, pattern: "^\\S+$" }),
+  attachmentId: t.String({ minLength: 1, maxLength: 128, pattern: "^\\S+$" }),
 });
 
 export const idempotencyHeaders = t.Object(
@@ -202,6 +217,99 @@ export const patientOverviewResponse = t.Object({
   clinicalSummary: t.Optional(patientClinicalSummary),
 });
 
+export const uploadPatientAttachmentBody = t.Object(
+  {
+    file: t.File({
+      type: [...PATIENT_ATTACHMENT_ALLOWED_TYPES],
+      minSize: 1,
+      maxSize: PATIENT_ATTACHMENT_MAX_BYTES,
+    }),
+    category: t.Optional(t.String({ maxLength: 64 })),
+    description: t.Optional(t.String({ maxLength: 500 })),
+  },
+  { additionalProperties: false },
+);
+
+export const listPatientAttachmentsQuery = t.Object({
+  includeArchived: t.Optional(t.Boolean()),
+  category: t.Optional(t.String({ minLength: 1, maxLength: 64 })),
+});
+
+export const archivePatientAttachmentBody = t.Optional(
+  t.Object(
+    {
+      reason: t.Optional(
+        t.String({
+          minLength: 1,
+          maxLength: 500,
+          pattern: NON_BLANK_NAME,
+        }),
+      ),
+    },
+    { additionalProperties: false },
+  ),
+);
+
+export const patientAttachmentItem = t.Object(
+  {
+    id: t.String(),
+    attachmentId: t.String(),
+    patientId: t.String(),
+    fileName: t.String(),
+    contentType: t.String(),
+    sizeBytes: t.Integer(),
+    category: t.Nullable(t.String()),
+    description: t.Nullable(t.String()),
+    uploadedById: t.String(),
+    status: t.Union([t.Literal("ACTIVE"), t.Literal("ARCHIVED")]),
+    archivedAt: t.Nullable(t.String()),
+    archivedById: t.Nullable(t.String()),
+    archiveReason: t.Nullable(t.String()),
+    createdAt: t.String(),
+  },
+  { additionalProperties: false },
+);
+
+export const uploadPatientAttachmentResponse = t.Object(
+  {
+    attachmentId: t.String(),
+    fileName: t.String(),
+    contentType: t.String(),
+    sizeBytes: t.Integer(),
+    category: t.Nullable(t.String()),
+    description: t.Nullable(t.String()),
+    createdAt: t.String(),
+    attachment: patientAttachmentItem,
+  },
+  { additionalProperties: false },
+);
+
+export const listPatientAttachmentsResponse = t.Object(
+  {
+    data: t.Array(patientAttachmentItem),
+    attachments: t.Array(patientAttachmentItem),
+  },
+  { additionalProperties: false },
+);
+
+export const patientAttachmentDownloadUrlResponse = t.Object(
+  {
+    attachmentId: t.String(),
+    downloadUrl: t.String(),
+    expiresInSeconds: t.Integer(),
+    expiresAt: t.String(),
+  },
+  { additionalProperties: false },
+);
+
+export const archivePatientAttachmentResponse = t.Object(
+  {
+    archived: t.Literal(true),
+    attachment: patientAttachmentItem,
+  },
+  { additionalProperties: false },
+);
+
 export type ListPatientsQuery = typeof listPatientsQuery.static;
 export type PatientParams = typeof patientParams.static;
 export type CreatePatientBody = typeof createPatientBody.static;
@@ -211,3 +319,18 @@ export type PatientDetailItem = typeof patientDetailItem.static;
 export type ListPatientsResponse = typeof listPatientsResponse.static;
 export type PatientDetailResponse = typeof patientDetailResponse.static;
 export type PatientOverviewResponse = typeof patientOverviewResponse.static;
+export type UploadPatientAttachmentBody =
+  typeof uploadPatientAttachmentBody.static;
+export type ListPatientAttachmentsQuery =
+  typeof listPatientAttachmentsQuery.static;
+export type ArchivePatientAttachmentBody =
+  typeof archivePatientAttachmentBody.static;
+export type PatientAttachmentItem = typeof patientAttachmentItem.static;
+export type UploadPatientAttachmentResponse =
+  typeof uploadPatientAttachmentResponse.static;
+export type ListPatientAttachmentsResponse =
+  typeof listPatientAttachmentsResponse.static;
+export type PatientAttachmentDownloadUrlResponse =
+  typeof patientAttachmentDownloadUrlResponse.static;
+export type ArchivePatientAttachmentResponse =
+  typeof archivePatientAttachmentResponse.static;
