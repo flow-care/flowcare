@@ -6,6 +6,7 @@ import {
   ChevronsUpDown,
   LayoutDashboard,
 } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
@@ -70,6 +71,19 @@ export function AppSidebar({
   return (
     <Sidebar collapsible="icon" className="border-0">
       <SidebarHeader>
+        <Link
+          href="/app"
+          aria-label="Flowcare — início"
+          className="flex h-12 items-center px-2"
+        >
+          <Image
+            src="/logo-2.png"
+            alt="Flowcare"
+            width={638}
+            height={582}
+            className="size-8 object-contain"
+          />
+        </Link>
         <SidebarMenu>
           <SidebarMenuItem>
             <DropdownMenu>
