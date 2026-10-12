@@ -1,9 +1,18 @@
-import type { PrismaClient } from "../../generated/prisma/client";
+import type {
+  AppointmentStatus,
+  Prisma,
+  PrismaClient,
+} from "../../generated/prisma/client";
 import { ApiError } from "../../lib/api-error";
 import { isValidCpf, normalizeCpf } from "../../lib/cpf";
 import {
   ALLOWED_PATIENT_UPDATE_FIELDS,
   type CreatePatientBody,
+  type ListPatientsQuery,
+  type ListPatientsResponse,
+  type PatientDetailItem,
+  type PatientDetailResponse,
+  type PatientOverviewResponse,
   type PatientResponse,
   type UpdatePatientBody,
 } from "./model";
@@ -16,6 +25,28 @@ type PatientRecord = {
   phone: string;
   version: number;
   createdAt: Date;
+};
+
+type PatientDetailRecord = PatientRecord & {
+  email?: string | null;
+  healthInsurance?: string | null;
+  insuranceNumber?: string | null;
+  updatedAt?: Date;
+};
+
+type PatientOverviewRecord = PatientDetailRecord & {
+  allergies?: string[];
+  comorbidities?: string[];
+  clinicalAlerts?: string[];
+  medicalNotes?: string | null;
+};
+
+type UpcomingAppointmentRecord = {
+  id: string;
+  professionalId: string;
+  scheduledAt: Date;
+  durationMinutes: number;
+  status: AppointmentStatus;
 };
 
 const ALLOWED_UPDATE_KEYS = new Set<string>(ALLOWED_PATIENT_UPDATE_FIELDS);
@@ -68,6 +99,15 @@ function parseBirthDate(value: string) {
   return date;
 }
 
+export function normalizePatientName(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
 function normalizeFullName(value: string) {
   const normalized = value.trim().replace(/\s+/g, " ");
   if (normalized.length < 2 || normalized.length > 160) {
@@ -87,8 +127,12 @@ function validateAndNormalizeCpf(value: string) {
   return normalizeCpf(value);
 }
 
-function normalizePhone(value: string) {
-  const digits = value.replace(/\D/g, "");
+export function normalizePhone(value: string) {
+  return value.replace(/\D/g, "");
+}
+
+function validateAndNormalizePhone(value: string) {
+  const digits = normalizePhone(value);
   if (
     value.length < 10 ||
     value.length > 20 ||
@@ -116,6 +160,22 @@ function responseFor(patient: PatientRecord): PatientResponse {
   };
 }
 
+function toPatientDetailItem(patient: PatientDetailRecord): PatientDetailItem {
+  return {
+    id: patient.id,
+    fullName: patient.fullName,
+    cpf: patient.cpf,
+    birthDate: patient.birthDate.toISOString().slice(0, 10),
+    phone: patient.phone,
+    email: patient.email ?? null,
+    healthInsurance: patient.healthInsurance ?? null,
+    insuranceNumber: patient.insuranceNumber ?? null,
+    version: patient.version,
+    createdAt: patient.createdAt.toISOString(),
+    updatedAt: (patient.updatedAt ?? patient.createdAt).toISOString(),
+  };
+}
+
 function isUniqueConflict(error: unknown) {
   return (
     typeof error === "object" &&
@@ -128,6 +188,267 @@ function isUniqueConflict(error: unknown) {
 export class PatientsService {
   constructor(private readonly prisma: PrismaClient) {}
 
+  async list(
+    organizationId: string,
+    query: ListPatientsQuery = {},
+  ): Promise<ListPatientsResponse> {
+    const limit = query.limit ?? 20;
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+      throw new ApiError(
+        "VALIDATION_ERROR",
+        400,
+        "Limite de página inválido.",
+        { field: "limit" },
+      );
+    }
+
+    if (query.cursor) {
+      const cursorRecord = await this.prisma.patient.findFirst({
+        where: { id: query.cursor, organizationId },
+        select: { id: true },
+      });
+      if (!cursorRecord) {
+        throw new ApiError(
+          "VALIDATION_ERROR",
+          400,
+          "Cursor de paginação inválido.",
+          { field: "cursor" },
+        );
+      }
+    }
+
+    const rawSearch = (query.search ?? query.q ?? "").trim();
+    const orClauses: Prisma.PatientWhereInput[] = [];
+
+    if (rawSearch.length > 0) {
+      const collapsedSearch = rawSearch.replace(/\s+/g, " ");
+      const normalizedNameQuery = normalizePatientName(collapsedSearch);
+      const hasLetters = /[a-z]/i.test(normalizedNameQuery);
+      const digits = normalizePhone(collapsedSearch);
+
+      if (!hasLetters && digits.length === 0) {
+        return {
+          data: [],
+          pageInfo: {
+            nextCursor: null,
+            hasNextPage: false,
+          },
+        };
+      }
+
+      if (hasLetters) {
+        orClauses.push(
+          {
+            normalizedName: {
+              contains: normalizedNameQuery,
+              mode: "insensitive",
+            },
+          },
+          {
+            fullName: {
+              contains: collapsedSearch,
+              mode: "insensitive",
+            },
+          },
+        );
+      }
+
+      if (digits.length > 0) {
+        orClauses.push(
+          { cpf: { contains: digits } },
+          { phone: { contains: digits } },
+        );
+        if (digits.length >= 12 && digits.startsWith("55")) {
+          orClauses.push({ phone: { contains: digits.slice(2) } });
+        }
+      }
+    }
+
+    const where: Prisma.PatientWhereInput = {
+      organizationId,
+      ...(orClauses.length > 0 ? { OR: orClauses } : {}),
+    };
+
+    const rows = await this.prisma.patient.findMany({
+      where,
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      take: limit + 1,
+      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
+      select: {
+        id: true,
+        fullName: true,
+        cpf: true,
+        birthDate: true,
+        phone: true,
+        email: true,
+        healthInsurance: true,
+        insuranceNumber: true,
+        version: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    const hasNextPage = rows.length > limit;
+    const pageRows = hasNextPage ? rows.slice(0, limit) : rows;
+    const nextCursor = hasNextPage
+      ? (pageRows[pageRows.length - 1]?.id ?? null)
+      : null;
+
+    return {
+      data: pageRows.map(toPatientDetailItem),
+      pageInfo: {
+        nextCursor,
+        hasNextPage,
+      },
+    };
+  }
+
+  async getById(
+    organizationId: string,
+    patientId: string,
+  ): Promise<PatientDetailResponse> {
+    const patient = await this.prisma.patient.findFirst({
+      where: { id: patientId, organizationId },
+      select: {
+        id: true,
+        fullName: true,
+        cpf: true,
+        birthDate: true,
+        phone: true,
+        email: true,
+        healthInsurance: true,
+        insuranceNumber: true,
+        version: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    if (!patient) {
+      throw new ApiError("NOT_FOUND", 404, "Paciente não encontrado.");
+    }
+
+    return {
+      patient: toPatientDetailItem(patient),
+    };
+  }
+
+  async getOverview(
+    organizationId: string,
+    patientId: string,
+    options: { canReadClinicalHistory: boolean; now?: Date },
+  ): Promise<PatientOverviewResponse> {
+    const patient = (await this.prisma.patient.findFirst({
+      where: { id: patientId, organizationId },
+      select: {
+        id: true,
+        fullName: true,
+        cpf: true,
+        birthDate: true,
+        phone: true,
+        email: true,
+        healthInsurance: true,
+        insuranceNumber: true,
+        version: true,
+        createdAt: true,
+        updatedAt: true,
+        ...(options.canReadClinicalHistory
+          ? {
+              allergies: true,
+              comorbidities: true,
+              clinicalAlerts: true,
+              medicalNotes: true,
+            }
+          : {}),
+      },
+    })) as PatientOverviewRecord | null;
+
+    if (!patient) {
+      throw new ApiError("NOT_FOUND", 404, "Paciente não encontrado.");
+    }
+
+    const now = options.now ?? new Date();
+    const upcomingRows: UpcomingAppointmentRecord[] =
+      await this.prisma.appointment.findMany({
+        where: {
+          organizationId,
+          patientId: patient.id,
+          status: { in: ["RESERVED", "CONFIRMED"] },
+          scheduledAt: { gte: now },
+        },
+        orderBy: [{ scheduledAt: "asc" }, { id: "asc" }],
+        take: 10,
+        select: {
+          id: true,
+          professionalId: true,
+          scheduledAt: true,
+          durationMinutes: true,
+          status: true,
+        },
+      });
+
+    const healthInsurance = patient.healthInsurance ?? null;
+    const insuranceNumber = patient.insuranceNumber ?? null;
+    const activeInsurance = healthInsurance
+      ? {
+          name: healthInsurance,
+          number: insuranceNumber,
+        }
+      : null;
+
+    const baseOverview: PatientOverviewResponse = {
+      patient: {
+        id: patient.id,
+        fullName: patient.fullName,
+        cpf: patient.cpf,
+        birthDate: patient.birthDate.toISOString().slice(0, 10),
+        phone: patient.phone,
+        email: patient.email ?? null,
+        healthInsurance,
+        insuranceNumber,
+        version: patient.version,
+      },
+      contact: {
+        phone: patient.phone,
+        email: patient.email ?? null,
+      },
+      activeInsurance,
+      healthInsurance,
+      insuranceNumber,
+      upcomingAppointments: upcomingRows.map((item) => ({
+        id: item.id,
+        professionalId: item.professionalId,
+        scheduledAt: item.scheduledAt.toISOString(),
+        durationMinutes: item.durationMinutes,
+        status: item.status,
+      })),
+    };
+
+    if (!options.canReadClinicalHistory) {
+      return baseOverview;
+    }
+
+    const allergies = [...(patient.allergies ?? [])];
+    const comorbidities = [...(patient.comorbidities ?? [])];
+    const clinicalAlerts = [...(patient.clinicalAlerts ?? [])];
+    const medicalNotes = patient.medicalNotes ?? null;
+
+    return {
+      ...baseOverview,
+      allergies,
+      comorbidities,
+      clinicalAlerts,
+      medicalNotes,
+      clinicalSummary: {
+        allergies,
+        comorbidities,
+        clinicalAlerts,
+        medicalNotes,
+      },
+    };
+  }
+
   async create(
     organizationId: string,
     idempotencyKey: string,
@@ -137,7 +458,7 @@ export class PatientsService {
       fullName: normalizeFullName(body.fullName),
       cpf: validateAndNormalizeCpf(body.cpf),
       birthDate: parseBirthDate(body.birthDate),
-      phone: normalizePhone(body.phone),
+      phone: validateAndNormalizePhone(body.phone),
       distinctPersonConfirmed: body.distinctPersonConfirmed === true,
     };
     const requestHash = new Bun.CryptoHasher("sha256")
@@ -175,6 +496,7 @@ export class PatientsService {
           data: {
             organizationId,
             fullName: input.fullName,
+            normalizedName: normalizePatientName(input.fullName),
             cpf: input.cpf,
             birthDate: input.birthDate,
             phone: input.phone,
@@ -234,7 +556,9 @@ export class PatientsService {
     const parsedBirthDate =
       body.birthDate !== undefined ? parseBirthDate(body.birthDate) : undefined;
     const normalizedPhone =
-      body.phone !== undefined ? normalizePhone(body.phone) : undefined;
+      body.phone !== undefined
+        ? validateAndNormalizePhone(body.phone)
+        : undefined;
 
     const providedFields: string[] = [];
     if (normalizedFullName !== undefined) providedFields.push("fullName");
@@ -337,6 +661,7 @@ export class PatientsService {
         },
         data: {
           fullName: nextFullName,
+          normalizedName: normalizePatientName(nextFullName),
           cpf: nextCpf,
           birthDate: nextBirthDate,
           phone: nextPhone,

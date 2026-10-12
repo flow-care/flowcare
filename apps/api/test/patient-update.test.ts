@@ -26,6 +26,7 @@ interface StoredPatient {
   id: string;
   organizationId: string;
   fullName: string;
+  normalizedName?: string;
   cpf: string;
   birthDate: Date;
   phone: string;
@@ -186,6 +187,7 @@ function setup() {
       where: { id: string; organizationId: string; version: number };
       data: {
         fullName: string;
+        normalizedName: string;
         cpf: string;
         birthDate: Date;
         phone: string;
@@ -205,6 +207,7 @@ function setup() {
       patients.set(where.id, {
         ...current,
         fullName: data.fullName,
+        normalizedName: data.normalizedName,
         cpf: data.cpf,
         birthDate: data.birthDate,
         phone: data.phone,
@@ -350,6 +353,9 @@ describe("#252 patient registration update with conflict control", () => {
       createdAt: "2026-10-10T12:00:00.000Z",
     });
     expect(typeof patched.patient.updatedAt).toBe("string");
+    expect(patients.get(patientOneId)?.normalizedName).toBe(
+      "joao carlos souza",
+    );
 
     expect(auditLogs).toHaveLength(1);
     expect(auditLogs[0]).toMatchObject({

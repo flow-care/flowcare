@@ -5,7 +5,12 @@ import { organizationAccessPlugin } from "../../plugins/organization-access";
 import {
   createPatientBody,
   idempotencyHeaders,
+  listPatientsQuery,
+  listPatientsResponse,
+  patientDetailResponse,
+  patientIdParams,
   patientOrganizationParams,
+  patientOverviewResponse,
   patientParams,
   patientResponse,
   updatePatientBody,
@@ -24,6 +29,41 @@ export function patientsModule(deps: {
   return new Elysia({ name: "patients" })
     .use(authPlugin(deps))
     .use(organizationAccessPlugin(deps))
+    .get(
+      "/organizations/:orgSlug/patients",
+      ({ organizationAccess, query }) =>
+        service.list(organizationAccess.organizationId, query),
+      {
+        params: patientOrganizationParams,
+        query: listPatientsQuery,
+        organizationAccess: "patients:read",
+        response: { 200: listPatientsResponse },
+      },
+    )
+    .get(
+      "/organizations/:orgSlug/patients/:id",
+      ({ organizationAccess, params }) =>
+        service.getById(organizationAccess.organizationId, params.id),
+      {
+        params: patientIdParams,
+        organizationAccess: "patients:read",
+        response: { 200: patientDetailResponse },
+      },
+    )
+    .get(
+      "/organizations/:orgSlug/patients/:id/overview",
+      ({ organizationAccess, params }) =>
+        service.getOverview(organizationAccess.organizationId, params.id, {
+          canReadClinicalHistory: organizationAccess.capabilities.has(
+            "patients:read_history",
+          ),
+        }),
+      {
+        params: patientIdParams,
+        organizationAccess: "patients:read",
+        response: { 200: patientOverviewResponse },
+      },
+    )
     .post(
       "/organizations/:orgSlug/patients",
       async ({ organizationAccess, headers, body }) =>

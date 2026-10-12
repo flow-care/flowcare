@@ -21,6 +21,11 @@ export const patientOrganizationParams = t.Object({
   orgSlug: t.String({ minLength: 2, maxLength: 60 }),
 });
 
+export const patientIdParams = t.Object({
+  orgSlug: t.String({ minLength: 2, maxLength: 60 }),
+  id: t.String({ minLength: 1, maxLength: 128 }),
+});
+
 export const patientParams = t.Object({
   orgSlug: t.String({ minLength: 2, maxLength: 60 }),
   patientId: t.String({
@@ -36,6 +41,13 @@ export const idempotencyHeaders = t.Object(
   },
   { additionalProperties: true },
 );
+
+export const listPatientsQuery = t.Object({
+  search: t.Optional(t.String({ maxLength: 160 })),
+  q: t.Optional(t.String({ maxLength: 160 })),
+  cursor: t.Optional(t.String({ minLength: 1, maxLength: 128 })),
+  limit: t.Optional(t.Integer({ minimum: 1, maximum: 100, default: 20 })),
+});
 
 export const createPatientBody = t.Object(
   {
@@ -111,7 +123,91 @@ export const patientResponse = t.Object({
   }),
 });
 
+export const patientDetailItem = t.Object({
+  id: t.String(),
+  fullName: t.String(),
+  cpf: t.String(),
+  birthDate: t.String(),
+  phone: t.String(),
+  email: t.Nullable(t.String()),
+  healthInsurance: t.Nullable(t.String()),
+  insuranceNumber: t.Nullable(t.String()),
+  version: t.Integer(),
+  createdAt: t.String(),
+  updatedAt: t.String(),
+});
+
+export const listPatientsResponse = t.Object({
+  data: t.Array(patientDetailItem),
+  pageInfo: t.Object({
+    nextCursor: t.Nullable(t.String()),
+    hasNextPage: t.Boolean(),
+  }),
+});
+
+export const patientDetailResponse = t.Object({
+  patient: patientDetailItem,
+});
+
+export const upcomingPatientAppointmentItem = t.Object({
+  id: t.String(),
+  professionalId: t.String(),
+  scheduledAt: t.String(),
+  durationMinutes: t.Integer(),
+  status: t.Union([
+    t.Literal("RESERVED"),
+    t.Literal("CONFIRMED"),
+    t.Literal("CANCELLED"),
+    t.Literal("COMPLETED"),
+    t.Literal("NO_SHOW"),
+  ]),
+});
+
+export const patientClinicalSummary = t.Object({
+  allergies: t.Array(t.String()),
+  comorbidities: t.Array(t.String()),
+  clinicalAlerts: t.Array(t.String()),
+  medicalNotes: t.Nullable(t.String()),
+});
+
+export const patientOverviewResponse = t.Object({
+  patient: t.Object({
+    id: t.String(),
+    fullName: t.String(),
+    cpf: t.String(),
+    birthDate: t.String(),
+    phone: t.String(),
+    email: t.Nullable(t.String()),
+    healthInsurance: t.Nullable(t.String()),
+    insuranceNumber: t.Nullable(t.String()),
+    version: t.Integer(),
+  }),
+  contact: t.Object({
+    phone: t.String(),
+    email: t.Nullable(t.String()),
+  }),
+  activeInsurance: t.Nullable(
+    t.Object({
+      name: t.String(),
+      number: t.Nullable(t.String()),
+    }),
+  ),
+  healthInsurance: t.Nullable(t.String()),
+  insuranceNumber: t.Nullable(t.String()),
+  upcomingAppointments: t.Array(upcomingPatientAppointmentItem),
+  allergies: t.Optional(t.Array(t.String())),
+  comorbidities: t.Optional(t.Array(t.String())),
+  clinicalAlerts: t.Optional(t.Array(t.String())),
+  medicalNotes: t.Optional(t.Nullable(t.String())),
+  clinicalSummary: t.Optional(patientClinicalSummary),
+});
+
+export type ListPatientsQuery = typeof listPatientsQuery.static;
 export type PatientParams = typeof patientParams.static;
 export type CreatePatientBody = typeof createPatientBody.static;
 export type UpdatePatientBody = typeof updatePatientBody.static;
 export type PatientResponse = typeof patientResponse.static;
+export type PatientDetailItem = typeof patientDetailItem.static;
+export type ListPatientsResponse = typeof listPatientsResponse.static;
+export type PatientDetailResponse = typeof patientDetailResponse.static;
+export type PatientOverviewResponse = typeof patientOverviewResponse.static;
