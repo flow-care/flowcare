@@ -20,6 +20,8 @@ import type {
   ReceptionQueueQuery,
   ReceptionQueueResponse,
   ReceptionQueueTransitionBody,
+  UpdateAppointmentBody,
+  UpdateAppointmentResponse,
 } from "./model";
 
 const MAX_RANGE_DAYS = 31;
@@ -79,6 +81,7 @@ type CreatedAppointmentRecord = {
   status: AppointmentStatus;
   notes: string | null;
   createdAt: Date;
+  version?: number;
 };
 
 function dateParts(date: Date, timeZone: string) {
@@ -327,6 +330,9 @@ function responseForCreated(
       status: appointment.status,
       notes: appointment.notes,
       createdAt: appointment.createdAt.toISOString(),
+      ...(appointment.version !== undefined
+        ? { version: appointment.version }
+        : {}),
     },
   };
 }
@@ -418,6 +424,7 @@ export class AppointmentsService {
         scheduledAt: true,
         durationMinutes: true,
         status: true,
+        version: true,
       },
     });
     const hasMore = rows.length > limit;
@@ -1110,6 +1117,273 @@ export class AppointmentsService {
     });
   }
 
+  async update(
+    organizationId: string,
+    actorUserId: string,
+    appointmentId: string,
+    body: UpdateAppointmentBody,
+    now = new Date(),
+  ): Promise<UpdateAppointmentResponse> {
+    if (Object.keys(body).every((key) => key === "version")) {
+      throw new ApiError(
+        "VALIDATION_ERROR",
+        400,
+        "Informe ao menos um campo para alterar.",
+      );
+    }
+    const organization = await this.organization(organizationId);
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const current = await tx.appointment.findFirst({
+          where: { id: appointmentId, organizationId },
+          select: {
+            id: true,
+            patientId: true,
+            professionalId: true,
+            scheduledAt: true,
+            durationMinutes: true,
+            status: true,
+            notes: true,
+            version: true,
+          },
+        });
+        if (!current)
+          throw new ApiError("NOT_FOUND", 404, "Agendamento não encontrado.");
+        if (current.version !== body.version) {
+          throw new ApiError(
+            "VERSION_CONFLICT",
+            409,
+            "O agendamento foi atualizado em outra sessão.",
+          );
+        }
+        if (!ACTIVE_STATUSES.includes(current.status)) {
+          throw new ApiError(
+            "INVALID_STATE_TRANSITION",
+            409,
+            "Agendamento em estado terminal não pode ser alterado.",
+          );
+        }
+
+        const patientId = body.patientId ?? current.patientId;
+        const professionalId = body.professionalId ?? current.professionalId;
+        const scheduledAt = body.scheduledAt
+          ? parseUtcDateTime(body.scheduledAt)
+          : current.scheduledAt;
+        const durationMinutes = body.durationMinutes ?? current.durationMinutes;
+        const notes =
+          body.notes === undefined ? current.notes : body.notes?.trim() || null;
+        const endsAt = new Date(
+          scheduledAt.getTime() + durationMinutes * 60_000,
+        );
+        const scheduleChanged =
+          professionalId !== current.professionalId ||
+          scheduledAt.getTime() !== current.scheduledAt.getTime() ||
+          durationMinutes !== current.durationMinutes;
+
+        if (body.patientId !== undefined && patientId !== current.patientId) {
+          const patient = await tx.patient.findFirst({
+            where: { id: patientId, organizationId },
+            select: { id: true },
+          });
+          if (!patient)
+            throw new ApiError("NOT_FOUND", 404, "Paciente não encontrado.");
+        }
+        if (scheduleChanged) {
+          if (
+            typeof (tx as { $executeRaw?: unknown }).$executeRaw === "function"
+          ) {
+            // Matches the advisory lock used by appointment creation.
+            await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${organizationId}), hashtext(${professionalId}))`;
+          }
+          const professional = await tx.membership.findFirst({
+            where: {
+              organizationId,
+              userId: professionalId,
+              status: "ACTIVE",
+              role: { in: ["PROFESSIONAL", "ADMIN_PROFESSIONAL"] },
+            },
+            select: { id: true },
+          });
+          if (!professional)
+            throw new ApiError(
+              "NOT_FOUND",
+              404,
+              "Profissional não encontrado.",
+            );
+
+          const parts = dateParts(scheduledAt, organization.timezone);
+          const date = `${parts.year}-${parts.month}-${parts.day}`;
+          const dayOfWeek = DAY_NAMES[parseDate(date).getUTCDay()] ?? "SUNDAY";
+          const rules = await tx.weeklyScheduleRule.findMany({
+            where: { organizationId, dayOfWeek },
+            orderBy: { startTime: "asc" },
+          });
+          const fitsSchedule = rules.some((rule) => {
+            const start = zonedDateTimeToUtc(
+              date,
+              rule.startTime,
+              organization.timezone,
+            );
+            const end = zonedDateTimeToUtc(
+              date,
+              rule.endTime,
+              organization.timezone,
+            );
+            return scheduledAt >= start && endsAt <= end;
+          });
+          if (!fitsSchedule) {
+            throw new ApiError(
+              "SLOT_CONFLICT",
+              409,
+              "O horário está fora do expediente configurado para a clínica.",
+              { reason: "OUTSIDE_WORKING_HOURS" },
+            );
+          }
+          const pauses = await tx.professionalSchedulePause.findMany({
+            where: {
+              organizationId,
+              professionalId,
+              startsAt: { lt: endsAt },
+              endsAt: { gt: scheduledAt },
+            },
+            select: { startsAt: true, endsAt: true },
+          });
+          if (
+            pauses.some((pause) =>
+              overlaps(scheduledAt, endsAt, pause.startsAt, pause.endsAt),
+            )
+          ) {
+            throw new ApiError(
+              "SLOT_CONFLICT",
+              409,
+              "O horário conflita com uma pausa do profissional.",
+              { reason: "SCHEDULE_PAUSE" },
+            );
+          }
+          const otherAppointments = await tx.appointment.findMany({
+            where: {
+              organizationId,
+              professionalId,
+              id: { not: appointmentId },
+              status: { in: ACTIVE_STATUSES },
+              scheduledAt: {
+                gte: new Date(scheduledAt.getTime() - 86_400_000),
+                lt: endsAt,
+              },
+            },
+            select: { id: true, scheduledAt: true, durationMinutes: true },
+          });
+          if (
+            otherAppointments.some((item) =>
+              overlaps(
+                scheduledAt,
+                endsAt,
+                item.scheduledAt,
+                new Date(
+                  item.scheduledAt.getTime() + item.durationMinutes * 60_000,
+                ),
+              ),
+            )
+          ) {
+            throw new ApiError(
+              "SLOT_CONFLICT",
+              409,
+              "O horário conflita com outro agendamento do profissional.",
+              { reason: "APPOINTMENT_OVERLAP" },
+            );
+          }
+        }
+
+        const changed: Record<
+          string,
+          { before: string | number | null; after: string | number | null }
+        > = {};
+        const changes = {
+          patientId: [current.patientId, patientId],
+          professionalId: [current.professionalId, professionalId],
+          scheduledAt: [
+            current.scheduledAt.toISOString(),
+            scheduledAt.toISOString(),
+          ],
+          durationMinutes: [current.durationMinutes, durationMinutes],
+          notes: [current.notes, notes],
+        } as const;
+        for (const [field, [before, after]] of Object.entries(changes)) {
+          if (before !== after) changed[field] = { before, after };
+        }
+        if (Object.keys(changed).length === 0) {
+          throw new ApiError(
+            "VALIDATION_ERROR",
+            400,
+            "Nenhuma alteração foi informada.",
+          );
+        }
+        const result = await tx.appointment.updateMany({
+          where: {
+            id: appointmentId,
+            organizationId,
+            version: body.version,
+            status: { in: ACTIVE_STATUSES },
+          },
+          data: {
+            patientId,
+            professionalId,
+            scheduledAt,
+            durationMinutes,
+            notes,
+            version: { increment: 1 },
+            updatedAt: now,
+          },
+        });
+        if (result.count !== 1) {
+          throw new ApiError(
+            "VERSION_CONFLICT",
+            409,
+            "O agendamento foi atualizado em outra sessão.",
+          );
+        }
+        await tx.auditLog.create({
+          data: {
+            organizationId,
+            actorUserId,
+            action: "APPOINTMENT_UPDATED",
+            targetType: "APPOINTMENT",
+            targetId: appointmentId,
+            metadata: {
+              changed,
+              versionBefore: body.version,
+              versionAfter: body.version + 1,
+              updatedAt: now.toISOString(),
+            },
+          },
+        });
+        return {
+          appointment: {
+            id: appointmentId,
+            patientId,
+            professionalId,
+            scheduledAt: scheduledAt.toISOString(),
+            durationMinutes,
+            status: current.status,
+            notes,
+            version: body.version + 1,
+            updatedAt: now.toISOString(),
+          },
+        };
+      });
+    } catch (error) {
+      if (isExclusionConflict(error)) {
+        throw new ApiError(
+          "SLOT_CONFLICT",
+          409,
+          "O horário conflita com outro agendamento do profissional.",
+          { reason: "APPOINTMENT_OVERLAP" },
+        );
+      }
+      throw error;
+    }
+  }
+
   async create(
     organizationId: string,
     idempotencyKey: string,
@@ -1349,6 +1623,7 @@ export class AppointmentsService {
                   status: true,
                   notes: true,
                   createdAt: true,
+                  version: true,
                 },
               });
               await tx.appointmentCreationRequest.create({
@@ -1418,6 +1693,7 @@ export class AppointmentsService {
             status: true,
             notes: true,
             createdAt: true,
+            version: true,
           },
         },
       },

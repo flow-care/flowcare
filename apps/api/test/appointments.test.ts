@@ -96,6 +96,7 @@ type StoredAppointment = {
   scheduledAt: Date;
   durationMinutes: number;
   status: AppointmentStatus;
+  version: number;
   notes: string | null;
   createdAt: Date;
 };
@@ -279,6 +280,7 @@ function bookingFixture(timezone = "America/Fortaleza") {
           scheduledAt: data.scheduledAt as Date,
           durationMinutes: data.durationMinutes as number,
           status: (data.status as AppointmentStatus) ?? "RESERVED",
+          version: 0,
           notes: (data.notes as string | null) ?? null,
           createdAt: new Date("2026-10-12T10:00:00.000Z"),
         };
@@ -482,6 +484,7 @@ describe("appointment booking (#237)", () => {
         localEndsAt: "2026-10-12T08:30:00",
         durationMinutes: 30,
         status: "RESERVED",
+        version: 0,
         notes: "Primeira consulta",
         createdAt: "2026-10-12T10:00:00.000Z",
       },
