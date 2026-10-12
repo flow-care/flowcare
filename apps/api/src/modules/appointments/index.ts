@@ -169,6 +169,22 @@ export function appointmentsModule(deps: {
             response: { 201: m.createAppointmentResponse },
           },
         )
+        .post(
+          "/:appointmentId/cancel",
+          ({ auth, organizationAccess, params, body }) =>
+            service.cancel(
+              organizationAccess.organizationId,
+              auth.userId,
+              params.appointmentId,
+              body,
+            ),
+          {
+            params: m.appointmentParams,
+            body: m.cancelAppointmentBody,
+            organizationAccess: "appointments:write",
+            response: { 200: m.cancelAppointmentResponse },
+          },
+        )
         .patch(
           "/:appointmentId",
           ({ auth, organizationAccess, params, body }) =>

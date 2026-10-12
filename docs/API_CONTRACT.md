@@ -465,10 +465,10 @@ O fluxo obrigatório é:
 * **Respostas:** `200 OK` (`{ "appointment": { "id": "...", "patientId": "...", "professionalId": "...", "scheduledAt": "...", "durationMinutes": 30, "status": "RESERVED", "notes": "Retorno", "version": 1, "updatedAt": "..." } }`), `404 NOT_FOUND` para agendamento/paciente/profissional fora da clínica, `409 VERSION_CONFLICT` para versão obsoleta, `409 SLOT_CONFLICT` para horário indisponível, `409 INVALID_STATE_TRANSITION` para agendamento terminal.
 
 #### `POST /organizations/:orgSlug/appointments/:appointmentId/cancel`
-* **Descrição:** Cancela um agendamento. Exige justificativa motivada obrigatória.
+* **Descrição:** Cancela um agendamento ativo, preservando o registro e liberando imediatamente o horário. A justificativa (10 a 500 caracteres após remover espaços nas extremidades), o autor e o instante são persistidos com a mudança de status e a auditoria `APPOINTMENT_CANCELLED` na mesma transação. Agendamentos `CANCELLED`, `COMPLETED` ou `NO_SHOW` não aceitam cancelamento.
 * **Permissão:** `appointments:write`.
-* **Body:** `{ "cancellationReason": "Paciente informou imprevisto de trabalho", "version": 1 }`
-* **Respostas:** `200 OK` (`{ "status": "CANCELLED" }`), `422 BUSINESS_RULE_VIOLATION`.
+* **Body:** `{ "cancellationReason": "Paciente informou imprevisto de trabalho", "version": 0 }`, com a versão atual do agendamento.
+* **Respostas:** `200 OK` (`{ "status": "CANCELLED", "cancellationReason": "...", "cancelledAt": "...", "cancelledById": "...", "version": 1 }`), `400 VALIDATION_ERROR` para justificativa ausente/inválida, `404 NOT_FOUND` para outra clínica, `409 INVALID_STATE_TRANSITION` para status terminal, `409 VERSION_CONFLICT` para edição concorrente.
 
 #### `GET /organizations/:orgSlug/reception/queue` (alias: `GET /organizations/:orgSlug/appointments/queue`)
 * **Descrição:** Lista a fila operacional da recepção da clínica para uma data local no fuso configurado (padrão: hoje na clínica), ordenada por `scheduledAt` e `id`, excluindo agendamentos `CANCELLED`.

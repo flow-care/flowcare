@@ -97,12 +97,16 @@ type StoredAppointment = {
   durationMinutes: number;
   status: AppointmentStatus;
   version: number;
+  cancellationReason?: string | null;
+  cancelledAt?: Date | null;
+  cancelledById?: string | null;
   notes: string | null;
   createdAt: Date;
 };
 
 function bookingFixture(timezone = "America/Fortaleza") {
   const appointments: StoredAppointment[] = [];
+  const auditEvents: Array<Record<string, unknown>> = [];
   const requests = new Map<
     string,
     {
@@ -250,6 +254,47 @@ function bookingFixture(timezone = "America/Fortaleza") {
         ),
     },
     appointment: {
+      findFirst: async ({
+        where,
+      }: {
+        where: { id: string; organizationId: string };
+      }) =>
+        appointments.find(
+          (a) => a.id === where.id && a.organizationId === where.organizationId,
+        ) ?? null,
+      updateMany: async ({
+        where,
+        data,
+      }: {
+        where: {
+          id: string;
+          organizationId: string;
+          version: number;
+          status: { in: AppointmentStatus[] };
+        };
+        data: {
+          status: AppointmentStatus;
+          cancellationReason: string;
+          cancelledAt: Date;
+          cancelledById: string;
+          version: { increment: number };
+        };
+      }) => {
+        const row = appointments.find(
+          (a) =>
+            a.id === where.id &&
+            a.organizationId === where.organizationId &&
+            a.version === where.version &&
+            where.status.in.includes(a.status),
+        );
+        if (!row) return { count: 0 };
+        row.status = data.status;
+        row.cancellationReason = data.cancellationReason;
+        row.cancelledAt = data.cancelledAt;
+        row.cancelledById = data.cancelledById;
+        row.version += data.version.increment;
+        return { count: 1 };
+      },
       findMany: async ({
         where,
       }: {
@@ -335,6 +380,12 @@ function bookingFixture(timezone = "America/Fortaleza") {
         lastActiveAt: new Date(),
       }),
     },
+    auditLog: {
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        auditEvents.push(data);
+        return data;
+      },
+    },
   };
 
   const prisma = {
@@ -347,6 +398,7 @@ function bookingFixture(timezone = "America/Fortaleza") {
     prisma,
     service: new AppointmentsService(prisma),
     appointments,
+    auditEvents,
     requests,
   };
 }
@@ -765,5 +817,180 @@ describe("appointment booking (#237)", () => {
     };
     expect(conflictBody.error.code).toBe("SLOT_CONFLICT");
     expect(conflictBody.error.details.reason).toBe("APPOINTMENT_OVERLAP");
+  });
+});
+
+describe("appointment cancellation (#239)", () => {
+  const payload = {
+    patientId,
+    professionalId,
+    scheduledAt: "2026-10-12T11:00:00.000Z",
+    durationMinutes: 30,
+  };
+
+  test("records actor, reason, time and audit, then frees the slot", async () => {
+    const f = bookingFixture();
+    const first = await f.service.create(
+      organizationId,
+      "cancel-booking-1",
+      payload,
+    );
+    const result = await f.service.cancel(
+      organizationId,
+      "user-receptionist",
+      first.appointment.id,
+      { cancellationReason: "  Paciente informou imprevisto  ", version: 0 },
+    );
+    expect(result).toMatchObject({
+      status: "CANCELLED",
+      version: 1,
+      cancellationReason: "Paciente informou imprevisto",
+    });
+    expect(f.appointments[0]).toMatchObject({
+      status: "CANCELLED",
+      version: 1,
+      cancelledById: "user-receptionist",
+      cancellationReason: "Paciente informou imprevisto",
+    });
+    expect(f.appointments[0]?.cancelledAt).toBeInstanceOf(Date);
+    expect(f.auditEvents).toHaveLength(1);
+    expect(f.auditEvents[0]).toMatchObject({
+      action: "APPOINTMENT_CANCELLED",
+      targetId: first.appointment.id,
+    });
+
+    const next = await f.service.create(
+      organizationId,
+      "cancel-booking-2",
+      payload,
+    );
+    expect(next.appointment.status).toBe("RESERVED");
+    expect(f.appointments).toHaveLength(2);
+  });
+
+  test("rejects missing reason, stale version, terminal status and another clinic", async () => {
+    const f = bookingFixture();
+    const first = await f.service.create(
+      organizationId,
+      "cancel-errors-1",
+      payload,
+    );
+    const cancel = (reason: string, version = 0, org = organizationId) =>
+      f.service.cancel(org, "user-receptionist", first.appointment.id, {
+        cancellationReason: reason,
+        version,
+      });
+    await expect(cancel("short")).rejects.toMatchObject({
+      code: "VALIDATION_ERROR",
+      httpStatus: 400,
+    });
+    await expect(
+      cancel("Paciente informou imprevisto", 1),
+    ).rejects.toMatchObject({ code: "VERSION_CONFLICT", httpStatus: 409 });
+    await expect(
+      cancel("Paciente informou imprevisto", 0, otherOrganizationId),
+    ).rejects.toMatchObject({ code: "NOT_FOUND", httpStatus: 404 });
+    await cancel("Paciente informou imprevisto");
+    await expect(cancel("Paciente informou imprevisto")).rejects.toMatchObject({
+      code: "INVALID_STATE_TRANSITION",
+      httpStatus: 409,
+    });
+    expect(f.auditEvents).toHaveLength(1);
+  });
+
+  test("refuses completed and no-show appointments without an audit event", async () => {
+    for (const terminalStatus of ["COMPLETED", "NO_SHOW"] as const) {
+      const f = bookingFixture();
+      const created = await f.service.create(
+        organizationId,
+        `cancel-terminal-${terminalStatus}`,
+        payload,
+      );
+      const row = f.appointments.find(
+        (item) => item.id === created.appointment.id,
+      );
+      if (!row) throw new Error("appointment not created");
+      row.status = terminalStatus;
+      await expect(
+        f.service.cancel(organizationId, "user-receptionist", row.id, {
+          cancellationReason: "Paciente informou imprevisto",
+          version: 0,
+        }),
+      ).rejects.toMatchObject({
+        code: "INVALID_STATE_TRANSITION",
+        httpStatus: 409,
+      });
+      expect(f.auditEvents).toHaveLength(0);
+      expect(row.status).toBe(terminalStatus);
+    }
+  });
+
+  test("validates the route body and membership before cancellation", async () => {
+    const f = bookingFixture();
+    const created = await f.service.create(
+      organizationId,
+      "cancel-http-1",
+      payload,
+    );
+    const app = new Elysia()
+      .onError(({ code, error, status }) => {
+        if (error instanceof ApiError)
+          return status(error.httpStatus, { error: { code: error.code } });
+        if (code === "VALIDATION")
+          return status(400, { error: { code: "VALIDATION_ERROR" } });
+        return status(500, { error: { code: "INTERNAL" } });
+      })
+      .use(appointmentsModule({ prisma: f.prisma, jwtSecret: secret }));
+    const token = signSessionToken(
+      { sid: "session-1", sub: "user-receptionist" },
+      secret,
+      60,
+    );
+    const request = (
+      body: unknown,
+      slug = "clinic-a",
+      authorization = `Bearer ${token}`,
+    ) =>
+      app.handle(
+        new Request(
+          `http://localhost/organizations/${slug}/appointments/${created.appointment.id}/cancel`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json", authorization },
+            body: JSON.stringify(body),
+          },
+        ),
+      );
+
+    expect((await request({ version: 0 })).status).toBe(400);
+    expect(
+      (await request({ cancellationReason: "short", version: 0 })).status,
+    ).toBe(400);
+    expect(
+      (
+        await request(
+          { cancellationReason: "Paciente informou imprevisto", version: 0 },
+          "clinic-b",
+        )
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await request(
+          { cancellationReason: "Paciente informou imprevisto", version: 0 },
+          "clinic-a",
+          "",
+        )
+      ).status,
+    ).toBe(401);
+    const response = await request({
+      cancellationReason: "Paciente informou imprevisto",
+      version: 0,
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      status: "CANCELLED",
+      version: 1,
+    });
   });
 });

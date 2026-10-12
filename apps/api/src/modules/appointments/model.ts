@@ -165,6 +165,26 @@ export const updateAppointmentResponse = t.Object({
   appointment: updatedAppointment,
 });
 
+export const cancelAppointmentBody = t.Object(
+  {
+    cancellationReason: t.String({
+      minLength: 10,
+      maxLength: 500,
+      pattern: nonBlankKey,
+    }),
+    version: t.Integer({ minimum: 0 }),
+  },
+  { additionalProperties: false },
+);
+
+export const cancelAppointmentResponse = t.Object({
+  status: t.Literal("CANCELLED"),
+  cancellationReason: t.String(),
+  cancelledAt: t.String(),
+  cancelledById: t.String(),
+  version: t.Integer(),
+});
+
 export const appointment = t.Object({
   id: t.String(),
   patientId: t.String(),
@@ -291,6 +311,8 @@ export type ReceptionQueueTransitionBody =
 export type ReceptionQueueItem = typeof receptionQueueItem.static;
 export type ReceptionQueueResponse = typeof receptionQueueResponse.static;
 export type CreateAppointmentBody = typeof createAppointmentBody.static;
+export type CancelAppointmentBody = typeof cancelAppointmentBody.static;
+export type CancelAppointmentResponse = typeof cancelAppointmentResponse.static;
 export type CreateAppointmentResponse = typeof createAppointmentResponse.static;
 export type UpdateAppointmentBody = typeof updateAppointmentBody.static;
 export type UpdateAppointmentResponse = typeof updateAppointmentResponse.static;

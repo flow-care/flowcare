@@ -8,6 +8,8 @@ import type {
 import { ApiError } from "../../lib/api-error";
 import type {
   AvailabilityQuery,
+  CancelAppointmentBody,
+  CancelAppointmentResponse,
   ConfirmationDecisionBody,
   ConfirmationDecisionResponse,
   ConfirmationItem,
@@ -709,10 +711,18 @@ export class AppointmentsService {
             scheduledAt: true,
             durationMinutes: true,
             status: true,
+            cancelledAt: true,
           },
         });
         if (!appointment) {
           throw new ApiError("NOT_FOUND", 404, "Agendamento não encontrado.");
+        }
+        if (appointment.cancelledAt) {
+          throw new ApiError(
+            "INVALID_STATE_TRANSITION",
+            409,
+            "Agendamento cancelado não aceita novas decisões de confirmação.",
+          );
         }
         if (
           appointment.status === "COMPLETED" ||
@@ -752,7 +762,7 @@ export class AppointmentsService {
           appointment.status === nextAppointmentStatus
             ? appointment
             : await tx.appointment.update({
-                where: { id: appointment.id },
+                where: { id: appointment.id, cancelledAt: null },
                 data: { status: nextAppointmentStatus },
                 select: {
                   id: true,
@@ -833,6 +843,18 @@ export class AppointmentsService {
         };
       });
     } catch (error) {
+      if (
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        error.code === "P2025"
+      ) {
+        throw new ApiError(
+          "INVALID_STATE_TRANSITION",
+          409,
+          "Agendamento cancelado não aceita novas decisões de confirmação.",
+        );
+      }
       if (!normalizedKey || !isUniqueConflict(error)) throw error;
       const concurrentReplay = await this.findDecisionReplay(
         organizationId,
@@ -1382,6 +1404,100 @@ export class AppointmentsService {
       }
       throw error;
     }
+  }
+
+  async cancel(
+    organizationId: string,
+    actorUserId: string,
+    appointmentId: string,
+    body: CancelAppointmentBody,
+  ): Promise<CancelAppointmentResponse> {
+    const cancellationReason = body.cancellationReason.trim();
+    if (cancellationReason.length < 10) {
+      throw new ApiError(
+        "VALIDATION_ERROR",
+        400,
+        "A justificativa deve ter pelo menos 10 caracteres.",
+        { field: "cancellationReason" },
+      );
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const current = await tx.appointment.findFirst({
+        where: { id: appointmentId, organizationId },
+        select: { id: true, status: true, version: true },
+      });
+      if (!current) {
+        throw new ApiError("NOT_FOUND", 404, "Agendamento não encontrado.");
+      }
+      if (
+        current.status === "CANCELLED" ||
+        current.status === "COMPLETED" ||
+        current.status === "NO_SHOW"
+      ) {
+        throw new ApiError(
+          "INVALID_STATE_TRANSITION",
+          409,
+          "Agendamento encerrado não pode ser cancelado.",
+        );
+      }
+      if (current.version !== body.version) {
+        throw new ApiError(
+          "VERSION_CONFLICT",
+          409,
+          "O agendamento foi alterado. Recarregue os dados.",
+        );
+      }
+
+      const cancelledAt = new Date();
+      const updated = await tx.appointment.updateMany({
+        where: {
+          id: appointmentId,
+          organizationId,
+          version: body.version,
+          status: { in: ACTIVE_STATUSES },
+        },
+        data: {
+          status: "CANCELLED",
+          cancellationReason,
+          cancelledAt,
+          cancelledById: actorUserId,
+          version: { increment: 1 },
+        },
+      });
+      if (updated.count !== 1) {
+        throw new ApiError(
+          "VERSION_CONFLICT",
+          409,
+          "O agendamento foi alterado. Recarregue os dados.",
+        );
+      }
+
+      await tx.auditLog.create({
+        data: {
+          organizationId,
+          actorUserId,
+          action: "APPOINTMENT_CANCELLED",
+          targetType: "APPOINTMENT",
+          targetId: appointmentId,
+          metadata: {
+            fromStatus: current.status,
+            toStatus: "CANCELLED",
+            cancellationReason,
+            cancelledAt: cancelledAt.toISOString(),
+            version: body.version + 1,
+          },
+        },
+      });
+
+      return {
+        status: "CANCELLED" as const,
+        cancellationReason,
+        cancelledAt: cancelledAt.toISOString(),
+        cancelledById: actorUserId,
+        version: body.version + 1,
+      };
+    });
   }
 
   async create(
