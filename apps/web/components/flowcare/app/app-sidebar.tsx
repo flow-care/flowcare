@@ -1,18 +1,20 @@
 "use client";
 
-import { Check, ChevronsUpDown, LayoutDashboard } from "lucide-react";
+import { Check, ChevronsUpDown, LayoutDashboard, Plus } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { chooseOrganization } from "@/app/select-organization/actions";
+import { NewClinicSheet } from "@/components/flowcare/app/new-clinic-sheet";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -45,6 +47,27 @@ export function AppSidebar({
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
   const [pending, startTransition] = useTransition();
+  const [newClinicOpen, setNewClinicOpen] = useState(false);
+
+  useEffect(() => {
+    const syncSheetFromUrl = () => {
+      setNewClinicOpen(
+        new URL(window.location.href).searchParams.get("sheet") === "new",
+      );
+    };
+    syncSheetFromUrl();
+    window.addEventListener("popstate", syncSheetFromUrl);
+    return () => window.removeEventListener("popstate", syncSheetFromUrl);
+  }, []);
+
+  function setNewClinicSheetOpen(open: boolean) {
+    const url = new URL(window.location.href);
+    if (open) url.searchParams.set("sheet", "new");
+    else url.searchParams.delete("sheet");
+    if (open) window.history.pushState(null, "", url);
+    else window.history.replaceState(null, "", url);
+    setNewClinicOpen(open);
+  }
 
   function switchOrganization(organization: OrganizationSummary) {
     if (organization.id === current.id || pending) return;
@@ -142,6 +165,16 @@ export function AppSidebar({
                     )}
                   </DropdownMenuItem>
                 ))}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onSelect={() => {
+                    setOpenMobile(false);
+                    setNewClinicSheetOpen(true);
+                  }}
+                >
+                  <Plus />
+                  Nova clínica
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </SidebarMenuItem>
@@ -165,6 +198,11 @@ export function AppSidebar({
         </SidebarGroup>
       </SidebarContent>
       <SidebarRail />
+      <NewClinicSheet
+        open={newClinicOpen}
+        onOpenChange={setNewClinicSheetOpen}
+        onCreated={() => setOpenMobile(false)}
+      />
     </Sidebar>
   );
 }
