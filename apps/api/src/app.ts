@@ -38,6 +38,7 @@ export interface AppDeps {
   prisma: PrismaClient;
   mailer: Mailer;
   profilePhotoStore?: ProfilePhotoStore | null;
+  attachmentStore?: ProfilePhotoStore | null;
   whatsappProvider?: WhatsAppProvider;
 }
 
@@ -89,6 +90,8 @@ export function createApp(env: Env, deps: AppDeps) {
     deps.profilePhotoStore === undefined
       ? createProfilePhotoStore(env)
       : deps.profilePhotoStore;
+  const attachmentStore =
+    deps.attachmentStore === undefined ? photoStore : deps.attachmentStore;
   const whatsappProvider =
     deps.whatsappProvider ??
     new WahaClient({ baseUrl: env.wahaBaseUrl, apiKey: env.wahaApiKey });
@@ -143,11 +146,16 @@ export function createApp(env: Env, deps: AppDeps) {
         case "PARSE": {
           if (
             code === "VALIDATION" &&
-            error.all.some(
-              (item) =>
-                item.value instanceof Blob &&
-                item.value.size > PROFILE_PHOTO_MAX_BYTES,
-            )
+            error.all.some((item) => {
+              if (!(item.value instanceof Blob)) return false;
+              const schemaMaxSize = (item.schema as { maxSize?: unknown })
+                ?.maxSize;
+              const maxBytes =
+                typeof schemaMaxSize === "number"
+                  ? schemaMaxSize
+                  : PROFILE_PHOTO_MAX_BYTES;
+              return item.value.size > maxBytes;
+            })
           ) {
             return status(413, {
               error: {
@@ -190,7 +198,13 @@ export function createApp(env: Env, deps: AppDeps) {
         logoStore: photoStore,
       }),
     )
-    .use(patientsModule({ prisma: deps.prisma, jwtSecret: env.jwtSecret }))
+    .use(
+      patientsModule({
+        prisma: deps.prisma,
+        jwtSecret: env.jwtSecret,
+        attachmentStore,
+      }),
+    )
     .use(
       accountModule({
         prisma: deps.prisma,
