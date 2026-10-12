@@ -86,7 +86,7 @@ export function NewClinicSheet({
 
   return (
     <Sheet open={open} onOpenChange={handleOpenChange}>
-      <SheetContent>
+      <SheetContent className="rounded-2xl border-0 data-[side=right]:inset-y-4 data-[side=right]:right-4 data-[side=right]:h-[calc(100dvh-2rem)] data-[side=right]:w-[calc(100vw-2rem)] data-[side=right]:border-l-0">
         <SheetHeader>
           <SheetTitle>Nova clínica</SheetTitle>
           <SheetDescription>
@@ -123,14 +123,16 @@ export function NewClinicSheet({
               </Field>
             )}
           </form.Field>
-          <form.Subscribe selector={(state) => state.isSubmitting}>
-            {(pending) => (
-              <Button type="submit" size="form" disabled={pending}>
-                {pending && <Spinner className="mr-2 size-4" />}
-                {createdSlug ? "Entrar na clínica" : "Criar clínica"}
-              </Button>
-            )}
-          </form.Subscribe>
+          <div className="flex justify-end">
+            <form.Subscribe selector={(state) => state.isSubmitting}>
+              {(pending) => (
+                <Button type="submit" size="form" disabled={pending}>
+                  {pending && <Spinner className="mr-2 size-4" />}
+                  {createdSlug ? "Entrar na clínica" : "Criar clínica"}
+                </Button>
+              )}
+            </form.Subscribe>
+          </div>
         </form>
       </SheetContent>
     </Sheet>
