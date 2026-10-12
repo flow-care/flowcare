@@ -14,6 +14,7 @@ import type { OnboardingDeps } from "./modules/onboarding/service";
 import { organizationsModule } from "./modules/organizations";
 import { patientsModule } from "./modules/patients";
 import { storageModule } from "./modules/storage";
+import { templatesModule } from "./modules/templates";
 import { createSesWebhook } from "./modules/webhooks/ses";
 import { requestLogger } from "./plugins/request-logger";
 import type { Mailer } from "./services/mailer";
@@ -218,7 +219,8 @@ export function createApp(env: Env, deps: AppDeps) {
           secretAccessKey: env.storageSecretAccessKey ?? null,
         },
       }),
-    );
+    )
+    .use(templatesModule({ prisma: deps.prisma, jwtSecret: env.jwtSecret }));
 
   return app;
 }

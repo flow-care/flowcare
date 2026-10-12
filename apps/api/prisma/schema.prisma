@@ -165,6 +165,7 @@ model Organization {
   invites       OrganizationInvite[]
   storageObjects StorageObject[]
   weeklyScheduleRules WeeklyScheduleRule[]
+  documentTemplates DocumentTemplate[]
   appointments Appointment[]
   professionalSchedulePauses ProfessionalSchedulePause[]
   patients Patient[]
@@ -335,4 +336,36 @@ model Subscription {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([status])
+}
+
+enum DocumentType {
+  PRESCRIPTION
+  CERTIFICATE
+  REPORT
+  EXAM_REQUEST
+}
+
+enum TemplateStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+model DocumentTemplate {
+  id             String         @id @default(uuid()) @db.Uuid
+  organizationId String?        @db.Uuid
+  title          String
+  type           DocumentType
+  bodyTemplate   String
+  status         TemplateStatus @default(ACTIVE)
+  version        Int            @default(1)
+  archivedAt     DateTime?
+  archivedById   String?        @db.Uuid
+  createdById    String?        @db.Uuid
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, status, type])
+  @@index([organizationId, createdAt])
 }
