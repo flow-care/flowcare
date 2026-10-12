@@ -27,6 +27,56 @@ export function appointmentsModule(deps: {
           },
         )
         .get(
+          "/confirmations/pending",
+          ({ organizationAccess, query }) =>
+            service.listPendingConfirmations(
+              organizationAccess.organizationId,
+              query,
+            ),
+          {
+            params: t.Object({ orgSlug: t.String() }),
+            query: m.pendingConfirmationsQuery,
+            organizationAccess: "reception:read",
+            response: { 200: m.pendingConfirmationsResponse },
+          },
+        )
+        .patch(
+          "/:appointmentId/confirmation",
+          ({ auth, organizationAccess, params, headers, body }) =>
+            service.recordConfirmationDecision(
+              organizationAccess.organizationId,
+              auth.userId,
+              params.appointmentId,
+              body,
+              headers["idempotency-key"],
+            ),
+          {
+            params: m.confirmationDecisionParams,
+            headers: m.optionalIdempotencyHeaders,
+            body: m.confirmationDecisionBody,
+            organizationAccess: "reception:write",
+            response: { 200: m.confirmationDecisionResponse },
+          },
+        )
+        .post(
+          "/:appointmentId/confirmation",
+          ({ auth, organizationAccess, params, headers, body }) =>
+            service.recordConfirmationDecision(
+              organizationAccess.organizationId,
+              auth.userId,
+              params.appointmentId,
+              body,
+              headers["idempotency-key"],
+            ),
+          {
+            params: m.confirmationDecisionParams,
+            headers: m.optionalIdempotencyHeaders,
+            body: m.confirmationDecisionBody,
+            organizationAccess: "reception:write",
+            response: { 200: m.confirmationDecisionResponse },
+          },
+        )
+        .get(
           "",
           ({ organizationAccess, query }) =>
             service.list(organizationAccess.organizationId, query),
@@ -35,6 +85,41 @@ export function appointmentsModule(deps: {
             query: m.listQuery,
             organizationAccess: "appointments:read",
             response: { 200: m.listResponse },
+          },
+        ),
+    )
+    .group("/organizations/:orgSlug/confirmations", (group) =>
+      group
+        .get(
+          "/pending",
+          ({ organizationAccess, query }) =>
+            service.listPendingConfirmations(
+              organizationAccess.organizationId,
+              query,
+            ),
+          {
+            params: t.Object({ orgSlug: t.String() }),
+            query: m.pendingConfirmationsQuery,
+            organizationAccess: "reception:read",
+            response: { 200: m.pendingConfirmationsResponse },
+          },
+        )
+        .post(
+          "/:appointmentId/decision",
+          ({ auth, organizationAccess, params, headers, body }) =>
+            service.recordConfirmationDecision(
+              organizationAccess.organizationId,
+              auth.userId,
+              params.appointmentId,
+              body,
+              headers["idempotency-key"],
+            ),
+          {
+            params: m.confirmationDecisionParams,
+            headers: m.optionalIdempotencyHeaders,
+            body: m.confirmationDecisionBody,
+            organizationAccess: "reception:write",
+            response: { 200: m.confirmationDecisionResponse },
           },
         ),
     );
