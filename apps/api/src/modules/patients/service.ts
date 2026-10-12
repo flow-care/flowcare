@@ -306,35 +306,24 @@ export class PatientsService {
     }
 
     const now = options.now ?? new Date();
-    const appointmentDelegate = (
-      this.prisma as unknown as {
-        appointment?: {
-          findMany?: (
-            args: Record<string, unknown>,
-          ) => Promise<UpcomingAppointmentRecord[]>;
-        };
-      }
-    ).appointment;
-
-    const upcomingRows = appointmentDelegate?.findMany
-      ? await appointmentDelegate.findMany({
-          where: {
-            organizationId,
-            patientId: patient.id,
-            status: { in: ["RESERVED", "CONFIRMED"] },
-            scheduledAt: { gte: now },
-          },
-          orderBy: [{ scheduledAt: "asc" }, { id: "asc" }],
-          take: 10,
-          select: {
-            id: true,
-            professionalId: true,
-            scheduledAt: true,
-            durationMinutes: true,
-            status: true,
-          },
-        })
-      : [];
+    const upcomingRows: UpcomingAppointmentRecord[] =
+      await this.prisma.appointment.findMany({
+        where: {
+          organizationId,
+          patientId: patient.id,
+          status: { in: ["RESERVED", "CONFIRMED"] },
+          scheduledAt: { gte: now },
+        },
+        orderBy: [{ scheduledAt: "asc" }, { id: "asc" }],
+        take: 10,
+        select: {
+          id: true,
+          professionalId: true,
+          scheduledAt: true,
+          durationMinutes: true,
+          status: true,
+        },
+      });
 
     const healthInsurance = patient.healthInsurance ?? null;
     const insuranceNumber = patient.insuranceNumber ?? null;

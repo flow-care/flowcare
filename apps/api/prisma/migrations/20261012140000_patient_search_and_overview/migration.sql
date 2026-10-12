@@ -12,12 +12,10 @@ ALTER TABLE "Patient"
 -- Backfill normalizedName for existing patients
 UPDATE "Patient"
 SET "normalizedName" = regexp_replace(
-  lower(
-    translate(
-      trim("fullName"),
-      'ÁÀÂÃÄáàâãäÉÈÊËéèêëÍÌÎÏíìîïÓÒÔÕÖóòôõöÚÙÛÜúùûüÇçÑñÝýŸÿ',
-      'aaaaaAAAAAeeeeEEEEiiiiIIIIoooooOOOOOuuuuUUUUcCNnYyYy'
-    )
+  translate(
+    lower(trim("fullName")),
+    'áàâãäéèêëíìîïóòôõöúùûüçñýÿ',
+    'aaaaaeeeeiiiiooooouuuucnyy'
   ),
   '\s+',
   ' ',
