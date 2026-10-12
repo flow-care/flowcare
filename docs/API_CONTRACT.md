@@ -68,6 +68,7 @@ Em caso de falha (códigos HTTP 4xx e 5xx), a API responde com a seguinte estrut
 | **404** | `NOT_FOUND` | Recurso não encontrado (usado também para ocultar existência de recursos de outros tenants). |
 | **409** | `VERSION_CONFLICT` | Concorrência otimista violada (o recurso foi modificado por outro usuário). |
 | **409** | `IDEMPOTENCY_CONFLICT` | A chave de idempotência está em uso por uma requisição concorrente ainda em processamento. |
+| **409** | `POSSIBLE_DUPLICATE` | O cadastro de paciente corresponde a outro paciente da mesma clínica e requer confirmação explícita. |
 | **409** | `ALREADY_EXISTS` | Conflito de duplicidade de chave única (ex: e-mail já cadastrado, slug já utilizado). |
 | **409** | `SLOT_CONFLICT` | Horário de agendamento já reservado por outro paciente. |
 | **409** | `LAST_ADMIN_REQUIRED` | Tentativa de remover ou rebaixar o último administrador da organização. |
@@ -76,6 +77,7 @@ Em caso de falha (códigos HTTP 4xx e 5xx), a API responde com a seguinte estrut
 | **410** | `INVITE_EXPIRED` | O convite para a equipe expirou ou foi revogado. |
 | **422** | `BUSINESS_RULE_VIOLATION` | Violação de regra de negócio com estado válido (ex: campos clínicos obrigatórios ausentes para emissão). |
 | **429** | `RATE_LIMITED` | Limite de requisições excedido. |
+| **503** | `COMMUNICATION_PROVIDER_UNAVAILABLE` | Provedor de comunicação indisponível ou retornou uma resposta inválida. |
 | **500** | `INTERNAL` | Erro interno do servidor. Não exibe stack traces nem detalhes de infraestrutura em produção. |
 
 ---
@@ -375,11 +377,11 @@ O fluxo obrigatório é:
 * **Respostas:** `200 OK` (`{ "data": [...], "pageInfo": { ... } }`).
 
 #### `POST /organizations/:orgSlug/patients`
-* **Descrição:** Cadastra um novo paciente. Executa verificação prévia de duplicidade por CPF.
+* **Descrição:** Cadastra um novo paciente. Executa verificação prévia de duplicidade pelo CPF normalizado, sempre dentro da clínica resolvida pela URL e pelo vínculo autenticado.
 * **Permissão:** `patients:write`.
 * **Cabeçalho Obrigatório:** `Idempotency-Key`
-* **Body:** `{ "fullName": "João Souza", "cpf": "123.456.789-00", "birthDate": "1985-05-20", "phone": "(11) 97777-6666" }`
-* **Respostas:** `201 Created`, `409 ALREADY_EXISTS`.
+* **Body:** `{ "fullName": "João Souza", "cpf": "529.982.247-25", "birthDate": "1985-05-20", "phone": "(11) 97777-6666", "distinctPersonConfirmed": false }`. `distinctPersonConfirmed` é opcional e deve ser enviado como `true` somente depois de a pessoa confirmar que o resultado sinalizado pertence a outro paciente.
+* **Respostas:** `201 Created` (`{ "patient": { "id", "fullName", "cpf", "birthDate", "phone", "version", "createdAt" } }`); `409 POSSIBLE_DUPLICATE` com `details.existingPatientId` e `details.matchedOn`; `409 IDEMPOTENCY_CONFLICT` quando a mesma chave é reutilizada com dados diferentes. Repetir o mesmo payload e a mesma chave retorna `201` com o cadastro original e não cria outro registro.
 
 #### `PATCH /organizations/:orgSlug/patients/:patientId`
 * **Descrição:** Atualiza os dados cadastrais do paciente com controle de concorrência.
@@ -406,8 +408,15 @@ O fluxo obrigatório é:
 #### `GET /organizations/:orgSlug/appointments`
 * **Descrição:** Lista os agendamentos da clínica filtrados por intervalo de datas, profissional ou status.
 * **Permissão:** `appointments:read`.
-* **Query Params:** `?startDate=2026-09-01&endDate=2026-09-30&doctorId=doc_1`
-* **Respostas:** `200 OK`.
+* **Query Params:** `?startDate=2026-09-01&endDate=2026-09-30&professionalId=<uuid>&status=CONFIRMED&limit=50&cursor=<uuid>`. `startDate` e `endDate` são datas locais inclusivas no fuso IANA da clínica; o intervalo máximo é de 31 dias. `limit` varia de 1 a 100 (padrão 50).
+* **Ordenação e paginação:** ordem estável por `scheduledAt` e `id`, ambos crescentes. `nextCursor` é `null` na última página.
+* **Respostas:** `200 OK` (`{ "timeZone": "America/Fortaleza", "appointments": [{ "id": "...", "patientId": "...", "professionalId": "...", "scheduledAt": "2026-09-01T12:00:00.000Z", "localScheduledAt": "2026-09-01T09:00:00", "durationMinutes": 30, "status": "CONFIRMED" }], "nextCursor": null }`). Observações não são expostas nesta listagem operacional.
+
+#### `GET /organizations/:orgSlug/appointments/availability`
+* **Descrição:** Lista slots livres do profissional na data local solicitada. Usa a grade semanal da clínica e exclui pausas do profissional e agendamentos `RESERVED` ou `CONFIRMED` que se sobreponham ao slot.
+* **Permissão:** `appointments:read`.
+* **Query Params:** `?date=2026-09-01&professionalId=<uuid>`.
+* **Respostas:** `200 OK` (`{ "date": "2026-09-01", "professionalId": "...", "timeZone": "America/Fortaleza", "slots": [{ "startsAt": "2026-09-01T12:00:00.000Z", "endsAt": "2026-09-01T12:30:00.000Z", "localStartsAt": "2026-09-01T09:00:00", "localEndsAt": "2026-09-01T09:30:00" }] }`), `404 NOT_FOUND` para profissional sem vínculo clínico ativo na organização.
 
 #### `POST /organizations/:orgSlug/appointments`
 * **Descrição:** Reserva um horário na agenda para um paciente. Valida disponibilidade para prevenir overlapping.
@@ -592,7 +601,12 @@ O fluxo obrigatório é:
 #### `GET /organizations/:orgSlug/communications/whatsapp/status`
 * **Descrição:** Consulta o status da sessão do WhatsApp (conectado, desconectado, QR code pendente).
 * **Permissão:** `communications:read`.
-* **Respostas:** `200 OK` (`{ "status": "CONNECTED", "phoneNumber": "5511999998888" }`).
+* **Respostas:** `200 OK` (`{ "status": "CONNECTED", "phoneNumber": "5511999998888" }`). Estados normalizados: `CONNECTED`, `DISCONNECTED`, `QR_CODE_REQUIRED`, `CONNECTING` e `ERROR`; estados internos e credenciais do provedor não são expostos.
+
+#### `POST /organizations/:orgSlug/communications/whatsapp/reconnect`
+* **Descrição:** Cria ou reinicia a sessão privada da clínica e, quando o provedor solicitar pareamento, retorna o QR temporário com sua validade. O QR não é persistido e a resposta usa `Cache-Control: no-store`.
+* **Permissão:** `settings:write` (somente `ADMIN` e `ADMIN_PROFESSIONAL`).
+* **Respostas:** `200 OK` (`{ "status": "QR_CODE_REQUIRED", "phoneNumber": null, "qrCode": "data:image/png;base64,...", "qrExpiresAt": "2026-10-11T12:00:20.000Z" }`), `503 COMMUNICATION_PROVIDER_UNAVAILABLE`.
 
 #### `GET /organizations/:orgSlug/communications/messages`
 * **Descrição:** Lista o histórico paginado de mensagens operacionais com filtros por estado e período; telefone mascarado.
