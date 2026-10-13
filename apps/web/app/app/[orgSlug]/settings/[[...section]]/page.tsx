@@ -1,16 +1,7 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { ModulePlaceholder } from "@/components/flowcare/app/module-placeholder";
-import { canOpenSection } from "@/lib/app-navigation";
+import { canOpenSection, settingsSections } from "@/lib/app-navigation";
 import { getAvailableOrganizations } from "@/server/organizations";
-
-const settingsTitles: Record<string, string> = {
-  team: "Equipe",
-  roles: "Papéis",
-  clinic: "Clínica",
-  hours: "Horários",
-  usage: "Consumo",
-  audit: "Auditoria",
-};
 
 export default async function SettingsPage({
   params,
@@ -23,12 +14,9 @@ export default async function SettingsPage({
     (organization) => organization.slug === orgSlug,
   );
   if (!current || !canOpenSection(current.role, "settings")) notFound();
-  if (section && (section.length !== 1 || !settingsTitles[section[0]]))
-    notFound();
+  if (!section) redirect(`/app/${encodeURIComponent(orgSlug)}/settings/clinic`);
+  const selected = settingsSections.find((item) => item.segment === section[0]);
+  if (section.length !== 1 || !selected) notFound();
 
-  return (
-    <ModulePlaceholder
-      title={section ? settingsTitles[section[0]] : "Configurações"}
-    />
-  );
+  return <ModulePlaceholder title={selected.label} />;
 }

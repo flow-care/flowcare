@@ -51,6 +51,17 @@ export const appSections = [
 
 export type AppSection = (typeof appSections)[number]["segment"];
 
+export const settingsSections = [
+  { segment: "clinic", label: "Clínica" },
+  { segment: "hours", label: "Horários" },
+  { segment: "team", label: "Equipe" },
+  { segment: "roles", label: "Papéis" },
+  { segment: "usage", label: "Consumo" },
+  { segment: "audit", label: "Auditoria" },
+] as const;
+
+export type SettingsSection = (typeof settingsSections)[number]["segment"];
+
 export function canOpenSection(role: Role, segment: string): boolean {
   const section = appSections.find((item) => item.segment === segment);
   return Boolean(section?.roles.some((allowed) => allowed === role));
