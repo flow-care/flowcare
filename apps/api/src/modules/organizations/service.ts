@@ -2,6 +2,7 @@ import { fileType } from "elysia";
 import type { PrismaClient } from "../../generated/prisma/client";
 import { ApiError } from "../../lib/api-error";
 import { slugify } from "../../lib/slug";
+import { recordAuditEvent } from "../../services/audit-logger";
 import {
   PROFILE_PHOTO_URL_TTL_SECONDS,
   type ProfilePhotoStore,
@@ -378,17 +379,15 @@ export class OrganizationsService {
           "A clínica foi alterada em outra sessão. Recarregue os dados.",
         );
       }
-      await tx.auditLog.create({
-        data: {
-          organizationId: org.id,
-          actorUserId: userId,
-          action: "ORGANIZATION_SETTINGS_UPDATED",
-          targetType: "ORGANIZATION",
-          targetId: org.id,
-          metadata: {
-            changedFields,
-            version: body.version + 1,
-          },
+      await recordAuditEvent(tx, {
+        organizationId: org.id,
+        actorUserId: userId,
+        action: "ORGANIZATION_SETTINGS_UPDATED",
+        targetType: "ORGANIZATION",
+        targetId: org.id,
+        metadata: {
+          changedFields,
+          version: body.version + 1,
         },
       });
     });
@@ -440,18 +439,16 @@ export class OrganizationsService {
         });
         if (!updated.count)
           throw new ApiError("NOT_FOUND", 404, "Clínica não encontrada.");
-        await tx.auditLog.create({
-          data: {
-            organizationId: org.id,
-            actorUserId: userId,
-            action: "ORGANIZATION_LOGO_UPDATED",
-            targetType: "ORGANIZATION",
-            targetId: org.id,
-            metadata: {
-              contentType: file.type,
-              sizeBytes: bytes.length,
-              replacedPreviousLogo: Boolean(org.logoObjectKey),
-            },
+        await recordAuditEvent(tx, {
+          organizationId: org.id,
+          actorUserId: userId,
+          action: "ORGANIZATION_LOGO_UPDATED",
+          targetType: "ORGANIZATION",
+          targetId: org.id,
+          metadata: {
+            contentType: file.type,
+            sizeBytes: bytes.length,
+            replacedPreviousLogo: Boolean(org.logoObjectKey),
           },
         });
       });
@@ -600,20 +597,18 @@ export class OrganizationsService {
         where: { userId },
         data: { currentStep: step, completed: true, version: { increment: 1 } },
       });
-      await tx.auditLog?.create({
-        data: {
-          organizationId: org.id,
-          actorUserId: userId,
-          action: "ORGANIZATION_SETTINGS_UPDATED",
-          targetType: "ORGANIZATION",
-          targetId: org.id,
-          metadata: {
-            step,
-            changedFields: Object.keys(stepData).filter(
-              (key) => key !== "detailsCompletedAt",
-            ),
-            version: version + 1,
-          },
+      await recordAuditEvent(tx, {
+        organizationId: org.id,
+        actorUserId: userId,
+        action: "ORGANIZATION_SETTINGS_UPDATED",
+        targetType: "ORGANIZATION",
+        targetId: org.id,
+        metadata: {
+          step,
+          changedFields: Object.keys(stepData).filter(
+            (key) => key !== "detailsCompletedAt",
+          ),
+          version: version + 1,
         },
       });
     });

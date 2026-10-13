@@ -4,6 +4,7 @@ import { ApiError } from "../../lib/api-error";
 import type { SessionMetadata } from "../../lib/session-metadata";
 import { normalizeEmail } from "../../lib/slug";
 import { generateToken, hashToken } from "../../lib/tokens";
+import { recordAuditEvent } from "../../services/audit-logger";
 import { actionEmailHtml } from "../../services/mail-templates";
 import type { Mailer } from "../../services/mailer";
 import { signSessionToken } from "../../services/session-token";
@@ -135,7 +136,12 @@ export class AuthService {
           onboarding: true,
         },
       });
-      return this.createSession(user, sessionMetadata, tx);
+      return this.createSession(
+        user,
+        sessionMetadata,
+        tx,
+        "AUTH_EMAIL_VERIFIED",
+      );
     });
   }
 
@@ -200,6 +206,9 @@ export class AuthService {
     }>,
     sessionMetadata: SessionMetadata,
     db: Prisma.TransactionClient | PrismaClient = this.deps.prisma,
+    auditAction:
+      | "AUTH_LOGIN_SUCCEEDED"
+      | "AUTH_EMAIL_VERIFIED" = "AUTH_LOGIN_SUCCEEDED",
   ): Promise<LoginResponse> {
     const expiresAt = new Date(
       Date.now() + this.deps.config.sessionTtlSeconds * 1000,
@@ -208,6 +217,20 @@ export class AuthService {
       data: {
         userId: user.id,
         expiresAt,
+        ipAddress: sessionMetadata.ipAddress,
+        userAgent: sessionMetadata.userAgent,
+      },
+    });
+    const activeMembership = user.memberships.find(
+      (m) => m.organizationId === user.activeOrganizationId,
+    );
+    await recordAuditEvent(db, {
+      organizationId: activeMembership?.organization.id ?? null,
+      actorUserId: user.id,
+      action: auditAction,
+      targetType: "SESSION",
+      targetId: session.id,
+      metadata: {
         ipAddress: sessionMetadata.ipAddress,
         userAgent: sessionMetadata.userAgent,
       },
@@ -245,14 +268,12 @@ export class AuthService {
         role: m.role,
         isOwner: m.organization.ownerId === user.id,
       })),
-      activeOrganization: (() => {
-        const active = user.memberships.find(
-          (m) => m.organizationId === user.activeOrganizationId,
-        );
-        return active
-          ? { id: active.organization.id, slug: active.organization.slug }
-          : null;
-      })(),
+      activeOrganization: activeMembership
+        ? {
+            id: activeMembership.organization.id,
+            slug: activeMembership.organization.slug,
+          }
+        : null,
       onboardingCompleted: onboarding.completed,
       onboardingCurrentStep: onboarding.currentStep,
       ...(pendingInvite?.id ? { pendingInviteId: pendingInvite.id } : {}),
@@ -306,6 +327,15 @@ export class AuthService {
         await tx.session.updateMany({
           where: { userId: record.userId, revokedAt: null },
           data: { revokedAt: new Date() },
+        });
+        await recordAuditEvent(tx, {
+          actorUserId: record.userId,
+          action: "AUTH_PASSWORD_RESET_COMPLETED",
+          targetType: "USER",
+          targetId: record.userId,
+          metadata: {
+            revokedAllSessions: true,
+          },
         });
         return true;
       },
