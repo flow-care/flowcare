@@ -21,6 +21,7 @@ import { patientsModule } from "./modules/patients";
 import { rolesModule } from "./modules/roles";
 import { scheduleModule } from "./modules/schedule";
 import { storageModule } from "./modules/storage";
+import { teamModule } from "./modules/team";
 import { templatesModule } from "./modules/templates";
 import { createSesWebhook } from "./modules/webhooks/ses";
 import { requestLogger } from "./plugins/request-logger";
@@ -230,6 +231,7 @@ export function createApp(env: Env, deps: AppDeps) {
       }),
     )
     .use(rolesModule({ prisma: deps.prisma, jwtSecret: env.jwtSecret }))
+    .use(teamModule({ prisma: deps.prisma, jwtSecret: env.jwtSecret }))
     .use(
       communicationsModule({
         prisma: deps.prisma,
