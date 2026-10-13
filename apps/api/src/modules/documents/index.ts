@@ -167,6 +167,38 @@ export function documentsModule(deps: {
             organizationAccess: "documents:write",
             response: { 200: m.documentResponse },
           },
+        )
+        .post(
+          "/documents/:documentId/snapshot",
+          ({ auth, organizationAccess, params, body }) =>
+            service.prepareSnapshot(
+              organizationAccess.organizationId,
+              auth.userId,
+              params.documentId,
+              body,
+            ),
+          {
+            params: m.documentIdParams,
+            body: m.prepareDocumentSnapshotBody,
+            organizationAccess: "documents:write",
+            response: { 200: m.prepareDocumentSnapshotResponse },
+          },
+        )
+        .post(
+          "/documents/:documentId/prepare",
+          ({ auth, organizationAccess, params, body }) =>
+            service.prepareSnapshot(
+              organizationAccess.organizationId,
+              auth.userId,
+              params.documentId,
+              body,
+            ),
+          {
+            params: m.documentIdParams,
+            body: m.prepareDocumentSnapshotBody,
+            organizationAccess: "documents:write",
+            response: { 200: m.prepareDocumentSnapshotResponse },
+          },
         ),
     );
 }

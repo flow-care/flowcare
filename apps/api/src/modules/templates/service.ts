@@ -154,10 +154,32 @@ export const APPROVED_TEMPLATE_VARIABLES: readonly TemplateVariableItem[] = [
     example: "CRM/SP 123456",
   },
   {
+    key: "profissional_crm",
+    placeholder: "{profissional_crm}",
+    label: "CRM do profissional",
+    description: "Alias homologado para o registro profissional do emissor.",
+    type: "string",
+    category: "PROFESSIONAL",
+    required: true,
+    source: "professional.registrationNumber",
+    example: "CRM/SP 123456",
+  },
+  {
     key: "data_atual",
     placeholder: "{data_atual}",
     label: "Data de emissão",
     description: "Data de emissão do documento no fuso horário da clínica.",
+    type: "date",
+    category: "DOCUMENT",
+    required: true,
+    source: "document.issuedDate",
+    example: "11/10/2026",
+  },
+  {
+    key: "data_emissao",
+    placeholder: "{data_emissao}",
+    label: "Data de emissão",
+    description: "Alias homologado para a data de emissão do documento.",
     type: "date",
     category: "DOCUMENT",
     required: true,
@@ -178,7 +200,7 @@ export const APPROVED_TEMPLATE_VARIABLES: readonly TemplateVariableItem[] = [
   },
 ] as const;
 
-const APPROVED_VARIABLE_KEY_SET = new Set<string>(
+export const APPROVED_VARIABLE_KEY_SET = new Set<string>(
   APPROVED_TEMPLATE_VARIABLES.map((item) => item.key),
 );
 
@@ -196,9 +218,9 @@ function hasDisallowedControlCharacters(value: string): boolean {
   return false;
 }
 
-function parseAndNormalizePlaceholders(
+export function parseAndNormalizePlaceholders(
   text: string,
-  field: "title" | "bodyTemplate",
+  field: "title" | "bodyTemplate" | "content",
 ): { normalizedText: string; variables: string[] } {
   const variables: string[] = [];
   let normalized = "";
