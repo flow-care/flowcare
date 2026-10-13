@@ -23,11 +23,7 @@ export function AppShell({
       <AppSheetHost>
         <AppSidebar current={current} organizations={organizations} />
         <SidebarInset>
-          <AppHeader
-            current={current}
-            organizations={organizations}
-            user={user}
-          />
+          <AppHeader user={user} />
           {children}
         </SidebarInset>
       </AppSheetHost>

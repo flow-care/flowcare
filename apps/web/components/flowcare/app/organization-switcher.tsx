@@ -29,13 +29,11 @@ export function OrganizationSwitcher({
   organizations,
   onNavigate,
   onNewClinic,
-  placement = "sidebar",
 }: {
   current: OrganizationSummary;
   organizations: OrganizationSummary[];
   onNavigate?: () => void;
   onNewClinic: () => void;
-  placement?: "sidebar" | "header";
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -60,25 +58,21 @@ export function OrganizationSwitcher({
 
   const triggerContent = (
     <>
-      {placement === "sidebar" && (
-        <Avatar className="after:hidden">
-          <AvatarImage
-            src={`https://api.dicebear.com/10.x/initials/svg?seed=${encodeURIComponent(current.name.trim() || current.slug)}&lettersVariant=single`}
-            alt=""
-            referrerPolicy="no-referrer"
-          />
-          <AvatarFallback>
-            {current.name.trim().charAt(0).toUpperCase()}
-          </AvatarFallback>
-        </Avatar>
-      )}
+      <Avatar className="after:hidden">
+        <AvatarImage
+          src={`https://api.dicebear.com/10.x/initials/svg?seed=${encodeURIComponent(current.name.trim() || current.slug)}&lettersVariant=single`}
+          alt=""
+          referrerPolicy="no-referrer"
+        />
+        <AvatarFallback>
+          {current.name.trim().charAt(0).toUpperCase()}
+        </AvatarFallback>
+      </Avatar>
       <span className="min-w-0 flex-1 text-left leading-tight">
         <span className="block truncate font-semibold">{current.name}</span>
-        {placement === "sidebar" && (
-          <span className="block truncate text-xs text-muted-foreground">
-            {roleLabels[current.role]}
-          </span>
-        )}
+        <span className="block truncate text-xs text-muted-foreground">
+          {roleLabels[current.role]}
+        </span>
       </span>
       <ChevronsUpDown className="ml-auto size-4" />
     </>
@@ -87,24 +81,13 @@ export function OrganizationSwitcher({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        {placement === "sidebar" ? (
-          <SidebarMenuButton
-            size="lg"
-            aria-label={`Clínica atual: ${current.name}. Trocar clínica`}
-            disabled={pending}
-          >
-            {triggerContent}
-          </SidebarMenuButton>
-        ) : (
-          <button
-            type="button"
-            aria-label={`Clínica atual: ${current.name}. Trocar clínica`}
-            disabled={pending}
-            className="flex min-w-0 max-w-52 items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50"
-          >
-            {triggerContent}
-          </button>
-        )}
+        <SidebarMenuButton
+          size="lg"
+          aria-label={`Clínica atual: ${current.name}. Trocar clínica`}
+          disabled={pending}
+        >
+          {triggerContent}
+        </SidebarMenuButton>
       </DropdownMenuTrigger>
       <DropdownMenuContent side="bottom" align="start" className="min-w-56">
         <DropdownMenuLabel>Suas clínicas</DropdownMenuLabel>

@@ -21,7 +21,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarRail,
+  SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar";
 import {
@@ -59,26 +59,38 @@ export function AppSidebar({
   return (
     <Sidebar collapsible="icon" className="border-0">
       <SidebarHeader>
-        <Link
-          href="/app"
-          aria-label="Flowcare — início"
-          className="flex h-12 items-center px-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
-        >
-          <Image
-            src="/logo-1.png"
-            alt="Flowcare"
-            width={1024}
-            height={409}
-            className="h-auto w-28 group-data-[collapsible=icon]:hidden"
+        <div className="flex h-12 items-center justify-between px-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
+          <Link
+            href="/app"
+            aria-label="Flowcare — início"
+            className="group-data-[collapsible=icon]:hidden"
+          >
+            <Image
+              src="/logo-1.png"
+              alt="Flowcare"
+              width={1024}
+              height={409}
+              className="h-auto w-28"
+            />
+          </Link>
+          <SidebarTrigger
+            aria-label="Fechar ou recolher menu lateral"
+            className="group-data-[collapsible=icon]:hidden"
           />
-          <Image
-            src="/logo-2.png"
-            alt=""
-            width={638}
-            height={582}
-            className="hidden size-8 object-contain group-data-[collapsible=icon]:block"
-          />
-        </Link>
+          <div className="group/logo-toggle relative hidden size-8 group-data-[collapsible=icon]:block">
+            <Image
+              src="/logo-2.png"
+              alt=""
+              width={638}
+              height={582}
+              className="size-8 object-contain transition-opacity group-hover/logo-toggle:opacity-0 group-focus-within/logo-toggle:opacity-0"
+            />
+            <SidebarTrigger
+              aria-label="Expandir menu lateral"
+              className="absolute inset-0 opacity-0 transition-opacity group-hover/logo-toggle:opacity-100 focus-visible:opacity-100"
+            />
+          </div>
+        </div>
         <SidebarMenu>
           <SidebarMenuItem>
             <OrganizationSwitcher
@@ -120,7 +132,6 @@ export function AppSidebar({
           </SidebarMenu>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarRail />
     </Sidebar>
   );
 }

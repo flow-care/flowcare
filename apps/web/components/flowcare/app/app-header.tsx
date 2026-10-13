@@ -13,30 +13,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import type { CurrentUserProfile } from "@/server/invites";
-import type { OrganizationSummary } from "@/server/organizations";
-import { useAppSheet } from "./app-sheet-host";
-import { OrganizationSwitcher } from "./organization-switcher";
 
-export function AppHeader({
-  current,
-  organizations,
-  user,
-}: {
-  current: OrganizationSummary;
-  organizations: OrganizationSummary[];
-  user: CurrentUserProfile | null;
-}) {
-  const setSheet = useAppSheet();
-
+export function AppHeader({ user }: { user: CurrentUserProfile | null }) {
   return (
     <header className="flex h-16 shrink-0 items-center gap-2 px-5 md:px-8">
-      <SidebarTrigger aria-label="Alternar menu lateral" />
-      <OrganizationSwitcher
-        current={current}
-        organizations={organizations}
-        onNewClinic={() => setSheet("new")}
-        placement="header"
-      />
+      <SidebarTrigger aria-label="Abrir menu lateral" className="md:hidden" />
       <div className="ml-auto">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
