@@ -541,8 +541,14 @@ O fluxo obrigatório é:
 * **Body:** `{ "version": 1, "topics": [{ "key": "history", "label": "Histórico", "active": true }] }`. `version` é a versão atual esperada, para evitar perda de alterações concorrentes. Máximo de 50 tópicos, chaves únicas.
 * **Respostas:** `200 OK` com a nova versão e `revisionId`; `400 VALIDATION_ERROR` para lista inválida ou retirada de obrigatório; `409 VERSION_CONFLICT` para versão desatualizada.
 
-O identificador `revisionId` da versão vigente deve ser armazenado pela futura criação de anamnese. O módulo de consultas/anamneses ainda não existe no backend; esta rota não altera anamneses existentes.
+O identificador `revisionId` da versão vigente deve ser armazenado pela futura criação de anamnese. Esta rota de tópicos não altera anamneses existentes.
 *(Ref: Issues [#195](https://github.com/Flowcare-team/flowcare-monorepo/issues/195), [#262](https://github.com/Flowcare-team/flowcare-monorepo/issues/262)–[#267](https://github.com/Flowcare-team/flowcare-monorepo/issues/267))*
+
+#### `GET /organizations/:orgSlug/consultations`
+* **Descrição:** Lista os atendimentos clínicos da clínica ativa com paginação (por cursor ou página) e filtros combináveis por período (`startDate`, `endDate` no fuso horário da clínica), profissional (`professionalId`), paciente (`patientId`), busca textual pelo nome do paciente (`search` ou `q`, insensível a caixa e acentuação), status do atendimento (`SCHEDULED`, `IN_PROGRESS`, `COMPLETED`, `CANCELLED`) e status da anamnese (`PENDING`, `DRAFT`, `APPROVED`), ordenados por `scheduledAt` e `id` decrescentes.
+* **Permissão:** `consultations:read` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL`). Papéis `RECEPTIONIST` e `ADMIN` sem atuação clínica recebem `403 PERMISSION_DENIED`.
+* **Query Params:** `?startDate=2026-10-01&endDate=2026-10-31&professionalId=<uuid>&patientId=<uuid>&status=SCHEDULED|IN_PROGRESS|COMPLETED|CANCELLED&anamnesisStatus=PENDING|DRAFT|APPROVED&search=joao&limit=20&page=1&cursor=<uuid>` (`limit` de 1 a 100, padrão 20).
+* **Respostas:** `200 OK` (`{ "timeZone": "America/Fortaleza", "data": [{ "id": "...", "appointmentId": "...", "patientId": "...", "professionalId": "...", "scheduledAt": "2026-10-12T13:00:00.000Z", "localScheduledAt": "2026-10-12T10:00:00", "startedAt": null, "completedAt": null, "status": "SCHEDULED", "anamnesisStatus": "PENDING", "patient": { "id": "...", "fullName": "João Carlos Oliveira" }, "professional": { "id": "...", "fullName": "Dr. Bruno Lima", "professionalTitle": "Médico Clínico", "registrationNumber": "CRM/CE 67890" }, "version": 0, "createdAt": "...", "updatedAt": "..." }], "items": [...], "pageInfo": { "limit": 20, "page": 1, "totalCount": 1, "hasNextPage": false, "nextCursor": null } }`), `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 MEMBERSHIP_INACTIVE`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`.
 
 #### `POST /organizations/:orgSlug/consultations`
 * **Descrição:** Inicia uma nova consulta clínica vinculada a um agendamento prévio e paciente.

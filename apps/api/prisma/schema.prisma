@@ -67,6 +67,19 @@ enum ReceptionQueueStatus {
   NO_SHOW
 }
 
+enum ConsultationStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum AnamnesisStatus {
+  PENDING
+  DRAFT
+  APPROVED
+}
+
 model OrganizationInvite {
   id             String         @id @default(uuid()) @db.Uuid
   organizationId String         @db.Uuid
@@ -110,6 +123,7 @@ model User {
   activeOrganizationId String? @db.Uuid
   activeOrganization Organization? @relation("ActiveOrganization", fields: [activeOrganizationId], references: [id], onDelete: SetNull)
   professionalAppointments Appointment[]
+  professionalConsultations Consultation[]
   professionalSchedulePauses ProfessionalSchedulePause[]
   scheduleExceptions ScheduleException[]
   decidedConfirmations AppointmentConfirmation[] @relation("ConfirmationDecidedBy")
@@ -216,6 +230,7 @@ model Organization {
   auditLogs    AuditLog[]
   documentTemplates DocumentTemplate[]
   appointments Appointment[]
+  consultations Consultation[]
   appointmentConfirmations AppointmentConfirmation[]
   confirmationDecisions ConfirmationDecision[]
   appointmentCreationRequests AppointmentCreationRequest[]
@@ -269,6 +284,7 @@ model Appointment {
   organization          Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   patient               Patient                      @relation(fields: [patientId], references: [id], onDelete: Restrict)
   professional          User                         @relation(fields: [professionalId], references: [id], onDelete: Restrict)
+  consultation          Consultation?
   confirmation          AppointmentConfirmation?
   confirmationDecisions ConfirmationDecision[]
   creationRequests      AppointmentCreationRequest[]
@@ -395,6 +411,7 @@ model Patient {
   organization     Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   creationRequests PatientCreationRequest[]
   appointments     Appointment[]
+  consultations    Consultation[]
   attachments      PatientAttachment[]
   clinicalDocuments ClinicalDocument[]
 
@@ -524,9 +541,39 @@ model AnamnesisTopicRevision {
   topics    Json
   createdAt DateTime @default(now())
 
-  config AnamnesisTopicConfig @relation(fields: [configId], references: [id], onDelete: Restrict)
+  config        AnamnesisTopicConfig @relation(fields: [configId], references: [id], onDelete: Restrict)
+  consultations Consultation[]
 
   @@unique([configId, version])
+}
+
+model Consultation {
+  id                       String             @id @default(uuid()) @db.Uuid
+  organizationId           String             @db.Uuid
+  appointmentId            String?            @unique @db.Uuid
+  patientId                String             @db.Uuid
+  professionalId           String             @db.Uuid
+  scheduledAt              DateTime
+  startedAt                DateTime?
+  completedAt              DateTime?
+  status                   ConsultationStatus @default(SCHEDULED)
+  anamnesisStatus          AnamnesisStatus    @default(PENDING)
+  anamnesisTopicRevisionId String?            @db.Uuid
+  version                  Int                @default(0)
+  createdAt                DateTime           @default(now())
+  updatedAt                DateTime           @updatedAt
+
+  organization           Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  appointment            Appointment?            @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  patient                Patient                 @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  professional           User                    @relation(fields: [professionalId], references: [id], onDelete: Restrict)
+  anamnesisTopicRevision AnamnesisTopicRevision? @relation(fields: [anamnesisTopicRevisionId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, scheduledAt, id])
+  @@index([organizationId, professionalId, scheduledAt])
+  @@index([organizationId, patientId, scheduledAt])
+  @@index([organizationId, status, scheduledAt])
+  @@index([organizationId, anamnesisStatus, scheduledAt])
 }
 
 // Progresso do onboarding guiado (issue #215) — sobrevive a recarregar a página.
