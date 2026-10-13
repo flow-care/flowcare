@@ -71,6 +71,16 @@ export const updateTemplateBody = t.Object(
   { additionalProperties: false },
 );
 
+export const previewTemplateResponse = t.Object({
+  isExample: t.Literal(true),
+  watermark: t.Literal("EXEMPLO — SEM VALIDADE CLÍNICA"),
+  type: documentType,
+  title: t.String(),
+  content: t.String(),
+  variables: t.Record(t.String(), t.String()),
+  missingPlaceholders: t.Array(t.String()),
+});
+
 export const templateItem = t.Object({
   id: t.String(),
   organizationId: t.Nullable(t.String()),
@@ -172,6 +182,7 @@ export type ListTemplatesQuery = typeof listTemplatesQuery.static;
 export type GetTemplateQuery = typeof getTemplateQuery.static;
 export type CreateTemplateBody = typeof createTemplateBody.static;
 export type UpdateTemplateBody = typeof updateTemplateBody.static;
+export type PreviewTemplateResponse = typeof previewTemplateResponse.static;
 export type TemplateItem = typeof templateItem.static;
 export type TemplateDetailResponse = typeof templateDetailResponse.static;
 export type TemplateVersionItem = typeof templateVersionItem.static;

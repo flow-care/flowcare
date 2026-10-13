@@ -858,6 +858,12 @@ O identificador `revisionId` da versão vigente deve ser armazenado pela futura 
 * **Permissão:** `templates:read` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL`).
 * **Respostas:** `200 OK` (`{ "data": [...], "versions": [ { "id": "...", "templateId": "...", "organizationId": "...", "version": 1, "title": "...", "type": "CERTIFICATE", "bodyTemplate": "...", "variables": ["paciente_nome"], "createdById": "...", "createdAt": "..." } ] }`), `404 NOT_FOUND`.
 
+#### `POST /organizations/:orgSlug/templates/preview` (alias: `POST /organizations/:orgSlug/document-templates/preview`)
+* **Descrição:** Valida um modelo ainda não salvo e renderiza título e conteúdo apenas com os exemplos fictícios do catálogo de variáveis. A resposta traz `isExample: true`, marca `EXEMPLO — SEM VALIDADE CLÍNICA`, `variables` e `missingPlaceholders`. Não consulta pacientes, não gera PDF, não cria documento clínico ou evento de emissão e não persiste o modelo.
+* **Permissão:** `templates:write` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL`).
+* **Body:** `{ "title": "Atestado para {paciente_nome}", "type": "CERTIFICATE", "bodyTemplate": "Atesto que {paciente_nome} foi atendida." }`.
+* **Respostas:** `200 OK` (`{ "isExample": true, "watermark": "EXEMPLO — SEM VALIDADE CLÍNICA", "type": "CERTIFICATE", "title": "Atestado para Maria da Silva", "content": "Atesto que Maria da Silva foi atendida.", "variables": { "paciente_nome": "Maria da Silva" }, "missingPlaceholders": [] }`), `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 PERMISSION_DENIED`, `422 INVALID_TEMPLATE_STRUCTURE`, `422 INVALID_TEMPLATE_VARIABLE` (com `details.invalidVariables`).
+
 #### `POST /organizations/:orgSlug/templates` (alias: `POST /organizations/:orgSlug/document-templates`)
 * **Descrição:** Valida a estrutura e as variáveis dinâmicas (`{variavel}`) contra o catálogo homologado (`APPROVED_TEMPLATE_VARIABLES`), cria um novo modelo da clínica na versão `1` (`status: ACTIVE`), grava o snapshot inicial em `DocumentTemplateVersion` e registra `TEMPLATE_CREATED` em `AuditLog` na mesma transação.
 * **Permissão:** `templates:write` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL`).
