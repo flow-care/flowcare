@@ -5,7 +5,6 @@ import {
   CalendarDays,
   ChartNoAxesCombined,
   ChevronLeft,
-  ChevronRight,
   ClipboardList,
   Clock3,
   FileText,
@@ -198,21 +197,15 @@ export function AppSidebar({
       </SidebarContent>
       <SidebarFooter>
         <SidebarMenu>
-          {!inSettings && canOpenSection(current.role, "settings") && (
-            <SidebarMenuItem>
-              <SidebarMenuButton asChild tooltip="Configurações">
-                <Link
-                  href={`${settingsPath}/clinic`}
-                  onClick={() => setOpenMobile(false)}
-                >
-                  <Settings />
-                  <span>Configurações</span>
-                  <ChevronRight className="ml-auto group-data-[collapsible=icon]:hidden" />
-                </Link>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          )}
-          <ProfileMenu user={user} />
+          <ProfileMenu
+            user={user}
+            settingsHref={
+              canOpenSection(current.role, "settings")
+                ? `${settingsPath}/clinic`
+                : undefined
+            }
+            onNavigate={() => setOpenMobile(false)}
+          />
         </SidebarMenu>
       </SidebarFooter>
     </Sidebar>

@@ -1,6 +1,7 @@
 "use client";
 
-import { ChevronsUpDown, LogOut } from "lucide-react";
+import { ChevronsUpDown, LogOut, Settings } from "lucide-react";
+import Link from "next/link";
 import { logoutAction } from "@/app/app/actions";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -14,7 +15,15 @@ import {
 import { SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar";
 import type { CurrentUserProfile } from "@/server/invites";
 
-export function ProfileMenu({ user }: { user: CurrentUserProfile | null }) {
+export function ProfileMenu({
+  user,
+  settingsHref,
+  onNavigate,
+}: {
+  user: CurrentUserProfile | null;
+  settingsHref?: string;
+  onNavigate?: () => void;
+}) {
   return (
     <SidebarMenuItem>
       <DropdownMenu>
@@ -37,11 +46,6 @@ export function ProfileMenu({ user }: { user: CurrentUserProfile | null }) {
               <span className="block truncate font-semibold">
                 {user?.fullName || "Minha conta"}
               </span>
-              {user?.email && (
-                <span className="block truncate text-xs text-muted-foreground">
-                  {user.email}
-                </span>
-              )}
             </span>
             <ChevronsUpDown className="ml-auto size-4" />
           </SidebarMenuButton>
@@ -56,6 +60,13 @@ export function ProfileMenu({ user }: { user: CurrentUserProfile | null }) {
             )}
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
+          {settingsHref && (
+            <DropdownMenuItem asChild>
+              <Link href={settingsHref} onClick={onNavigate}>
+                <Settings /> Configurações
+              </Link>
+            </DropdownMenuItem>
+          )}
           <form action={logoutAction}>
             <DropdownMenuItem asChild>
               <button type="submit" className="w-full">
