@@ -24,7 +24,11 @@ export function ProfileMenu({ user }: { user: CurrentUserProfile | null }) {
             aria-label={`Abrir menu de ${user?.fullName || "perfil"}`}
           >
             <Avatar className="after:hidden">
-              {user?.photoUrl && <AvatarImage src={user.photoUrl} alt="" />}
+              <AvatarImage
+                src={`https://api.dicebear.com/10.x/initials/svg?seed=${encodeURIComponent(user?.fullName.trim() || "Flowcare")}&lettersVariant=single`}
+                alt=""
+                referrerPolicy="no-referrer"
+              />
               <AvatarFallback>
                 {user?.fullName.trim().charAt(0).toUpperCase() || "?"}
               </AvatarFallback>
