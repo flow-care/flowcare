@@ -124,6 +124,50 @@ export const documentVersionsResponse = t.Object({
   versions: t.Array(documentVersionItem),
 });
 
+export const prepareDocumentSnapshotBody = t.Optional(
+  t.Object({
+    version: t.Optional(t.Integer({ minimum: 1 })),
+    variables: t.Optional(documentVariables),
+    type: t.Optional(t.String()),
+  }),
+);
+
+export const documentSnapshotItem = t.Object({
+  documentId: t.String(),
+  version: t.Integer({ minimum: 1 }),
+  revisionId: t.String(),
+  type: documentType,
+  title: t.String(),
+  content: t.String(),
+  variables: documentVariables,
+  preparedAt: t.String(),
+});
+
+export const prepareDocumentSnapshotResponse = t.Object({
+  id: t.String(),
+  documentId: t.String(),
+  organizationId: t.String(),
+  patientId: t.String(),
+  authorId: t.String(),
+  templateId: t.Nullable(t.String()),
+  templateVersion: t.Nullable(t.Integer({ minimum: 1 })),
+  type: documentType,
+  title: t.String(),
+  content: t.String(),
+  variables: documentVariables,
+  status: documentStatus,
+  version: t.Integer({ minimum: 1 }),
+  revisionId: t.Nullable(t.String()),
+  currentRevisionId: t.Nullable(t.String()),
+  issuedAt: t.Nullable(t.String()),
+  voidedAt: t.Nullable(t.String()),
+  createdAt: t.String(),
+  updatedAt: t.String(),
+  versions: t.Array(documentVersionItem),
+  document: documentItem,
+  snapshot: documentSnapshotItem,
+});
+
 export type OrgSlugParams = typeof orgSlugParams.static;
 export type DocumentIdParams = typeof documentIdParams.static;
 export type DocumentType = typeof documentType.static;
@@ -131,7 +175,12 @@ export type DocumentStatus = typeof documentStatus.static;
 export type DocumentVariables = typeof documentVariables.static;
 export type CreateDocumentDraftBody = typeof createDocumentDraftBody.static;
 export type UpdateDocumentDraftBody = typeof updateDocumentDraftBody.static;
+export type PrepareDocumentSnapshotBody =
+  typeof prepareDocumentSnapshotBody.static;
 export type DocumentVersionItem = typeof documentVersionItem.static;
 export type DocumentItem = typeof documentItem.static;
 export type DocumentResponse = typeof documentResponse.static;
 export type DocumentVersionsResponse = typeof documentVersionsResponse.static;
+export type DocumentSnapshotItem = typeof documentSnapshotItem.static;
+export type PrepareDocumentSnapshotResponse =
+  typeof prepareDocumentSnapshotResponse.static;
