@@ -40,6 +40,7 @@ enum TokenType {
 enum AppointmentStatus {
   RESERVED
   CONFIRMED
+  IN_PROGRESS
   CANCELLED
   COMPLETED
   NO_SHOW
