@@ -11,6 +11,7 @@ import { authModule } from "./modules/auth";
 import type { AuthDeps } from "./modules/auth/service";
 import { communicationsModule } from "./modules/communications";
 import { consultationsModule } from "./modules/consultations";
+import { dashboardModule } from "./modules/dashboard";
 import { documentsModule } from "./modules/documents";
 import { inviteModule } from "./modules/invites";
 import { notificationsModule } from "./modules/notifications";
@@ -198,6 +199,7 @@ export function createApp(env: Env, deps: AppDeps) {
     })
     .use(authModule(authDeps))
     .use(appointmentsModule({ prisma: deps.prisma, jwtSecret: env.jwtSecret }))
+    .use(dashboardModule({ prisma: deps.prisma, jwtSecret: env.jwtSecret }))
     .use(onboardingModule(onboardingDeps))
     .use(scheduleModule({ prisma: deps.prisma, jwtSecret: env.jwtSecret }))
     .use(

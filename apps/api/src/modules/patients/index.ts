@@ -20,6 +20,8 @@ import {
   patientOverviewResponse,
   patientParams,
   patientResponse,
+  patientTimelineQuery,
+  patientTimelineResponse,
   updatePatientBody,
   uploadPatientAttachmentBody,
   uploadPatientAttachmentResponse,
@@ -227,6 +229,38 @@ export function patientsModule(deps: {
         body: archivePatientAttachmentBody,
         organizationAccess: "patients:attachments:write",
         response: { 200: archivePatientAttachmentResponse },
+      },
+    )
+    .get(
+      "/organizations/:orgSlug/patients/:id/timeline",
+      ({ auth, organizationAccess, params, query }) =>
+        service.getTimeline(
+          organizationAccess.organizationId,
+          params.id,
+          auth.userId,
+          query,
+        ),
+      {
+        params: patientIdParams,
+        query: patientTimelineQuery,
+        organizationAccess: "patients:read_history",
+        response: { 200: patientTimelineResponse },
+      },
+    )
+    .get(
+      "/organizations/:orgSlug/patients/:id/records",
+      ({ auth, organizationAccess, params, query }) =>
+        service.getTimeline(
+          organizationAccess.organizationId,
+          params.id,
+          auth.userId,
+          query,
+        ),
+      {
+        params: patientIdParams,
+        query: patientTimelineQuery,
+        organizationAccess: "patients:read_history",
+        response: { 200: patientTimelineResponse },
       },
     );
 }

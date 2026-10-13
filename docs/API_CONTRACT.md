@@ -508,10 +508,55 @@ O fluxo obrigatório é:
 * **Body:** `{ "fullName": "João Carlos Souza", "cpf": "529.982.247-25", "birthDate": "1985-05-20", "phone": "(11) 98888-5555", "distinctPersonConfirmed": false, "version": 2 }` (ao menos um campo cadastral além de `version` é obrigatório).
 * **Respostas:** `200 OK` (`{ "patient": { "id", "fullName", "cpf", "birthDate", "phone", "version", "createdAt", "updatedAt" } }`), `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 MEMBERSHIP_INACTIVE`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`, `409 POSSIBLE_DUPLICATE`, `409 VERSION_CONFLICT`.
 
-#### `GET /organizations/:orgSlug/patients/:patientId/timeline`
-* **Descrição:** Retorna a linha do tempo cronológica com consultas, documentos emitidos e anexos do paciente.
-* **Permissão:** `patients:read_history`.
-* **Respostas:** `200 OK` (`{ "events": [ { "type": "CONSULTATION", "date": "...", "title": "Anamnese Cardiologia" } ] }`).
+#### `GET /organizations/:orgSlug/patients/:patientId/timeline` (alias: `GET /organizations/:orgSlug/patients/:patientId/records`)
+* **Descrição:** Retorna a linha do tempo cronológica unificada de prontuário do paciente (consultas, documentos clínicos, anexos e agendamentos) pertencentes à clínica ativa, ordenada estritamente de forma decrescente (`timestamp DESC`), com auditoria de acesso a dados clínicos sensíveis conforme a LGPD.
+* **Permissão:** `patients:read_history` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL`). Papéis exclusivamente administrativos ou de recepção (`ADMIN`, `RECEPTIONIST`) são rejeitados com `403 PERMISSION_DENIED`. Não autenticado retorna `401 UNAUTHENTICATED`.
+* **Isolamento multi-tenant:** Se `patientId` não pertencer à clínica resolvida por `:orgSlug`, responde `404 NOT_FOUND` sem revelar dados.
+* **Query Params:**
+  * `type` / `eventType`: `"all"` | `"consultation"` | `"document"` | `"attachment"` | `"appointment"` (padrão: `"all"`).
+  * `startDate` & `endDate`: datas de filtro no formato `YYYY-MM-DD` (opcional).
+  * `limit`: inteiro entre 1 e 100 (padrão: 20).
+  * `cursor`: identificador do evento para paginação por cursor.
+  * `page`: número da página (inteiro >= 1, padrão: 1).
+* **Trilha de Auditoria (LGPD):** Na mesma requisição, registra entrada em `AuditLog` (`action: "PATIENT_TIMELINE_ACCESSED"`, `targetType: "PATIENT"`, `targetId: patientId`, `actorUserId`, `organizationId`).
+* **Respostas:**
+  * `200 OK`:
+    ```json
+    {
+      "data": [
+        {
+          "id": "uuid",
+          "eventType": "CONSULTATION",
+          "timestamp": "2026-10-13T14:00:00.000Z",
+          "professional": {
+            "id": "uuid",
+            "name": "Dr. João",
+            "registrationNumber": "CRM 12345",
+            "professionalTitle": "Médico"
+          },
+          "summary": "Consulta de retorno",
+          "status": "COMPLETED",
+          "resourceId": "uuid-da-consulta",
+          "metadata": {
+            "appointmentId": null,
+            "anamnesisStatus": "APPROVED",
+            "startedAt": "2026-10-13T14:00:00.000Z",
+            "completedAt": "2026-10-13T14:30:00.000Z"
+          }
+        }
+      ],
+      "pageInfo": {
+        "limit": 20,
+        "hasNextPage": false,
+        "nextCursor": null
+      }
+    }
+    ```
+  * `400 VALIDATION_ERROR` (parâmetros de consulta inválidos, limites fora do intervalo ou datas invertidas).
+  * `401 UNAUTHENTICATED` (sessão ausente, expirada ou inválida).
+  * `403 MEMBERSHIP_INACTIVE` (vínculo do usuário inativo ou suspenso).
+  * `403 PERMISSION_DENIED` (usuário sem prerrogativa clínica `patients:read_history`).
+  * `404 NOT_FOUND` (clínica ou paciente não encontrado).
 
 #### `POST /organizations/:orgSlug/patients/:id/attachments`
 * **Descrição:** Envia exame ou arquivo clínico privado para o prontuário do paciente na clínica ativa. O servidor valida o tamanho (máx. **10 MiB**) e a assinatura binária real (magic bytes) do arquivo (`application/pdf`, `image/jpeg`, `image/png`, `image/webp`), rejeitando arquivos disfarçados, grava o objeto no armazenamento privado sob `organizations/{organizationId}/patients/{patientId}/attachments/` (sem expor a chave interna ou URL pública permanente) e registra `PATIENT_ATTACHMENT_UPLOADED` em `AuditLog`.
@@ -634,11 +679,35 @@ O identificador `revisionId` da versão vigente deve ser armazenado pela futura 
 * **Query Params:** `?startDate=2026-10-01&endDate=2026-10-31&professionalId=<uuid>&patientId=<uuid>&status=SCHEDULED|IN_PROGRESS|COMPLETED|CANCELLED&anamnesisStatus=PENDING|DRAFT|APPROVED&search=joao&limit=20&page=1&cursor=<uuid>` (`limit` de 1 a 100, padrão 20).
 * **Respostas:** `200 OK` (`{ "timeZone": "America/Fortaleza", "data": [{ "id": "...", "appointmentId": "...", "patientId": "...", "professionalId": "...", "scheduledAt": "2026-10-12T13:00:00.000Z", "localScheduledAt": "2026-10-12T10:00:00", "startedAt": null, "completedAt": null, "status": "SCHEDULED", "anamnesisStatus": "PENDING", "patient": { "id": "...", "fullName": "João Carlos Oliveira" }, "professional": { "id": "...", "fullName": "Dr. Bruno Lima", "professionalTitle": "Médico Clínico", "registrationNumber": "CRM/CE 67890" }, "version": 0, "createdAt": "...", "updatedAt": "..." }], "items": [...], "pageInfo": { "limit": 20, "page": 1, "totalCount": 1, "hasNextPage": false, "nextCursor": null } }`), `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 MEMBERSHIP_INACTIVE`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`.
 
-#### `POST /organizations/:orgSlug/consultations`
-* **Descrição:** Inicia uma nova consulta clínica vinculada a um agendamento prévio e paciente.
-* **Permissão:** `consultations:write`.
-* **Body:** `{ "appointmentId": "app_100", "patientId": "pat_1" }`
-* **Respostas:** `201 Created` (`{ "consultationId": "con_55", "status": "IN_PROGRESS" }`).
+#### `POST /organizations/:orgSlug/consultations` (alias: `POST /organizations/:orgSlug/consultations/start`)
+* **Descrição:** Inicia uma nova consulta clínica vinculada a paciente e, opcionalmente, a um agendamento prévio (ou atendimento avulso/walk-in), prevenindo duplicidade de consultas para o mesmo agendamento e garantindo isolamento multi-tenant estrito. Caso já exista um atendimento ativo para o agendamento informado, a operação é idempotente e retorna o atendimento existente (`200 OK`) sem duplicar registros ou auditoria. Quando vinculado a um agendamento em estado `CONFIRMED` ou `RESERVED`, transiciona o agendamento para `IN_PROGRESS` (e fila para `IN_SERVICE`). Grava `CONSULTATION_STARTED` em `AuditLog` na mesma transação.
+* **Permissão:** `consultations:write` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL`). Papéis exclusivamente administrativos (`ADMIN` sem atuação clínica e `RECEPTIONIST`) são recusados com `403 PERMISSION_DENIED`.
+* **Body:**
+  ```json
+  {
+    "patientId": "<uuid>",
+    "appointmentId": "<uuid opcional>",
+    "scheduledAt": "2026-10-15T13:00:00.000Z",
+    "notes": "Observações iniciais do atendimento",
+    "professionalId": "<uuid opcional>"
+  }
+  ```
+* **Validações e regras:**
+  * O paciente deve pertencer à clínica ativa (`404 NOT_FOUND` se inexistente ou de outra clínica).
+  * Se `appointmentId` for informado:
+    * O agendamento deve pertencer à clínica ativa (`404 NOT_FOUND` se inexistente ou de outra clínica).
+    * O `patientId` do agendamento deve coincidir com o `patientId` informado (`400 VALIDATION_ERROR` com `details.field: "patientId"`).
+    * Se já existir consulta ativa para este agendamento, responde `200 OK` com o registro existente.
+    * Agendamento em estado `CONFIRMED` ou `RESERVED` é atualizado para `status: "IN_PROGRESS"` (e `queueStatus: "IN_SERVICE"` caso esteja na fila).
+  * O profissional responsável é o usuário autenticado (`auth.userId`), ou o profissional especificado caso possua vínculo clínico ativo na clínica.
+  * Define `startedAt: new Date()`, `status: "IN_PROGRESS"`, `anamnesisStatus: "PENDING"`, `version: 0`.
+  * Na mesma transação, registra `AuditLog` (`action: "CONSULTATION_STARTED"`, `targetType: "CONSULTATION"`, `targetId: consultation.id`, `metadata: { patientId, professionalId, appointmentId, notes }`).
+* **Respostas:** `201 Created` (para novo atendimento) ou `200 OK` (caso já exista consulta ativa vinculada ao agendamento), `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 MEMBERSHIP_INACTIVE`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`.
+
+#### `GET /organizations/:orgSlug/consultations/:consultationId`
+* **Descrição:** Retorna os detalhes completos do atendimento clínico na clínica ativa, incluindo identificadores, vínculos (`patient`, `professional`), status de atendimento e anamnese, versão e carimbos de data/hora no fuso da clínica.
+* **Permissão:** `consultations:read` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL`). Papéis `RECEPTIONIST` e `ADMIN` sem atuação clínica recebem `403 PERMISSION_DENIED`.
+* **Respostas:** `200 OK` (`{ "id": "...", "consultationId": "...", "organizationId": "...", "appointmentId": "...", "patientId": "...", "professionalId": "...", "scheduledAt": "...", "localScheduledAt": "...", "startedAt": "...", "completedAt": null, "status": "IN_PROGRESS", "anamnesisStatus": "PENDING", "version": 0, "patient": { "id": "...", "fullName": "..." }, "professional": { "id": "...", "fullName": "...", "professionalTitle": "...", "registrationNumber": "..." }, "createdAt": "...", "updatedAt": "..." }`), `401 UNAUTHENTICATED`, `403 MEMBERSHIP_INACTIVE`, `403 PERMISSION_DENIED`, `404 NOT_FOUND` (atendimento inexistente ou de outra clínica).
 
 #### `POST /organizations/:orgSlug/consultations/:consultationId/audio`
 * **Descrição:** Envia o arquivo de áudio gravado da consulta após obtenção explícita do consentimento do paciente.
@@ -669,7 +738,7 @@ O identificador `revisionId` da versão vigente deve ser armazenado pela futura 
 ### Módulo 8: Documentos Clínicos, Versionamento & Anulação
 *(Ref: Issues [#195](https://github.com/Flowcare-team/flowcare-monorepo/issues/195), [#273](https://github.com/Flowcare-team/flowcare-monorepo/issues/273)–[#278](https://github.com/Flowcare-team/flowcare-monorepo/issues/278))*
 
-**Decisão do MVP:** ver [ciclo de vida e snapshot](DOCUMENTS_MVP.md). Receitas controladas e assinatura eletrônica não fazem parte do MVP. `ISSUED` indica PDF final para impressão e assinatura manuscrita, não documento eletrônico assinado. As rotas de criação, leitura, edição de rascunho e histórico de revisões (`#273`) estão implementadas; emissão, PDF, retificação e anulação seguem planejadas.
+**Decisão do MVP:** ver [ciclo de vida e snapshot](DOCUMENTS_MVP.md). Receitas controladas e assinatura eletrônica não fazem parte do MVP. `ISSUED` indica PDF final para impressão e assinatura manuscrita, não documento eletrônico assinado. As rotas de criação, leitura, edição de rascunho, histórico de revisões (`#273`) e preparação de snapshot de emissão (`#274`) estão implementadas; emissão definitiva (#275), PDF (#276), retificação (#277) e anulação (#278) seguem planejadas.
 
 #### `GET /organizations/:orgSlug/documents`
 * **Descrição:** Lista documentos clínicos da clínica ativa com paginação e filtros combináveis, sem expor o conteúdo clínico completo na listagem. Documentos de outras clínicas nunca são retornados.
@@ -694,6 +763,12 @@ O identificador `revisionId` da versão vigente deve ser armazenado pela futura 
 * **Permissão:** `documents:write` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL`).
 * **Body:** `{ "version": 1, "title": "...", "content": "Novo texto...", "templateId": "<uuid|null>", "variables": { ... } }` (exige `version` e ao menos um campo editável).
 * **Respostas:** `200 OK` (DTO atualizado com `version: 2`, novo `revisionId` e lista `versions` atualizada), `400 VALIDATION_ERROR`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`, `409 DOCUMENT_STATE_CONFLICT` (quando `status !== "DRAFT"`), `409 VERSION_CONFLICT` (quando `version` diverge da versão atual).
+
+#### `POST /organizations/:orgSlug/documents/:documentId/snapshot` (alias: `POST /organizations/:orgSlug/documents/:documentId/prepare`)
+* **Descrição:** Valida os campos e variáveis dinâmicas contra o catálogo homologado (`APPROVED_TEMPLATE_VARIABLES`), resolve as variáveis automáticas da clínica (`clinica_nome`, `clinica_cnpj`, `clinica_endereco`, `clinica_telefone`), paciente (`paciente_nome`, `paciente_cpf`, `paciente_data_nascimento`), profissional (`profissional_nome`, `profissional_registro`, `profissional_crm`, `medico_nome`, `medico_crm`, `profissional_titulo`) e data de emissão (`data_emissao`, `data_atual`, `data_hora_emissao`), congela o conteúdo renderizado e o dicionário de variáveis em uma nova revisão imutável em `DocumentVersion`, incrementa a versão do documento (`version + 1`) e registra `DOCUMENT_SNAPSHOT_PREPARED` em `AuditLog` na mesma transação. Alterações futuras no paciente, na clínica ou no modelo de documento não alteram o snapshot congelado. Variáveis opcionais vazias não aparecem no snapshot e seus marcadores são removidos do texto. Documentos fora de `DRAFT` não aceitam novo snapshot (`409 DOCUMENT_NOT_EDITABLE`). Receita controlada e documento livre/personalizado são recusados (`422 BUSINESS_RULE_VIOLATION`).
+* **Permissão:** `documents:write` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL`).
+* **Body (opcional):** `{ "version": 1, "type": "PRESCRIPTION", "variables": { ... } }` (quando informado, `version` é validado contra a versão atual do documento para proteção de concorrência).
+* **Respostas:** `200 OK` (DTO do documento contendo o bloco `snapshot: { documentId, version, revisionId, type, title, content, variables, preparedAt }`, lista `versions` atualizada e `version` incrementado), `400 VALIDATION_ERROR`, `403 PERMISSION_DENIED`, `404 NOT_FOUND` (documento ou paciente inexistente ou pertencente a outra clínica), `409 DOCUMENT_NOT_EDITABLE` (quando `status !== "DRAFT"`), `409 VERSION_CONFLICT` (quando `version` enviada diverge da versão atual), `422 VALIDATION_ERROR` (campos obrigatórios ausentes com `details.missingFields`), `422 INVALID_VARIABLES` (variáveis fora do catálogo homologado com `details.invalidVariables`), `422 BUSINESS_RULE_VIOLATION` (tipo de documento não suportado no MVP de emissão com `details.reason: "UNSUPPORTED_DOCUMENT_TYPE"`).
 
 #### `POST /organizations/:orgSlug/documents/:documentId/issue`
 * **Descrição:** Finaliza o documento com snapshot imutável e PDF para impressão e assinatura manuscrita; não assina eletronicamente.
@@ -850,13 +925,13 @@ O identificador `revisionId` da versão vigente deve ser armazenado pela futura 
 ### Módulo 11: Painel & Indicadores da Clínica
 *(Ref: Issues [#197](https://github.com/Flowcare-team/flowcare-monorepo/issues/197), [#229](https://github.com/Flowcare-team/flowcare-monorepo/issues/229), [#230](https://github.com/Flowcare-team/flowcare-monorepo/issues/230))*
 
-**Decisão do MVP:** ver [dicionário de métricas](METRICS_MVP.md). O painel mostra contagens de agenda e taxa de faltas; consumo de transcrição mostra volume, sem custo estimado em R$ ou cota inventada. As rotas abaixo ainda são planejadas.
+**Decisão do MVP:** ver [dicionário de métricas](METRICS_MVP.md). O painel mostra contagens de agenda e taxa de faltas; consumo de transcrição mostra volume, sem custo estimado em R$ ou cota inventada. A rota de indicadores está implementada; a rota de consumo ainda é planejada.
 
 #### `GET /organizations/:orgSlug/dashboard/metrics`
 * **Descrição:** Retorna indicadores operacionais da clínica no período e fuso configurados, sem cruzar organizações.
 * **Permissão:** `dashboard:read`.
-* **Query Params:** `?period=today|week|month` ou `?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD`. Padrão: `today`.
-* **Respostas:** `200 OK` (`{ "periodStart": "...", "periodEnd": "...", "timeZone": "America/Fortaleza", "totalAppointments": 10, "scheduledAppointments": 2, "completedAppointments": 5, "cancelledAppointments": 2, "noShowAppointments": 1, "noShowRate": 0.1667 }`). `noShowRate` é `null` sem atendimentos concluídos ou faltas.
+* **Query Params:** `?period=today|week|month` ou `?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD`. Padrão: `today`. Datas do intervalo explícito são limites locais, com início inclusivo e fim exclusivo; os dois filtros são mutuamente exclusivos. O intervalo explícito pode ter no máximo 366 dias. Semana começa na segunda-feira.
+* **Respostas:** `200 OK` (`{ "periodStart": "...", "periodEnd": "...", "timeZone": "America/Fortaleza", "totalAppointments": 10, "scheduledAppointments": 2, "completedAppointments": 5, "cancelledAppointments": 2, "noShowAppointments": 1, "noShowRate": 0.1667 }`). `periodStart` e `periodEnd` são instantes UTC no formato ISO. `noShowRate` é fração entre 0 e 1 ou `null` sem atendimentos concluídos ou faltas. Períodos inválidos retornam `400 VALIDATION_ERROR`.
 
 #### `GET /organizations/:orgSlug/settings/usage`
 * **Descrição:** Consulta o consumo mensal de transcrição da clínica, com detalhamento por profissional e falhas sem consumo.

@@ -5,11 +5,17 @@ import type {
   PrismaClient,
 } from "../../generated/prisma/client";
 import { ApiError } from "../../lib/api-error";
+import {
+  APPROVED_TEMPLATE_VARIABLES,
+  APPROVED_VARIABLE_KEY_SET,
+  parseAndNormalizePlaceholders,
+} from "../templates/service";
 import type {
   CreateDocumentDraftBody,
   DocumentItem,
   DocumentListItem,
   DocumentResponse,
+  DocumentSnapshotItem,
   DocumentVariables,
   DocumentVersionDetailResponse,
   DocumentVersionItem,
@@ -17,6 +23,8 @@ import type {
   ListDocumentsQuery,
   ListDocumentsResponse,
   ListVersionsQuery,
+  PrepareDocumentSnapshotBody,
+  PrepareDocumentSnapshotResponse,
   UpdateDocumentDraftBody,
 } from "./model";
 
@@ -103,6 +111,61 @@ function parseDateFilter(
   return parsed;
 }
 
+function formatDateBR(date: Date): string {
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const year = date.getUTCFullYear();
+  return `${day}/${month}/${year}`;
+}
+
+function formatDateTimeBR(date: Date): string {
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const year = date.getUTCFullYear();
+  const hours = String(date.getUTCHours()).padStart(2, "0");
+  const minutes = String(date.getUTCMinutes()).padStart(2, "0");
+  return `${day}/${month}/${year} ${hours}:${minutes}`;
+}
+
+function formatBirthDate(val: Date | string | null | undefined): string | null {
+  if (!val) return null;
+  if (typeof val === "string") {
+    const trimmed = val.trim();
+    if (!trimmed) return null;
+    if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
+      const datePart = trimmed.split("T")[0] ?? "";
+      const [year, month, day] = datePart.split("-");
+      if (year && month && day) {
+        return `${day}/${month}/${year}`;
+      }
+    }
+    const d = new Date(trimmed);
+    if (Number.isNaN(d.getTime())) return trimmed;
+    return `${String(d.getUTCDate()).padStart(2, "0")}/${String(d.getUTCMonth() + 1).padStart(2, "0")}/${d.getUTCFullYear()}`;
+  }
+  if (val instanceof Date) {
+    if (Number.isNaN(val.getTime())) return null;
+    return `${String(val.getUTCDate()).padStart(2, "0")}/${String(val.getUTCMonth() + 1).padStart(2, "0")}/${val.getUTCFullYear()}`;
+  }
+  return null;
+}
+
+function formatAddress(org: {
+  street?: string | null;
+  streetNumber?: string | null;
+  district?: string | null;
+  city?: string | null;
+  state?: string | null;
+}): string | null {
+  const parts = [
+    org.street,
+    org.streetNumber,
+    org.district,
+    org.city ? (org.state ? `${org.city}/${org.state}` : org.city) : org.state,
+  ].filter((p): p is string => typeof p === "string" && p.trim().length > 0);
+  return parts.length > 0 ? parts.join(", ") : null;
+}
+
 function toVersionItem(
   record: DocumentVersionRecord,
   activeDocumentVersion?: number,
@@ -110,7 +173,6 @@ function toVersionItem(
   const savedBy = record.savedBy
     ? { id: record.savedBy.id, fullName: record.savedBy.fullName }
     : { id: record.savedById, fullName: "Profissional" };
-
   return {
     id: record.id,
     revisionId: record.id,
@@ -894,6 +956,337 @@ export class DocumentsService {
           updatedAt: now,
           versions: [...current.versions, populatedRevision],
         });
+      });
+    } catch (error) {
+      if (error instanceof ApiError) throw error;
+      if (
+        typeof error === "object" &&
+        error &&
+        "code" in error &&
+        ["P2002", "P2034"].includes(String(error.code))
+      ) {
+        throw versionConflictError();
+      }
+      throw error;
+    }
+  }
+
+  async prepareSnapshot(
+    organizationId: string,
+    actorUserId: string,
+    documentId: string,
+    body?: PrepareDocumentSnapshotBody | null,
+  ): Promise<PrepareDocumentSnapshotResponse> {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const current = await tx.clinicalDocument.findFirst({
+          where: {
+            id: documentId,
+            organizationId,
+          },
+          include: {
+            versions: {
+              orderBy: { version: "asc" },
+            },
+          },
+        });
+
+        if (!current) {
+          throw new ApiError("NOT_FOUND", 404, "Documento não encontrado.");
+        }
+
+        if (current.status !== "DRAFT") {
+          throw new ApiError(
+            "DOCUMENT_NOT_EDITABLE",
+            409,
+            "Documento fora do estado de rascunho não pode ter snapshot preparado.",
+            {
+              currentStatus: current.status,
+              reason: "DOCUMENT_NOT_EDITABLE",
+            },
+          );
+        }
+
+        if (!ALLOWED_DOCUMENT_TYPES.has(current.type)) {
+          throw new ApiError(
+            "BUSINESS_RULE_VIOLATION",
+            422,
+            "Tipo de documento não suportado no MVP de emissão.",
+            {
+              type: current.type,
+              reason: "UNSUPPORTED_DOCUMENT_TYPE",
+              allowedTypes: Array.from(ALLOWED_DOCUMENT_TYPES),
+            },
+          );
+        }
+
+        if (body?.type && !ALLOWED_DOCUMENT_TYPES.has(body.type)) {
+          throw new ApiError(
+            "BUSINESS_RULE_VIOLATION",
+            422,
+            "Tipo de documento não suportado no MVP de emissão.",
+            {
+              type: body.type,
+              reason: "UNSUPPORTED_DOCUMENT_TYPE",
+              allowedTypes: Array.from(ALLOWED_DOCUMENT_TYPES),
+            },
+          );
+        }
+
+        if (body?.version !== undefined && current.version !== body.version) {
+          throw versionConflictError();
+        }
+
+        const patient = await tx.patient.findFirst({
+          where: {
+            id: current.patientId,
+            organizationId,
+          },
+        });
+        if (!patient) {
+          throw new ApiError("NOT_FOUND", 404, "Paciente não encontrado.");
+        }
+
+        const organization = await tx.organization.findFirst({
+          where: {
+            id: organizationId,
+          },
+        });
+        if (!organization) {
+          throw new ApiError("NOT_FOUND", 404, "Clínica não encontrada.");
+        }
+
+        const author = await tx.user.findFirst({
+          where: {
+            id: current.authorId,
+          },
+        });
+        if (!author) {
+          throw new ApiError(
+            "NOT_FOUND",
+            404,
+            "Autor do documento não encontrado.",
+          );
+        }
+
+        const parsedContent = parseAndNormalizePlaceholders(
+          current.content,
+          "content",
+        );
+        const parsedTitle = parseAndNormalizePlaceholders(
+          current.title,
+          "title",
+        );
+
+        const currentVars = normalizeVariables(current.variables);
+        const bodyVars = body?.variables
+          ? normalizeVariables(body.variables)
+          : {};
+        const allReferencedVariables = new Set([
+          ...parsedContent.variables,
+          ...parsedTitle.variables,
+          ...Object.keys(currentVars),
+          ...Object.keys(bodyVars),
+        ]);
+
+        const unknownVariables = Array.from(allReferencedVariables).filter(
+          (key) => !APPROVED_VARIABLE_KEY_SET.has(key),
+        );
+        if (unknownVariables.length > 0) {
+          throw new ApiError(
+            "INVALID_VARIABLES",
+            422,
+            `Variáveis automáticas fora do catálogo homologado: ${unknownVariables.map((v) => `{${v}}`).join(", ")}.`,
+            {
+              invalidVariables: unknownVariables,
+              unknownVariables,
+              allowedVariables: APPROVED_TEMPLATE_VARIABLES.map((v) => v.key),
+            },
+          );
+        }
+
+        const now = new Date();
+        const formattedDate = formatDateBR(now);
+        const formattedDateTime = formatDateTimeBR(now);
+        const formattedBirthDate = formatBirthDate(patient.birthDate);
+        const formattedAddress = formatAddress(organization);
+
+        const resolvedValues: Record<string, string | null> = {
+          paciente_nome: patient.fullName?.trim() || null,
+          paciente_cpf: patient.cpf?.trim() || null,
+          paciente_data_nascimento: formattedBirthDate,
+          clinica_nome: organization.name?.trim() || null,
+          clinica_cnpj: organization.taxId?.trim() || null,
+          clinica_endereco: formattedAddress,
+          clinica_telefone: organization.contactPhone?.trim() || null,
+          profissional_nome: author.fullName?.trim() || null,
+          medico_nome: author.fullName?.trim() || null,
+          profissional_registro: author.registrationNumber?.trim() || null,
+          profissional_crm: author.registrationNumber?.trim() || null,
+          medico_crm: author.registrationNumber?.trim() || null,
+          profissional_titulo: author.professionalTitle?.trim() || null,
+          data_emissao: formattedDate,
+          data_atual: formattedDate,
+          data_hora_emissao: formattedDateTime,
+        };
+
+        const missingFields: string[] = [];
+
+        if (!resolvedValues.paciente_nome) {
+          missingFields.push("paciente_nome");
+        }
+        if (!resolvedValues.clinica_nome) {
+          missingFields.push("clinica_nome");
+        }
+        if (!resolvedValues.profissional_nome) {
+          missingFields.push("profissional_nome");
+        }
+        if (!author.registrationNumber?.trim()) {
+          if (
+            allReferencedVariables.has("profissional_registro") &&
+            !allReferencedVariables.has("profissional_crm")
+          ) {
+            missingFields.push("profissional_registro");
+          } else {
+            missingFields.push("profissional_crm");
+          }
+        }
+        if (!current.content?.trim()) {
+          missingFields.push("content");
+        }
+        if (!current.title?.trim()) {
+          missingFields.push("title");
+        }
+
+        for (const varKey of allReferencedVariables) {
+          const spec = APPROVED_TEMPLATE_VARIABLES.find(
+            (item) => item.key === varKey,
+          );
+          if (
+            spec?.required &&
+            (!resolvedValues[varKey] || resolvedValues[varKey]?.trim() === "")
+          ) {
+            missingFields.push(varKey);
+          }
+        }
+
+        if (missingFields.length > 0) {
+          throw new ApiError(
+            "VALIDATION_ERROR",
+            422,
+            "Campos obrigatórios ausentes ou não preenchíveis para o documento.",
+            {
+              missingFields: Array.from(new Set(missingFields)),
+            },
+          );
+        }
+
+        const frozenVariables: DocumentVariables = {};
+        for (const [key, val] of Object.entries(resolvedValues)) {
+          if (val !== null && val !== undefined && val !== "") {
+            frozenVariables[key] = val;
+          }
+        }
+
+        let frozenContent = parsedContent.normalizedText;
+        let frozenTitle = parsedTitle.normalizedText;
+
+        for (const item of APPROVED_TEMPLATE_VARIABLES) {
+          const key = item.key;
+          const placeholder = `{${key}}`;
+          const val = resolvedValues[key];
+          const replacement = val ?? "";
+          frozenContent = frozenContent.replaceAll(placeholder, replacement);
+          frozenTitle = frozenTitle.replaceAll(placeholder, replacement);
+        }
+
+        const nextVersion = current.version + 1;
+        const nextRevisionId = crypto.randomUUID();
+
+        const updated = await tx.clinicalDocument.updateMany({
+          where: {
+            id: documentId,
+            organizationId,
+            status: "DRAFT",
+            version: current.version,
+          },
+          data: {
+            title: frozenTitle,
+            content: frozenContent,
+            variables: frozenVariables,
+            version: nextVersion,
+            currentRevisionId: nextRevisionId,
+            updatedAt: now,
+          },
+        });
+
+        if (updated.count !== 1) {
+          throw versionConflictError();
+        }
+
+        const createdRevision = await tx.documentVersion.create({
+          data: {
+            id: nextRevisionId,
+            documentId: current.id,
+            organizationId,
+            version: nextVersion,
+            title: frozenTitle,
+            content: frozenContent,
+            variables: frozenVariables,
+            templateId: current.templateId,
+            templateVersion: current.templateVersion,
+            savedById: actorUserId,
+            createdAt: now,
+          },
+        });
+
+        await tx.auditLog.create({
+          data: {
+            organizationId,
+            actorUserId,
+            action: "DOCUMENT_SNAPSHOT_PREPARED",
+            targetType: "DOCUMENT",
+            targetId: current.id,
+            metadata: {
+              previousVersion: current.version,
+              newVersion: nextVersion,
+              revisionId: createdRevision.id,
+              type: current.type,
+              patientId: current.patientId,
+              templateId: current.templateId,
+              templateVersion: current.templateVersion,
+            },
+          },
+        });
+
+        const updatedDocRecord: ClinicalDocumentRecord = {
+          ...current,
+          title: frozenTitle,
+          content: frozenContent,
+          variables: frozenVariables,
+          version: nextVersion,
+          currentRevisionId: nextRevisionId,
+          updatedAt: now,
+          versions: [...current.versions, createdRevision],
+        };
+
+        const docItem = toDocumentItem(updatedDocRecord);
+        const snapshotItem: DocumentSnapshotItem = {
+          documentId: current.id,
+          version: nextVersion,
+          revisionId: nextRevisionId,
+          type: current.type,
+          title: frozenTitle,
+          content: frozenContent,
+          variables: frozenVariables,
+          preparedAt: now.toISOString(),
+        };
+
+        return {
+          ...docItem,
+          document: docItem,
+          snapshot: snapshotItem,
+        };
       });
     } catch (error) {
       if (error instanceof ApiError) throw error;
