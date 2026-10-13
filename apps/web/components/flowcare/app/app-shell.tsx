@@ -22,7 +22,7 @@ export function AppShell({
     <SidebarProvider>
       <AppSheetHost>
         <AppSidebar current={current} organizations={organizations} />
-        <SidebarInset>
+        <SidebarInset className="p-1">
           <AppHeader user={user} />
           {children}
         </SidebarInset>

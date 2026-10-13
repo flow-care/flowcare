@@ -16,7 +16,7 @@ import type { CurrentUserProfile } from "@/server/invites";
 
 export function AppHeader({ user }: { user: CurrentUserProfile | null }) {
   return (
-    <header className="flex h-16 shrink-0 items-center gap-2 px-5 md:px-8">
+    <header className="flex h-16 shrink-0 items-center gap-2">
       <SidebarTrigger aria-label="Abrir menu lateral" className="md:hidden" />
       <div className="ml-auto">
         <DropdownMenu>
