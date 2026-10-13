@@ -1,5 +1,6 @@
 import type { PrismaClient } from "../../generated/prisma/client";
 import { ApiError } from "../../lib/api-error";
+import { recordAuditEvent } from "../../services/audit-logger";
 import type { PutTopicsBody, TopicOutput } from "./model";
 
 const denied = () =>
@@ -121,6 +122,20 @@ export class AnamnesisTopicsService {
         }
         const revision = await tx.anamnesisTopicRevision.create({
           data: { configId, version, topics: proposed },
+        });
+        await recordAuditEvent(tx, {
+          organizationId,
+          actorUserId: userId,
+          action: "ANAMNESIS_TOPICS_UPDATED",
+          targetType: "ANAMNESIS_TOPIC_CONFIG",
+          targetId: configId,
+          metadata: {
+            professionalId,
+            revisionId: revision.id,
+            version,
+            topicKeys: proposed.map((topic) => topic.key),
+            activeCount: proposed.filter((topic) => topic.active).length,
+          },
         });
         return {
           professionalId,

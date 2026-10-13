@@ -1,6 +1,7 @@
 import type { PrismaClient } from "../../generated/prisma/client";
 import { ApiError } from "../../lib/api-error";
 import { generateToken, hashToken } from "../../lib/tokens";
+import { recordAuditEvent } from "../../services/audit-logger";
 import { actionEmailHtml } from "../../services/mail-templates";
 import type { Mailer } from "../../services/mailer";
 import type { CreateInviteBody, InviteDetailsResponse } from "./model";
@@ -81,6 +82,18 @@ export class InviteService {
         role: body.role,
         tokenHash: hashToken(token),
         expiresAt: new Date(Date.now() + TTL_MS),
+      },
+    });
+    await recordAuditEvent(this.deps.prisma, {
+      organizationId: organization.id,
+      actorUserId: adminId,
+      action: "TEAM_INVITE_CREATED",
+      targetType: "ORGANIZATION_INVITE",
+      targetId: invite.id,
+      metadata: {
+        email: invite.email,
+        role: invite.role,
+        expiresAt: invite.expiresAt.toISOString(),
       },
     });
     await this.send(invite.email, organization.name, token);
@@ -208,6 +221,18 @@ export class InviteService {
           completed: true,
         },
       });
+      await recordAuditEvent(tx, {
+        organizationId: invite.organizationId,
+        actorUserId: userId,
+        action: "TEAM_INVITE_ACCEPTED",
+        targetType: "ORGANIZATION_INVITE",
+        targetId: invite.id,
+        metadata: {
+          email: invite.email,
+          role: invite.role,
+          status: "ACTIVE",
+        },
+      });
       return invite.organization.slug;
     });
     return { organizationSlug: result };
@@ -254,6 +279,17 @@ export class InviteService {
       where: { id: invite.id },
       data: { revokedAt: new Date() },
     });
+    await recordAuditEvent(this.deps.prisma, {
+      organizationId: invite.organizationId,
+      actorUserId: userId,
+      action: "TEAM_INVITE_DECLINED",
+      targetType: "ORGANIZATION_INVITE",
+      targetId: invite.id,
+      metadata: {
+        email: invite.email,
+        role: invite.role,
+      },
+    });
     return { message: "Convite recusado." };
   }
 
@@ -270,6 +306,16 @@ export class InviteService {
     });
     if (result.count === 0)
       throw new ApiError("NOT_FOUND", 404, "Convite pendente não encontrado.");
+    await recordAuditEvent(this.deps.prisma, {
+      organizationId: organization.id,
+      actorUserId: adminId,
+      action: "TEAM_INVITE_REVOKED",
+      targetType: "ORGANIZATION_INVITE",
+      targetId: inviteId,
+      metadata: {
+        organizationId: organization.id,
+      },
+    });
     return { message: "Convite revogado." };
   }
 
@@ -316,6 +362,17 @@ export class InviteService {
       throw new ApiError("NOT_FOUND", 404, "Convite pendente não encontrado.");
     const invite = await this.deps.prisma.organizationInvite.findUniqueOrThrow({
       where: { id: current.id },
+    });
+    await recordAuditEvent(this.deps.prisma, {
+      organizationId: organization.id,
+      actorUserId: adminId,
+      action: "TEAM_INVITE_RESENT",
+      targetType: "ORGANIZATION_INVITE",
+      targetId: invite.id,
+      metadata: {
+        email: invite.email,
+        expiresAt: invite.expiresAt.toISOString(),
+      },
     });
     await this.send(invite.email, organization.name, token);
     return {

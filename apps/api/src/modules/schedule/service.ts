@@ -1,5 +1,6 @@
 import type { PrismaClient } from "../../generated/prisma/client";
 import { ApiError } from "../../lib/api-error";
+import { recordAuditEvent } from "../../services/audit-logger";
 import type { ExceptionBody, WeeklyBody } from "./model";
 
 function validTimezone(timezone: string) {
@@ -95,15 +96,13 @@ export class ScheduleService {
         await tx.weeklyScheduleRule.createMany({
           data: body.rules.map((rule) => ({ organizationId, ...rule })),
         });
-      await tx.auditLog.create({
-        data: {
-          organizationId,
-          actorUserId,
-          action: "WEEKLY_SCHEDULE_UPDATED",
-          targetType: "ORGANIZATION",
-          targetId: organizationId,
-          metadata: { timezone: body.timezone, ruleCount: body.rules.length },
-        },
+      await recordAuditEvent(tx, {
+        organizationId,
+        actorUserId,
+        action: "WEEKLY_SCHEDULE_UPDATED",
+        targetType: "ORGANIZATION",
+        targetId: organizationId,
+        metadata: { timezone: body.timezone, ruleCount: body.rules.length },
       });
     });
     return { timezone: body.timezone, rules: body.rules };
@@ -180,18 +179,16 @@ export class ScheduleService {
             reason: body.reason ?? null,
           },
         });
-        await tx.auditLog.create({
-          data: {
-            organizationId,
-            actorUserId,
-            action: "SCHEDULE_EXCEPTION_CREATED",
-            targetType: "SCHEDULE_EXCEPTION",
-            targetId: created.id,
-            metadata: {
-              professionalId: created.professionalId,
-              startsAt: created.startsAt.toISOString(),
-              endsAt: created.endsAt.toISOString(),
-            },
+        await recordAuditEvent(tx, {
+          organizationId,
+          actorUserId,
+          action: "SCHEDULE_EXCEPTION_CREATED",
+          targetType: "SCHEDULE_EXCEPTION",
+          targetId: created.id,
+          metadata: {
+            professionalId: created.professionalId,
+            startsAt: created.startsAt.toISOString(),
+            endsAt: created.endsAt.toISOString(),
           },
         });
         return created;
@@ -219,15 +216,13 @@ export class ScheduleService {
         where: { id: exceptionId, organizationId },
       });
       if (deleted.count)
-        await tx.auditLog.create({
-          data: {
-            organizationId,
-            actorUserId,
-            action: "SCHEDULE_EXCEPTION_DELETED",
-            targetType: "SCHEDULE_EXCEPTION",
-            targetId: exceptionId,
-            metadata: {},
-          },
+        await recordAuditEvent(tx, {
+          organizationId,
+          actorUserId,
+          action: "SCHEDULE_EXCEPTION_DELETED",
+          targetType: "SCHEDULE_EXCEPTION",
+          targetId: exceptionId,
+          metadata: {},
         });
       return deleted;
     });

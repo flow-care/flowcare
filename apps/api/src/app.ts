@@ -6,6 +6,7 @@ import { ApiError } from "./lib/api-error";
 import { accountModule } from "./modules/account";
 import { anamnesisTopicsModule } from "./modules/anamnesis-topics";
 import { appointmentsModule } from "./modules/appointments";
+import { auditModule } from "./modules/audit";
 import { authModule } from "./modules/auth";
 import type { AuthDeps } from "./modules/auth/service";
 import { communicationsModule } from "./modules/communications";
@@ -248,7 +249,8 @@ export function createApp(env: Env, deps: AppDeps) {
     .use(templatesModule({ prisma: deps.prisma, jwtSecret: env.jwtSecret }))
     .use(
       anamnesisTopicsModule({ prisma: deps.prisma, jwtSecret: env.jwtSecret }),
-    );
+    )
+    .use(auditModule({ prisma: deps.prisma, jwtSecret: env.jwtSecret }));
 
   return app;
 }

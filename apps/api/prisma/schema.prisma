@@ -227,19 +227,20 @@ model Organization {
 }
 
 model AuditLog {
-  id             String   @id @default(uuid()) @db.Uuid
-  organizationId String   @db.Uuid
-  actorUserId    String   @db.Uuid
+  id             String        @id @default(uuid()) @db.Uuid
+  organizationId String?       @db.Uuid
+  actorUserId    String        @db.Uuid
   action         String
   targetType     String
   targetId       String
-  metadata       Json     @default("{}")
-  createdAt      DateTime @default(now())
+  metadata       Json          @default("{}")
+  createdAt      DateTime      @default(now())
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([organizationId, createdAt])
   @@index([organizationId, action])
+  @@index([actorUserId, createdAt])
 }
 
 model Appointment {

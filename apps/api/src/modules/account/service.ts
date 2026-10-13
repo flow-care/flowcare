@@ -6,6 +6,7 @@ import {
   safeSessionIpAddress,
   summarizeUserAgent,
 } from "../../lib/session-metadata";
+import { recordAuditEvent } from "../../services/audit-logger";
 import {
   PROFILE_PHOTO_URL_TTL_SECONDS,
   type ProfilePhotoStore,
@@ -116,6 +117,16 @@ export class AccountService {
       await tx.session.updateMany({
         where: { userId, id: { not: currentSessionId }, revokedAt: null },
         data: { revokedAt: now },
+      });
+      await recordAuditEvent(tx, {
+        actorUserId: userId,
+        action: "AUTH_PASSWORD_CHANGED",
+        targetType: "USER",
+        targetId: userId,
+        metadata: {
+          currentSessionId,
+          revokedOtherSessions: true,
+        },
       });
     });
 

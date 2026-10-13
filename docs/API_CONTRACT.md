@@ -921,3 +921,42 @@ Regras e restrições:
 * A unicidade é global. Em colisões, o backend acrescenta um sufixo numérico (`clinica-2`, `clinica-3`, ...), confirmado por constraint única no banco para também cobrir concorrência.
 * Alterar o nome da clínica não altera o slug automaticamente. Uma futura alteração explícita de slug deverá tratar redirecionamentos e links existentes em contrato próprio.
 * Conhecer um slug não concede acesso. O backend sempre o converte em `Organization.id` e valida o `Membership` antes de fornecer `organizationId` à rota.
+
+### 23. Auditoria de Segurança e Trilha de Eventos (#327)
+
+#### `GET /api/organizations/:orgSlug/audit-logs`
+Consulta a trilha de auditoria e segurança da clínica ativa. Acesso restrito a usuários com permissão administrativa (`audit:read`), isto é, papéis `ADMIN` e `ADMIN_PROFESSIONAL`.
+
+**Query Parameters:**
+* `action` (opcional, string): filtra por ação específica (ex.: `AUTH_LOGIN_SUCCEEDED`, `TEAM_INVITE_CREATED`, `WEEKLY_SCHEDULE_UPDATED`, `ORGANIZATION_SETTINGS_UPDATED`).
+* `targetType` (opcional, string): filtra por tipo de recurso alvo (ex.: `SESSION`, `ORGANIZATION`, `ORGANIZATION_INVITE`, `PATIENT`).
+* `targetId` (opcional, string): filtra por ID do alvo.
+* `actorUserId` (opcional, string): filtra pelo ID do usuário autor da ação.
+* `limit` (opcional, int, padrão 50, máx 100): limita a quantidade de registros retornados.
+
+**Resposta de Sucesso (200 OK):**
+```json
+{
+  "data": [
+    {
+      "id": "c1f7b028-1b6e-473d-9d41-3b7c845ad35e",
+      "organizationId": "550e8400-e29b-41d4-a716-446655440000",
+      "actorUserId": "3c914bf6-02a8-4e89-8d7d-5a9e32a6a672",
+      "action": "WEEKLY_SCHEDULE_UPDATED",
+      "targetType": "ORGANIZATION",
+      "targetId": "550e8400-e29b-41d4-a716-446655440000",
+      "metadata": {
+        "timezone": "America/Sao_Paulo",
+        "ruleCount": 5
+      },
+      "createdAt": "2026-10-12T11:00:00.000Z"
+    }
+  ]
+}
+```
+
+#### Imutabilidade e Sanitização de Dados
+* **Imutabilidade**: Eventos de auditoria são somente gravação pelo sistema. Qualquer tentativa de alteração ou remoção via API comum (`POST`, `PATCH`, `PUT`, `DELETE /organizations/:orgSlug/audit-logs` ou `/audit-logs`) é expressamente rejeitada com HTTP 403 `AUDIT_LOG_IMMUTABLE`.
+* **Sanitização de Metadados**: O serviço de auditoria sanitiza previamente qualquer dado sensível em profundidade. É terminantemente proibida a persistência de senhas, hashes de senha, tokens, chaves privadas/API, áudios brutos, gravações de voz ou conteúdo clínico bruto nos metadados.
+* **Fail-Closed**: Falha no registro de auditoria em ações críticas aborta a transação e retorna erro HTTP, impedindo que mutações críticas ocorram sem rastro.
+* **Retenção**: Prazo de retenção homologado de 5 anos (1.825 dias).
