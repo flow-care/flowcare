@@ -6,6 +6,8 @@ import {
   type OrganizationCapability,
   organizationAccessPlugin,
 } from "../../plugins/organization-access";
+import type { ConsultationAudioStore } from "../../services/consultation-audio-store";
+import { ConsultationAudioService } from "./audio-service";
 import * as m from "./model";
 import { ConsultationsService } from "./service";
 
@@ -24,12 +26,17 @@ async function defaultClinicalEligibility(
 export function consultationsModule(deps: {
   prisma: PrismaClient;
   jwtSecret: string;
+  audioStore?: ConsultationAudioStore | null;
   clinicalEligibility?: (
     context: OrganizationAccess,
     capability: OrganizationCapability,
   ) => Promise<boolean>;
 }) {
   const service = new ConsultationsService(deps.prisma);
+  const audioService = new ConsultationAudioService(
+    deps.prisma,
+    deps.audioStore ?? null,
+  );
   const clinicalEligibility =
     deps.clinicalEligibility ?? defaultClinicalEligibility;
 
@@ -108,6 +115,53 @@ export function consultationsModule(deps: {
             params: m.consultationIdParams,
             organizationAccess: "consultations:read",
             response: { 200: m.consultationDetailResponse },
+          },
+        )
+        .post(
+          "/consultations/:consultationId/audio",
+          ({ auth, organizationAccess, params, body }) =>
+            audioService.upload(
+              organizationAccess.organizationId,
+              params.consultationId,
+              auth.userId,
+              body,
+            ),
+          {
+            params: m.consultationIdParams,
+            body: m.uploadAudioBody,
+            organizationAccess: "consultations:write",
+            response: { 200: m.audioResponse },
+          },
+        )
+        .post(
+          "/consultations/:consultationId/audio/upload-url",
+          ({ auth, organizationAccess, params, body }) =>
+            audioService.prepare(
+              organizationAccess.organizationId,
+              params.consultationId,
+              auth.userId,
+              body,
+            ),
+          {
+            params: m.consultationIdParams,
+            body: m.prepareAudioBody,
+            organizationAccess: "consultations:write",
+            response: { 200: m.prepareAudioResponse },
+          },
+        )
+        .post(
+          "/consultations/:consultationId/audio/:audioId/complete",
+          ({ auth, organizationAccess, params }) =>
+            audioService.finalize(
+              organizationAccess.organizationId,
+              params.consultationId,
+              params.audioId,
+              auth.userId,
+            ),
+          {
+            params: m.audioIdParams,
+            organizationAccess: "consultations:write",
+            response: { 200: m.audioResponse },
           },
         ),
     );

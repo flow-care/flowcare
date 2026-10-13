@@ -710,10 +710,19 @@ O identificador `revisionId` da versão vigente deve ser armazenado pela futura 
 * **Respostas:** `200 OK` (`{ "id": "...", "consultationId": "...", "organizationId": "...", "appointmentId": "...", "patientId": "...", "professionalId": "...", "scheduledAt": "...", "localScheduledAt": "...", "startedAt": "...", "completedAt": null, "status": "IN_PROGRESS", "anamnesisStatus": "PENDING", "version": 0, "patient": { "id": "...", "fullName": "..." }, "professional": { "id": "...", "fullName": "...", "professionalTitle": "...", "registrationNumber": "..." }, "createdAt": "...", "updatedAt": "..." }`), `401 UNAUTHENTICATED`, `403 MEMBERSHIP_INACTIVE`, `403 PERMISSION_DENIED`, `404 NOT_FOUND` (atendimento inexistente ou de outra clínica).
 
 #### `POST /organizations/:orgSlug/consultations/:consultationId/audio`
-* **Descrição:** Envia o arquivo de áudio gravado da consulta após obtenção explícita do consentimento do paciente.
-* **Permissão:** `consultations:write`.
-* **Body:** `multipart/form-data` (`audioFile`, `consentConfirmed=true`).
-* **Respostas:** `200 OK` (`{ "audioId": "aud_77", "status": "UPLOADED" }`), `422 BUSINESS_RULE_VIOLATION`.
+* **Descrição:** Registra o consentimento explícito e envia o áudio para armazenamento privado. Cria o processamento em estado `QUEUED` somente após o armazenamento concluir. O profissional deve ser o responsável pelo atendimento em andamento; paciente e atendimento pertencem à clínica ativa.
+* **Permissão:** `consultations:write` e vínculo como profissional do atendimento.
+* **Body:** `multipart/form-data` (`audioFile`, `consentConfirmed=true`). Aceita WebM, MPEG e MP4 até 50 MiB; assinatura real do arquivo e tipo declarado devem coincidir.
+* **Respostas:** `200 OK` (`{ "audioId": "<uuid>", "status": "UPLOADED" }`), `400 VALIDATION_ERROR`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`, `413 FILE_TOO_LARGE`, `422 BUSINESS_RULE_VIOLATION`, `503 STORAGE_UNAVAILABLE`.
+
+#### `POST /organizations/:orgSlug/consultations/:consultationId/audio/upload-url`
+* **Descrição:** Alternativa de envio direto ao armazenamento privado. Registra o consentimento e retorna URL PUT assinada por 600 segundos. Ainda não cria processamento. O cliente deve enviar o `Content-Type` e o tamanho declarados. A URL é sensível e não deve ser registrada em logs.
+* **Body:** JSON `{ "contentType": "audio/webm", "sizeBytes": 1024, "consentConfirmed": true }`.
+* **Respostas:** `200 OK` (`{ "audioId": "<uuid>", "uploadUrl": "<signed URL>", "expiresInSeconds": 600, "status": "PENDING_UPLOAD" }`).
+
+#### `POST /organizations/:orgSlug/consultations/:consultationId/audio/:audioId/complete`
+* **Descrição:** Confirma o envio privado. O servidor lê o objeto, confere tamanho, tipo declarado e assinatura real e o copia para uma chave privada distinta antes de marcar `UPLOADED` e criar um único processamento `QUEUED`. A URL PUT antiga não permite alterar o áudio confirmado. Sem objeto, arquivo inválido ou URL expirada não há processamento. Repetição após sucesso é idempotente.
+* **Respostas:** `200 OK` (`{ "audioId": "<uuid>", "status": "UPLOADED" }`), `400 VALIDATION_ERROR`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`, `422 BUSINESS_RULE_VIOLATION`.
 
 #### `POST /organizations/:orgSlug/consultations/:consultationId/transcribe`
 * **Descrição:** Dispara o processamento da transcrição e geração automática da minuta de anamnese por IA.
