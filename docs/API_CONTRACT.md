@@ -419,6 +419,33 @@ O fluxo obrigatório é:
   * `capabilities`: array não vazio contendo apenas strings válidas do catálogo oficial de capacidades (`ALLOWED_CUSTOM_ROLE_CAPABILITIES`). Capacidades inválidas ou desconhecidas são rejeitadas com `400 INVALID_CAPABILITY` e `details.invalidCapabilities`.
 * **Respostas:** `201 Created` (`{ "id": "...", "organizationId": "...", "name": "Coordenador de Atendimento", "description": "...", "capabilities": [...], "createdAt": "...", "updatedAt": "...", "isSystem": false, "role": { ... } }`), `400 VALIDATION_ERROR`, `400 INVALID_CAPABILITY`, `401 UNAUTHENTICATED`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`, `409 ALREADY_EXISTS`, `409 ROLE_NAME_CONFLICT`.
 
+#### `PATCH /organizations/:orgSlug/roles/:roleId` (aliases: `PUT /organizations/:orgSlug/roles/:roleId`, `PATCH /organizations/:orgSlug/settings/roles/:id`, `PATCH /settings/roles/:id`)
+* **Descrição:** Atualiza o nome, a descrição ou as capacidades de um papel personalizado existente no escopo da clínica ativa. A alteração de capacidades entra em vigor imediatamente para todos os membros que possuem o papel atribuído. Grava `ROLE_UPDATED` em `AuditLog` (`targetType: "ORGANIZATION_ROLE"`, `targetId: role.id`, `metadata: { previousName, newName, previousCapabilities, newCapabilities, diff }`) na mesma transação.
+* **Permissão:** `team:manage`.
+* **Body:**
+  ```json
+  {
+    "name": "Coordenador de Recepção e Atendimento",
+    "description": "Supervisão da recepção, agendamentos e prontuários",
+    "capabilities": [
+      "patients:read",
+      "patients:write",
+      "appointments:read",
+      "appointments:write",
+      "reception:read",
+      "reception:write",
+      "consultations:read"
+    ]
+  }
+  ```
+* **Validações e regras:**
+  * **Imutabilidade de papéis do sistema:** Papéis fixos do sistema (`ADMIN`, `ADMIN_PROFESSIONAL`, `PROFESSIONAL`, `RECEPTIONIST`) são imutáveis e não podem ser editados (`400 RESERVED_ROLE_IMMUTABLE`).
+  * **Isolamento multi-tenant:** O papel deve pertencer à clínica resolvida pelo `orgSlug`. Tentativas de editar papéis de outra clínica ou papéis inexistentes retornam `404 NOT_FOUND`.
+  * `name` (quando enviado): 2 a 50 caracteres após trim. Não pode coincidir com nomes reservados pelo sistema (`409 ROLE_NAME_CONFLICT`) nem colidir com outro papel personalizado na mesma clínica (`409 ALREADY_EXISTS`).
+  * `capabilities` (quando enviado): array não vazio contendo apenas capacidades homologadas em `ALLOWED_CUSTOM_ROLE_CAPABILITIES`. Capacidades desconhecidas ou inválidas são rejeitadas com `400 INVALID_CAPABILITY` e `details.invalidCapabilities`. Lista vazia é rejeitada com `400 VALIDATION_ERROR`.
+  * Atualização e gravação na trilha de auditoria (`AuditLog`) são executadas atomicamente na mesma transação.
+* **Respostas:** `200 OK` (`{ "id": "...", "organizationId": "...", "name": "...", "description": "...", "capabilities": [...], "createdAt": "...", "updatedAt": "...", "isSystem": false, "role": { ... } }`), `400 VALIDATION_ERROR`, `400 INVALID_CAPABILITY`, `400 RESERVED_ROLE_IMMUTABLE`, `401 UNAUTHENTICATED`, `403 MEMBERSHIP_INACTIVE`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`, `409 ALREADY_EXISTS`, `409 ROLE_NAME_CONFLICT`.
+
 ---
 
 ### Módulo 5: Pacientes & Prontuário
