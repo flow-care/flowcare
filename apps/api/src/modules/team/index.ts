@@ -11,22 +11,71 @@ export function teamModule(deps: { prisma: PrismaClient; jwtSecret: string }) {
   return new Elysia({ name: "team" })
     .use(authPlugin(deps))
     .use(organizationAccessPlugin(deps))
+    .get(
+      "/organizations/:orgSlug/members",
+      ({ organizationAccess }) =>
+        service.listMembers(organizationAccess.organizationId),
+      {
+        params: m.teamOrgSlugParams,
+        organizationAccess: "team:read",
+        response: { 200: m.listMembersResponse },
+      },
+    )
     .patch(
       "/organizations/:orgSlug/members/:memberId/role",
-      async ({ organizationAccess, auth, params, body }) => {
-        return service.updateMemberRole({
+      ({ organizationAccess, auth, params, body }) =>
+        service.updateMemberRole({
           organizationId: organizationAccess.organizationId,
           actorUserId: auth!.userId,
           memberId: params.memberId,
           role: body.role,
           version: body.version,
-        });
-      },
+        }),
       {
         params: m.memberRoleParams,
         body: m.updateMemberRoleBody,
         organizationAccess: "team:manage",
         response: { 200: m.updateMemberRoleResponse },
+      },
+    )
+    .delete(
+      "/organizations/:orgSlug/members/:memberId",
+      ({ organizationAccess, auth, params }) =>
+        service.removeMember({
+          organizationId: organizationAccess.organizationId,
+          actorUserId: auth!.userId,
+          memberId: params.memberId,
+        }),
+      {
+        params: m.memberParams,
+        organizationAccess: "team:manage",
+        response: { 200: m.removeMemberResponse },
+      },
+    )
+    .delete(
+      "/organizations/:orgSlug/settings/team/:memberId",
+      ({ organizationAccess, auth, params }) =>
+        service.removeMember({
+          organizationId: organizationAccess.organizationId,
+          actorUserId: auth!.userId,
+          memberId: params.memberId,
+        }),
+      {
+        params: m.memberParams,
+        organizationAccess: "team:manage",
+        response: { 200: m.removeMemberResponse },
+      },
+    )
+    .delete(
+      "/settings/team/:memberId",
+      ({ auth, params }) =>
+        service.removeMember({
+          actorUserId: auth!.userId,
+          memberId: params.memberId,
+        }),
+      {
+        params: m.standaloneMemberParams,
+        response: { 200: m.removeMemberResponse },
       },
     );
 }
