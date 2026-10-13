@@ -226,7 +226,10 @@ export class TeamService {
 
       if (organizationId) {
         targetMembership = (await tx.membership.findFirst({
-          where: { organizationId, OR: [{ id: memberId }, { userId: memberId }] },
+          where: {
+            organizationId,
+            OR: [{ id: memberId }, { userId: memberId }],
+          },
           include: {
             user: { select: { id: true, fullName: true, email: true } },
           },
