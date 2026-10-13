@@ -845,13 +845,13 @@ O identificador `revisionId` da versão vigente deve ser armazenado pela futura 
 ### Módulo 11: Painel & Indicadores da Clínica
 *(Ref: Issues [#197](https://github.com/Flowcare-team/flowcare-monorepo/issues/197), [#229](https://github.com/Flowcare-team/flowcare-monorepo/issues/229), [#230](https://github.com/Flowcare-team/flowcare-monorepo/issues/230))*
 
-**Decisão do MVP:** ver [dicionário de métricas](METRICS_MVP.md). O painel mostra contagens de agenda e taxa de faltas; consumo de transcrição mostra volume, sem custo estimado em R$ ou cota inventada. As rotas abaixo ainda são planejadas.
+**Decisão do MVP:** ver [dicionário de métricas](METRICS_MVP.md). O painel mostra contagens de agenda e taxa de faltas; consumo de transcrição mostra volume, sem custo estimado em R$ ou cota inventada. A rota de indicadores está implementada; a rota de consumo ainda é planejada.
 
 #### `GET /organizations/:orgSlug/dashboard/metrics`
 * **Descrição:** Retorna indicadores operacionais da clínica no período e fuso configurados, sem cruzar organizações.
 * **Permissão:** `dashboard:read`.
-* **Query Params:** `?period=today|week|month` ou `?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD`. Padrão: `today`.
-* **Respostas:** `200 OK` (`{ "periodStart": "...", "periodEnd": "...", "timeZone": "America/Fortaleza", "totalAppointments": 10, "scheduledAppointments": 2, "completedAppointments": 5, "cancelledAppointments": 2, "noShowAppointments": 1, "noShowRate": 0.1667 }`). `noShowRate` é `null` sem atendimentos concluídos ou faltas.
+* **Query Params:** `?period=today|week|month` ou `?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD`. Padrão: `today`. Datas do intervalo explícito são limites locais, com início inclusivo e fim exclusivo; os dois filtros são mutuamente exclusivos. O intervalo explícito pode ter no máximo 366 dias. Semana começa na segunda-feira.
+* **Respostas:** `200 OK` (`{ "periodStart": "...", "periodEnd": "...", "timeZone": "America/Fortaleza", "totalAppointments": 10, "scheduledAppointments": 2, "completedAppointments": 5, "cancelledAppointments": 2, "noShowAppointments": 1, "noShowRate": 0.1667 }`). `periodStart` e `periodEnd` são instantes UTC no formato ISO. `noShowRate` é fração entre 0 e 1 ou `null` sem atendimentos concluídos ou faltas. Períodos inválidos retornam `400 VALIDATION_ERROR`.
 
 #### `GET /organizations/:orgSlug/settings/usage`
 * **Descrição:** Consulta o consumo mensal de transcrição da clínica, com detalhamento por profissional e falhas sem consumo.
