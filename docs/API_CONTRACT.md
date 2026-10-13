@@ -380,10 +380,22 @@ O fluxo obrigatório é:
 * **Body:** `{ "role": "PROFESSIONAL", "version": 1 }`
 * **Respostas:** `200 OK`, `409 LAST_ADMIN_REQUIRED`, `409 VERSION_CONFLICT`.
 
-#### `DELETE /organizations/:orgSlug/members/:memberId`
-* **Descrição:** Remove um membro da clínica, desativando seu vínculo e preservando a trilha de auditoria.
-* **Permissão:** `team:manage`.
-* **Respostas:** `200 OK`, `409 LAST_ADMIN_REQUIRED`.
+#### `DELETE /organizations/:orgSlug/members/:memberId` (aliases: `DELETE /organizations/:orgSlug/settings/team/:memberId`, `DELETE /settings/team/:memberId`)
+* **Descrição:** Remove um membro da clínica desativando seu vínculo (`status: "SUSPENDED"`) de forma segura, garantindo isolamento multi-tenant, bloqueio imediato de acesso à clínica com `403 MEMBERSHIP_INACTIVE`, preservação da integridade referencial dos registros clínicos históricos criados pelo profissional, proteção contra remoção do último administrador e gravação transacional na trilha de auditoria (`MEMBER_REMOVED`).
+* **Permissão:** `team:manage` (`ADMIN` ou `ADMIN_PROFESSIONAL`).
+* **Parâmetros:** `:orgSlug` (slug da clínica ativa) e `:memberId` (identificador do vínculo `Membership.id` ou `User.id`).
+* **Respostas:**
+  * `200 OK` (`{ "success": true, "message": "Membro removido da organização com sucesso.", "memberId": "mem_1" }`)
+  * `401 UNAUTHENTICATED` (sessão ausente, expirada ou inválida)
+  * `403 PERMISSION_DENIED` (usuário sem capacidade `team:manage`)
+  * `403 MEMBERSHIP_INACTIVE` (vínculo do chamador inativo ou suspenso)
+  * `404 NOT_FOUND` (membro não encontrado ou pertencente a outra clínica — isolamento estrito)
+  * `409 LAST_ADMIN_REQUIRED` (tentativa de remover o único administrador remanescente da organização)
+* **Regras de integridade e auditoria:**
+  * Desativação lógica com `status = "SUSPENDED"` revoga o acesso imediatamente na próxima requisição do membro via `organizationAccessPlugin`.
+  * A conta global do usuário e eventuais vínculos ativos em outras organizações permanecem intactos.
+  * Prontuários, consultas, evoluções e documentos assinados pelo profissional continuam íntegros e legíveis na clínica.
+  * Na mesma transação da desativação, registra `AuditLog` (`action: "MEMBER_REMOVED"`, `targetType: "MEMBERSHIP"`, `targetId: membership.id`, `metadata: { removedUserId: membership.userId, role: membership.role }`).
 
 #### `GET /organizations/:orgSlug/roles/capabilities`
 * **Descrição:** Retorna o catálogo estruturado de capacidades aprovadas disponíveis para criação de papéis personalizados no escopo da clínica ativa.
