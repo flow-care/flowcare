@@ -18,6 +18,7 @@ import { onboardingModule } from "./modules/onboarding";
 import type { OnboardingDeps } from "./modules/onboarding/service";
 import { organizationsModule } from "./modules/organizations";
 import { patientsModule } from "./modules/patients";
+import { rolesModule } from "./modules/roles";
 import { scheduleModule } from "./modules/schedule";
 import { storageModule } from "./modules/storage";
 import { templatesModule } from "./modules/templates";
@@ -228,6 +229,7 @@ export function createApp(env: Env, deps: AppDeps) {
         webAppUrl: env.webAppUrl,
       }),
     )
+    .use(rolesModule({ prisma: deps.prisma, jwtSecret: env.jwtSecret }))
     .use(
       communicationsModule({
         prisma: deps.prisma,

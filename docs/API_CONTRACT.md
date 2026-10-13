@@ -385,12 +385,39 @@ O fluxo obrigatório é:
 * **Permissão:** `team:manage`.
 * **Respostas:** `200 OK`, `409 LAST_ADMIN_REQUIRED`.
 
-#### `GET /organizations/:orgSlug/roles`
-* **Descrição:** Lista os quatro papéis fixos com suas capacidades e a contagem de membros da clínica em cada papel.
+#### `GET /organizations/:orgSlug/roles/capabilities`
+* **Descrição:** Retorna o catálogo estruturado de capacidades aprovadas disponíveis para criação de papéis personalizados no escopo da clínica ativa.
 * **Permissão:** `roles:read`.
-* **Respostas:** `200 OK`.
+* **Respostas:** `200 OK` (`{ "capabilities": [ { "name": "patients:read", "group": "common", "description": "Visualização de dados cadastrais de pacientes" } ], "data": [...] }`), `401 UNAUTHENTICATED`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`.
 
-> `POST` e `PATCH /organizations/:orgSlug/roles` não fazem parte do MVP; criação e edição de papéis personalizados foram adiadas.
+#### `GET /organizations/:orgSlug/roles`
+* **Descrição:** Lista os papéis do sistema (`ADMIN`, `ADMIN_PROFESSIONAL`, `PROFESSIONAL`, `RECEPTIONIST`) com suas capacidades fixas e a contagem de membros ativos da clínica, além dos papéis personalizados criados para a clínica ativa (`id`, `name`, `description`, `capabilities`, `createdAt`, `updatedAt`, `isSystem: false`). Isolamento multi-tenant estrito: papéis de outra organização jamais aparecem na resposta.
+* **Permissão:** `roles:read`.
+* **Respostas:** `200 OK` (`{ "systemRoles": [ { "role": "ADMIN", "name": "Administrador", "description": "...", "capabilities": [...], "memberCount": 2, "isSystem": true } ], "customRoles": [ { "id": "...", "organizationId": "...", "name": "Coordenador", "description": "...", "capabilities": [...], "createdAt": "...", "updatedAt": "...", "isSystem": false } ], "roles": [...] }`), `401 UNAUTHENTICATED`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`.
+
+#### `POST /organizations/:orgSlug/roles`
+* **Descrição:** Cria um novo papel personalizado com nome legível e capacidades homologadas dentro do escopo da clínica ativa. Grava `ROLE_CREATED` em `AuditLog` (`targetType: "ORGANIZATION_ROLE"`, `targetId: role.id`, `metadata: { name, capabilities }`) na mesma transação.
+* **Permissão:** `team:manage`.
+* **Body:**
+  ```json
+  {
+    "name": "Coordenador de Atendimento",
+    "description": "Supervisão da equipe de recepção e agendamentos",
+    "capabilities": [
+      "patients:read",
+      "patients:write",
+      "appointments:read",
+      "appointments:write",
+      "reception:read",
+      "reception:write"
+    ]
+  }
+  ```
+* **Validações e regras:**
+  * `name`: 2 a 50 caracteres (sem contar espaços nas bordas). Não pode coincidir com nomes reservados pelo sistema (`ADMIN`, `ADMIN_PROFESSIONAL`, `PROFESSIONAL`, `RECEPTIONIST`), retornando `409 ROLE_NAME_CONFLICT`.
+  * Nome deve ser único dentro da mesma clínica (colisão retorna `409 ALREADY_EXISTS`), mas pode ser repetido em clínicas distintas (isolamento multi-tenant).
+  * `capabilities`: array não vazio contendo apenas strings válidas do catálogo oficial de capacidades (`ALLOWED_CUSTOM_ROLE_CAPABILITIES`). Capacidades inválidas ou desconhecidas são rejeitadas com `400 INVALID_CAPABILITY` e `details.invalidCapabilities`.
+* **Respostas:** `201 Created` (`{ "id": "...", "organizationId": "...", "name": "Coordenador de Atendimento", "description": "...", "capabilities": [...], "createdAt": "...", "updatedAt": "...", "isSystem": false, "role": { ... } }`), `400 VALIDATION_ERROR`, `400 INVALID_CAPABILITY`, `401 UNAUTHENTICATED`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`, `409 ALREADY_EXISTS`, `409 ROLE_NAME_CONFLICT`.
 
 ---
 
