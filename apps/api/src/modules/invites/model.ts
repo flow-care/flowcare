@@ -50,4 +50,9 @@ export const inviteDetailsResponse = t.Object({
   expiresAt: t.String(),
 });
 export type CreateInviteBody = typeof createInviteBody.static;
+export type AcceptInviteBody = typeof acceptInviteBody.static;
+export type InviteResponse = typeof inviteResponse.static;
+export type InviteListResponse = typeof inviteListResponse.static;
+export type AcceptResponse = typeof acceptResponse.static;
+export type DeclineResponse = typeof declineResponse.static;
 export type InviteDetailsResponse = typeof inviteDetailsResponse.static;
