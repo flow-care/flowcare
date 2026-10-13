@@ -8,7 +8,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -52,28 +51,21 @@ export function ProfileMenu({
           </SidebarMenuButton>
         </DropdownMenuTrigger>
         <DropdownMenuContent side="top" align="start" className="min-w-56">
-          <DropdownMenuLabel className="flex flex-col gap-0.5">
-            <span className="truncate text-sm text-foreground">
-              {user?.fullName || "Minha conta"}
-            </span>
-            {user?.email && (
-              <span className="truncate font-normal">{user.email}</span>
-            )}
-          </DropdownMenuLabel>
-          <DropdownMenuSeparator />
           {settingsHref && (
-            <DropdownMenuItem asChild>
-              <Link href={settingsHref} onClick={onNavigate}>
-                <Settings /> Configurações
-              </Link>
-            </DropdownMenuItem>
+            <>
+              <DropdownMenuItem asChild>
+                <Link href={settingsHref} onClick={onNavigate}>
+                  <Settings /> Configurações
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator className="h-0 border-t border-dashed border-border bg-transparent" />
+            </>
           )}
-          <DropdownMenuSeparator />
           <div className="flex items-center justify-between gap-3 px-2 py-1.5 text-xs text-muted-foreground">
             <span>Tema</span>
             <ThemeSelector />
           </div>
-          <DropdownMenuSeparator />
+          <DropdownMenuSeparator className="h-0 border-t border-dashed border-border bg-transparent" />
           <form action={logoutAction}>
             <DropdownMenuItem asChild>
               <button type="submit" className="w-full">
