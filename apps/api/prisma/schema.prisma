@@ -213,6 +213,7 @@ model Organization {
   weeklyScheduleRules WeeklyScheduleRule[]
   auditLogs    AuditLog[]
   documentTemplates DocumentTemplate[]
+  documentTemplateVersions DocumentTemplateVersion[]
   appointments Appointment[]
   appointmentConfirmations AppointmentConfirmation[]
   confirmationDecisions ConfirmationDecision[]
@@ -588,8 +589,30 @@ model DocumentTemplate {
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
-  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization?             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  versions     DocumentTemplateVersion[]
 
   @@index([organizationId, status, type])
   @@index([organizationId, createdAt])
+}
+
+// Immutable version history of DocumentTemplate (#288). Updating a template
+// increments DocumentTemplate.version and appends a new DocumentTemplateVersion
+// row so previously saved versions remain intact and readable.
+model DocumentTemplateVersion {
+  id             String       @id @default(uuid()) @db.Uuid
+  templateId     String       @db.Uuid
+  organizationId String?      @db.Uuid
+  version        Int
+  title          String
+  type           DocumentType
+  bodyTemplate   String
+  createdById    String?      @db.Uuid
+  createdAt      DateTime     @default(now())
+
+  template     DocumentTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  organization Organization?    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, version])
+  @@index([organizationId, templateId])
 }

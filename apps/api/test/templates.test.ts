@@ -10,7 +10,9 @@ import type {
 } from "../src/generated/prisma/client";
 import type {
   ListTemplatesResponse,
+  TemplateDetailResponse,
   TemplateVariablesResponse,
+  TemplateVersionsResponse,
 } from "../src/modules/templates/model";
 import { APPROVED_TEMPLATE_VARIABLES } from "../src/modules/templates/service";
 import { signSessionToken } from "../src/services/session-token";
@@ -33,8 +35,32 @@ interface StoredTemplate {
   status: TemplateStatus;
   version: number;
   archivedAt: Date | null;
+  createdById: string | null;
   createdAt: Date;
   updatedAt: Date;
+}
+
+interface StoredTemplateVersion {
+  id: string;
+  templateId: string;
+  organizationId: string | null;
+  version: number;
+  title: string;
+  type: DocumentType;
+  bodyTemplate: string;
+  createdById: string | null;
+  createdAt: Date;
+}
+
+interface StoredAuditLog {
+  id: string;
+  organizationId: string;
+  actorUserId: string;
+  action: string;
+  targetType: string;
+  targetId: string;
+  metadata: Record<string, unknown>;
+  createdAt: Date;
 }
 
 function createFixture() {
@@ -42,6 +68,13 @@ function createFixture() {
   let membershipStatus: MembershipStatus = "ACTIVE";
   let membershipOrgSlug: string | null = "clinica-a";
   let sessionActive = true;
+  let uuidSequence = 10;
+
+  const nextUuid = () => {
+    uuidSequence += 1;
+    const suffix = uuidSequence.toString(16).padStart(12, "0");
+    return `cccccccc-cccc-4ccc-8ccc-${suffix}`;
+  };
 
   const seedTemplates: StoredTemplate[] = [
     {
@@ -54,6 +87,7 @@ function createFixture() {
       status: "ACTIVE",
       version: 1,
       archivedAt: null,
+      createdById: null,
       createdAt: new Date("2026-10-01T10:00:00.000Z"),
       updatedAt: new Date("2026-10-01T10:00:00.000Z"),
     },
@@ -67,6 +101,7 @@ function createFixture() {
       status: "ACTIVE",
       version: 2,
       archivedAt: null,
+      createdById: "user-1",
       createdAt: new Date("2026-10-02T10:00:00.000Z"),
       updatedAt: new Date("2026-10-05T10:00:00.000Z"),
     },
@@ -79,6 +114,7 @@ function createFixture() {
       status: "ARCHIVED",
       version: 1,
       archivedAt: new Date("2026-10-06T12:00:00.000Z"),
+      createdById: "user-1",
       createdAt: new Date("2026-10-03T10:00:00.000Z"),
       updatedAt: new Date("2026-10-06T12:00:00.000Z"),
     },
@@ -91,10 +127,40 @@ function createFixture() {
       status: "ACTIVE",
       version: 1,
       archivedAt: null,
+      createdById: "user-2",
       createdAt: new Date("2026-10-04T10:00:00.000Z"),
       updatedAt: new Date("2026-10-04T10:00:00.000Z"),
     },
   ];
+
+  const templateVersions: StoredTemplateVersion[] = [
+    {
+      id: "dddddddd-dddd-4ddd-8ddd-ddddddddddd1",
+      templateId: clinicAActiveTemplateId,
+      organizationId: clinicAId,
+      version: 1,
+      title: "Atestado 1 Dia - Clínica A (v1)",
+      type: "CERTIFICATE",
+      bodyTemplate:
+        "Atesto que {paciente_nome} compareceu à {clinica_nome} em {data_atual} (versão 1 original).",
+      createdById: "user-1",
+      createdAt: new Date("2026-10-02T10:00:00.000Z"),
+    },
+    {
+      id: "dddddddd-dddd-4ddd-8ddd-ddddddddddd2",
+      templateId: clinicAActiveTemplateId,
+      organizationId: clinicAId,
+      version: 2,
+      title: "Atestado 3 Dias - Clínica A",
+      type: "CERTIFICATE",
+      bodyTemplate:
+        "Atesto para os devidos fins que {paciente_nome} esteve em atendimento na {clinica_nome} em {data_atual}.",
+      createdById: "user-1",
+      createdAt: new Date("2026-10-05T10:00:00.000Z"),
+    },
+  ];
+
+  const auditLogs: StoredAuditLog[] = [];
 
   const matchesWhere = (
     item: StoredTemplate,
@@ -108,6 +174,12 @@ function createFixture() {
         (clause) => item.organizationId === clause.organizationId,
       );
       if (!matchesOrg) return false;
+    }
+    if (
+      where.organizationId !== undefined &&
+      item.organizationId !== where.organizationId
+    ) {
+      return false;
     }
     if (where.id && item.id !== where.id) return false;
     if (where.status && item.status !== where.status) return false;
@@ -127,6 +199,8 @@ function createFixture() {
   };
 
   const prisma = {
+    $transaction: async <T>(fn: (tx: unknown) => Promise<T>): Promise<T> =>
+      fn(prisma),
     session: {
       findFirst: async () =>
         sessionActive ? { id: "session-1", lastActiveAt: new Date() } : null,
@@ -151,7 +225,7 @@ function createFixture() {
     documentTemplate: {
       findFirst: async ({ where }: { where: Record<string, unknown> }) => {
         const found = seedTemplates.find((item) => matchesWhere(item, where));
-        return found ? { id: found.id } : null;
+        return found ? { ...found } : null;
       },
       findMany: async ({
         where,
@@ -179,6 +253,128 @@ function createFixture() {
         }
         return filtered.slice(startIndex, startIndex + take);
       },
+      create: async ({
+        data,
+      }: {
+        data: {
+          organizationId: string | null;
+          title: string;
+          type: DocumentType;
+          bodyTemplate: string;
+          status: TemplateStatus;
+          version: number;
+          createdById?: string | null;
+        };
+      }) => {
+        const now = new Date();
+        const created: StoredTemplate = {
+          id: nextUuid(),
+          organizationId: data.organizationId,
+          title: data.title,
+          type: data.type,
+          bodyTemplate: data.bodyTemplate,
+          status: data.status,
+          version: data.version,
+          archivedAt: null,
+          createdById: data.createdById ?? null,
+          createdAt: now,
+          updatedAt: now,
+        };
+        seedTemplates.push(created);
+        return { ...created };
+      },
+      updateMany: async ({
+        where,
+        data,
+      }: {
+        where: Record<string, unknown>;
+        data: Partial<StoredTemplate>;
+      }) => {
+        let count = 0;
+        for (const item of seedTemplates) {
+          if (matchesWhere(item, where)) {
+            if (data.title !== undefined) item.title = data.title;
+            if (data.type !== undefined) item.type = data.type;
+            if (data.bodyTemplate !== undefined)
+              item.bodyTemplate = data.bodyTemplate;
+            if (data.version !== undefined) item.version = data.version;
+            if (data.updatedAt !== undefined) item.updatedAt = data.updatedAt;
+            count += 1;
+          }
+        }
+        return { count };
+      },
+    },
+    documentTemplateVersion: {
+      findUnique: async ({
+        where,
+      }: {
+        where: { templateId_version: { templateId: string; version: number } };
+      }) => {
+        const found = templateVersions.find(
+          (v) =>
+            v.templateId === where.templateId_version.templateId &&
+            v.version === where.templateId_version.version,
+        );
+        return found ? { ...found } : null;
+      },
+      findMany: async ({ where }: { where: { templateId: string } }) => {
+        return templateVersions
+          .filter((v) => v.templateId === where.templateId)
+          .sort((a, b) => a.version - b.version)
+          .map((v) => ({ ...v }));
+      },
+      create: async ({
+        data,
+      }: {
+        data: {
+          templateId: string;
+          organizationId: string | null;
+          version: number;
+          title: string;
+          type: DocumentType;
+          bodyTemplate: string;
+          createdById?: string | null;
+          createdAt?: Date;
+        };
+      }) => {
+        const conflict = templateVersions.some(
+          (v) => v.templateId === data.templateId && v.version === data.version,
+        );
+        if (conflict) {
+          throw Object.assign(new Error("Unique constraint failed"), {
+            code: "P2002",
+          });
+        }
+        const created: StoredTemplateVersion = {
+          id: nextUuid(),
+          templateId: data.templateId,
+          organizationId: data.organizationId,
+          version: data.version,
+          title: data.title,
+          type: data.type,
+          bodyTemplate: data.bodyTemplate,
+          createdById: data.createdById ?? null,
+          createdAt: data.createdAt ?? new Date(),
+        };
+        templateVersions.push(created);
+        return { ...created };
+      },
+    },
+    auditLog: {
+      create: async ({
+        data,
+      }: {
+        data: Omit<StoredAuditLog, "id" | "createdAt">;
+      }) => {
+        const entry: StoredAuditLog = {
+          id: nextUuid(),
+          ...data,
+          createdAt: new Date(),
+        };
+        auditLogs.push(entry);
+        return entry;
+      },
     },
   } as unknown as PrismaClient;
 
@@ -204,8 +400,33 @@ function createFixture() {
       }),
     );
 
+  const send = (
+    method: "POST" | "PATCH" | "PUT",
+    path: string,
+    body: unknown,
+    authenticated = true,
+  ) =>
+    app.handle(
+      new Request(`http://localhost/api${path}`, {
+        method,
+        headers: {
+          "content-type": "application/json",
+          ...(authenticated ? { authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(body),
+      }),
+    );
+
   return {
     get,
+    post: (path: string, body: unknown, authenticated = true) =>
+      send("POST", path, body, authenticated),
+    patch: (path: string, body: unknown, authenticated = true) =>
+      send("PATCH", path, body, authenticated),
+    put: (path: string, body: unknown, authenticated = true) =>
+      send("PUT", path, body, authenticated),
+    auditLogs,
+    templateVersions,
     setRole: (value: MembershipRole) => {
       role = value;
     },
@@ -470,5 +691,362 @@ describe("templates module (#287)", () => {
         details: { requiredPermission: "templates:read" },
       },
     });
+  });
+});
+
+describe("templates validation, versioning, and concurrency (#288)", () => {
+  test("creates a valid clinic template (v1), normalizes approved variables, and records version + audit log", async () => {
+    const f = createFixture();
+
+    const createRes = await f.post("/organizations/clinica-a/templates", {
+      title: "  Solicitação de Exames Laboratoriais  ",
+      type: "EXAM_REQUEST",
+      bodyTemplate:
+        "Solicito hemograma completo para {paciente_nome} (CPF: {paciente_cpf}) em {{data_atual}} — {profissional_nome} ({medico_crm}).",
+    });
+    expect(createRes.status).toBe(201);
+    const created = (await createRes.json()) as TemplateDetailResponse;
+    expect(created).toMatchObject({
+      organizationId: clinicAId,
+      scope: "ORGANIZATION",
+      isGlobal: false,
+      title: "Solicitação de Exames Laboratoriais",
+      type: "EXAM_REQUEST",
+      bodyTemplate:
+        "Solicito hemograma completo para {paciente_nome} (CPF: {paciente_cpf}) em {data_atual} — {profissional_nome} ({medico_crm}).",
+      status: "ACTIVE",
+      version: 1,
+      selectable: true,
+      variables: [
+        "paciente_nome",
+        "paciente_cpf",
+        "data_atual",
+        "profissional_nome",
+        "medico_crm",
+      ],
+    });
+    expect(created.template.id).toBe(created.id);
+    expect(f.auditLogs).toHaveLength(1);
+    expect(f.auditLogs[0]).toMatchObject({
+      organizationId: clinicAId,
+      actorUserId: "user-1",
+      action: "TEMPLATE_CREATED",
+      targetType: "DOCUMENT_TEMPLATE",
+      targetId: created.id,
+    });
+  });
+
+  test("rejects invalid template structure and unapproved dynamic variables with HTTP 422", async () => {
+    const f = createFixture();
+
+    // 1. Unapproved dynamic variable in bodyTemplate -> 422 INVALID_TEMPLATE_VARIABLE
+    const unapprovedVarRes = await f.post(
+      "/organizations/clinica-a/templates",
+      {
+        title: "Receita com variável inválida",
+        type: "PRESCRIPTION",
+        bodyTemplate:
+          "Prescrevo para {paciente_nome} portador do segredo {variavel_inexistente} e {paciente_rg}.",
+      },
+    );
+    expect(unapprovedVarRes.status).toBe(422);
+    expect(await unapprovedVarRes.json()).toMatchObject({
+      error: {
+        code: "INVALID_TEMPLATE_VARIABLE",
+        details: {
+          invalidVariables: ["variavel_inexistente", "paciente_rg"],
+        },
+      },
+    });
+
+    // 2. Unapproved dynamic variable on PATCH -> 422 INVALID_TEMPLATE_VARIABLE
+    const patchUnapprovedRes = await f.patch(
+      `/organizations/clinica-a/templates/${clinicAActiveTemplateId}`,
+      {
+        version: 2,
+        bodyTemplate: "Texto com {campo_fora_do_catalogo}.",
+      },
+    );
+    expect(patchUnapprovedRes.status).toBe(422);
+    expect(await patchUnapprovedRes.json()).toMatchObject({
+      error: {
+        code: "INVALID_TEMPLATE_VARIABLE",
+        details: {
+          invalidVariables: ["campo_fora_do_catalogo"],
+        },
+      },
+    });
+
+    // 3. Invalid structures -> 422 INVALID_TEMPLATE_STRUCTURE
+    const invalidStructures = [
+      {
+        title: "   ",
+        type: "CERTIFICATE",
+        bodyTemplate: "Atesto comparecimento de {paciente_nome}.",
+        expectedReason: "EMPTY_OR_TOO_SHORT_TITLE",
+      },
+      {
+        title: "Atestado Vazio",
+        type: "CERTIFICATE",
+        bodyTemplate: "    ",
+        expectedReason: "EMPTY_BODY",
+      },
+      {
+        title: "Chave não fechada",
+        type: "CERTIFICATE",
+        bodyTemplate: "Atesto que {paciente_nome compareceu hoje.",
+        expectedReason: "UNCLOSED_PLACEHOLDER",
+      },
+      {
+        title: "Chave fechada sem abrir",
+        type: "CERTIFICATE",
+        bodyTemplate: "Atesto que paciente_nome} compareceu hoje.",
+        expectedReason: "UNMATCHED_CLOSING_BRACE",
+      },
+      {
+        title: "Placeholder vazio",
+        type: "CERTIFICATE",
+        bodyTemplate: "Atesto que {} compareceu hoje.",
+        expectedReason: "EMPTY_PLACEHOLDER",
+      },
+      {
+        title: "Chaves aninhadas",
+        type: "CERTIFICATE",
+        bodyTemplate: "Atesto que {paciente_{nome}} compareceu hoje.",
+        expectedReason: "MALFORMED_PLACEHOLDER",
+      },
+      {
+        title: "Chaves desbalanceadas",
+        type: "CERTIFICATE",
+        bodyTemplate: "Atesto que {{paciente_nome} compareceu hoje.",
+        expectedReason: "MISMATCHED_PLACEHOLDER_BRACES",
+      },
+      {
+        title: "Placeholder com espaço interno",
+        type: "CERTIFICATE",
+        bodyTemplate: "Atesto que {paciente nome} compareceu hoje.",
+        expectedReason: "INVALID_PLACEHOLDER_SYNTAX",
+      },
+    ] as const;
+
+    for (const testCase of invalidStructures) {
+      const res = await f.post("/organizations/clinica-a/templates", {
+        title: testCase.title,
+        type: testCase.type,
+        bodyTemplate: testCase.bodyTemplate,
+      });
+      expect(res.status).toBe(422);
+      expect(await res.json()).toMatchObject({
+        error: {
+          code: "INVALID_TEMPLATE_STRUCTURE",
+          details: {
+            reason: testCase.expectedReason,
+          },
+        },
+      });
+    }
+  });
+
+  test("saving a new version preserves previous versions intact and readable for existing documents", async () => {
+    const f = createFixture();
+
+    // Read v1 and v2 before updating to v3
+    const v1BeforeRes = await f.get(
+      `/organizations/clinica-a/templates/${clinicAActiveTemplateId}?version=1`,
+    );
+    expect(v1BeforeRes.status).toBe(200);
+    const v1Before = (await v1BeforeRes.json()) as TemplateDetailResponse;
+    expect(v1Before).toMatchObject({
+      id: clinicAActiveTemplateId,
+      version: 1,
+      title: "Atestado 1 Dia - Clínica A (v1)",
+      bodyTemplate:
+        "Atesto que {paciente_nome} compareceu à {clinica_nome} em {data_atual} (versão 1 original).",
+    });
+
+    // Save v3 via PATCH
+    const updateRes = await f.patch(
+      `/organizations/clinica-a/templates/${clinicAActiveTemplateId}`,
+      {
+        version: 2,
+        title: "Atestado 5 Dias - Clínica A (v3)",
+        bodyTemplate:
+          "Atesto para os devidos fins que {paciente_nome} ({paciente_cpf}) necessita de 5 dias de repouso a partir de {data_atual}. Emitido por {profissional_nome} ({profissional_registro}).",
+      },
+    );
+    expect(updateRes.status).toBe(200);
+    const updatedV3 = (await updateRes.json()) as TemplateDetailResponse;
+    expect(updatedV3).toMatchObject({
+      id: clinicAActiveTemplateId,
+      version: 3,
+      title: "Atestado 5 Dias - Clínica A (v3)",
+      variables: [
+        "paciente_nome",
+        "paciente_cpf",
+        "data_atual",
+        "profissional_nome",
+        "profissional_registro",
+      ],
+    });
+
+    // Verify that v1 and v2 are completely unchanged and still readable!
+    const v1AfterRes = await f.get(
+      `/organizations/clinica-a/templates/${clinicAActiveTemplateId}?version=1`,
+    );
+    expect(v1AfterRes.status).toBe(200);
+    expect(await v1AfterRes.json()).toMatchObject({
+      id: clinicAActiveTemplateId,
+      version: 1,
+      title: "Atestado 1 Dia - Clínica A (v1)",
+      bodyTemplate:
+        "Atesto que {paciente_nome} compareceu à {clinica_nome} em {data_atual} (versão 1 original).",
+    });
+
+    const v2AfterRes = await f.get(
+      `/organizations/clinica-a/templates/${clinicAActiveTemplateId}/versions/2`,
+    );
+    expect(v2AfterRes.status).toBe(200);
+    expect(await v2AfterRes.json()).toMatchObject({
+      id: clinicAActiveTemplateId,
+      version: 2,
+      title: "Atestado 3 Dias - Clínica A",
+      bodyTemplate:
+        "Atesto para os devidos fins que {paciente_nome} esteve em atendimento na {clinica_nome} em {data_atual}.",
+    });
+
+    // Version history endpoint lists all 3 immutable versions in order
+    const versionsRes = await f.get(
+      `/organizations/clinica-a/templates/${clinicAActiveTemplateId}/versions`,
+    );
+    expect(versionsRes.status).toBe(200);
+    const versionsBody = (await versionsRes.json()) as TemplateVersionsResponse;
+    expect(versionsBody.versions.map((v) => v.version)).toEqual([1, 2, 3]);
+    expect(versionsBody.data).toHaveLength(3);
+  });
+
+  test("detects concurrent edits in two sessions and returns HTTP 409 VERSION_CONFLICT", async () => {
+    const f = createFixture();
+
+    // Session 1 and Session 2 both load version 2 of clinicAActiveTemplateId
+    const session1Res = await f.patch(
+      `/organizations/clinica-a/templates/${clinicAActiveTemplateId}`,
+      {
+        version: 2,
+        title: "Atestado Atualizado pela Sessão 1",
+        bodyTemplate: "Texto salvo pela sessão 1 para {paciente_nome}.",
+      },
+    );
+    expect(session1Res.status).toBe(200);
+    const session1Body = (await session1Res.json()) as TemplateDetailResponse;
+    expect(session1Body.version).toBe(3);
+
+    // Session 2 tries to save using stale version 2 -> 409 VERSION_CONFLICT
+    const session2Res = await f.patch(
+      `/organizations/clinica-a/templates/${clinicAActiveTemplateId}`,
+      {
+        version: 2,
+        title: "Atestado Concorrente da Sessão 2",
+        bodyTemplate: "Texto concorrente da sessão 2 para {paciente_nome}.",
+      },
+    );
+    expect(session2Res.status).toBe(409);
+    expect(await session2Res.json()).toMatchObject({
+      error: {
+        code: "VERSION_CONFLICT",
+        details: {
+          expectedVersion: 2,
+          currentVersion: 3,
+        },
+      },
+    });
+
+    // Confirm Session 1's version 3 remains intact
+    const currentRes = await f.get(
+      `/organizations/clinica-a/templates/${clinicAActiveTemplateId}`,
+    );
+    expect(currentRes.status).toBe(200);
+    expect(await currentRes.json()).toMatchObject({
+      version: 3,
+      title: "Atestado Atualizado pela Sessão 1",
+      bodyTemplate: "Texto salvo pela sessão 1 para {paciente_nome}.",
+    });
+  });
+
+  test("enforces tenant isolation, global/archived protection, and RBAC on template mutations", async () => {
+    const f = createFixture();
+
+    // Editing a global template is forbidden (403 PERMISSION_DENIED)
+    const editGlobal = await f.patch(
+      `/organizations/clinica-a/templates/${globalTemplateId}`,
+      {
+        version: 1,
+        title: "Tentativa de alterar global",
+      },
+    );
+    expect(editGlobal.status).toBe(403);
+    expect(await editGlobal.json()).toMatchObject({
+      error: { code: "PERMISSION_DENIED" },
+    });
+
+    // Editing an archived template returns 409 INVALID_STATE_TRANSITION
+    const editArchived = await f.patch(
+      `/organizations/clinica-a/templates/${clinicAArchivedTemplateId}`,
+      {
+        version: 1,
+        title: "Tentativa de alterar arquivado",
+      },
+    );
+    expect(editArchived.status).toBe(409);
+    expect(await editArchived.json()).toMatchObject({
+      error: { code: "INVALID_STATE_TRANSITION" },
+    });
+
+    // Editing or reading a template from another clinic returns 404 NOT_FOUND
+    const editForeign = await f.patch(
+      `/organizations/clinica-a/templates/${clinicBTemplateId}`,
+      {
+        version: 1,
+        title: "Tentativa de alterar outra clínica",
+      },
+    );
+    expect(editForeign.status).toBe(404);
+    expect(await editForeign.json()).toMatchObject({
+      error: { code: "NOT_FOUND" },
+    });
+
+    const getForeign = await f.get(
+      `/organizations/clinica-a/templates/${clinicBTemplateId}`,
+    );
+    expect(getForeign.status).toBe(404);
+
+    // ADMIN (non-clinical) and RECEPTIONIST cannot create or edit templates (403 PERMISSION_DENIED)
+    for (const deniedRole of ["ADMIN", "RECEPTIONIST"] as const) {
+      f.setRole(deniedRole);
+      const deniedCreate = await f.post("/organizations/clinica-a/templates", {
+        title: "Novo Modelo",
+        type: "CERTIFICATE",
+        bodyTemplate: "Atesto que {paciente_nome} compareceu.",
+      });
+      expect(deniedCreate.status).toBe(403);
+      expect(await deniedCreate.json()).toMatchObject({
+        error: {
+          code: "PERMISSION_DENIED",
+          details: { requiredPermission: "templates:write" },
+        },
+      });
+    }
+
+    // ADMIN_PROFESSIONAL can create and update templates
+    f.setRole("ADMIN_PROFESSIONAL");
+    const allowedCreate = await f.post(
+      "/organizations/clinica-a/document-templates",
+      {
+        title: "Laudo Cardiológico",
+        type: "REPORT",
+        bodyTemplate:
+          "Laudo de {paciente_nome} emitido por {profissional_nome} ({profissional_registro}) em {data_hora_emissao}.",
+      },
+    );
+    expect(allowedCreate.status).toBe(201);
   });
 });

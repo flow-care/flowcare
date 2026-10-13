@@ -77,6 +77,8 @@ Em caso de falha (códigos HTTP 4xx e 5xx), a API responde com a seguinte estrut
 | **409** | `INVALID_STATE_TRANSITION` | Tentativa de aplicar transição fora da máquina de estados permitida para o recurso. |
 | **410** | `INVITE_EXPIRED` | O convite para a equipe expirou ou foi revogado. |
 | **422** | `BUSINESS_RULE_VIOLATION` | Violação de regra de negócio com estado válido (ex: campos clínicos obrigatórios ausentes para emissão). |
+| **422** | `INVALID_TEMPLATE_STRUCTURE` | Estrutura de modelo de documento inválida (ex: título/conteúdo vazio, chaves desbalanceadas ou placeholder malformado). |
+| **422** | `INVALID_TEMPLATE_VARIABLE` | Variável automática fora do catálogo homologado (`APPROVED_TEMPLATE_VARIABLES`). |
 | **429** | `RATE_LIMITED` | Limite de requisições excedido. |
 | **503** | `COMMUNICATION_PROVIDER_UNAVAILABLE` | Provedor de comunicação indisponível ou retornou uma resposta inválida. |
 | **500** | `INTERNAL` | Erro interno do servidor. Não exibe stack traces nem detalhes de infraestrutura em produção. |
@@ -677,11 +679,27 @@ O identificador `revisionId` da versão vigente deve ser armazenado pela futura 
 * **Permissão:** `templates:read` na rota organizacional (`/organizations/:orgSlug/templates/variables`) e sessão autenticada na rota global (`/templates/variables`).
 * **Respostas:** `200 OK` (`{ "data": [ { "key": "paciente_nome", "placeholder": "{paciente_nome}", "label": "Nome do paciente", "description": "...", "type": "string", "category": "PATIENT", "required": true, "source": "patient.fullName", "example": "Maria da Silva" } ] }`), `401 UNAUTHENTICATED`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`.
 
-#### `POST /organizations/:orgSlug/document-templates`
-* **Descrição:** Cria um modelo de documento com campos dinâmicos (ex: `{paciente_nome}`).
-* **Permissão:** `templates:write`.
+#### `GET /organizations/:orgSlug/templates/:templateId` (alias: `GET /organizations/:orgSlug/document-templates/:templateId`) e `GET /organizations/:orgSlug/templates/:templateId/versions/:version`
+* **Descrição:** Consulta o modelo de documento clínico atual da clínica ativa (ou global homologado) ou uma versão histórica específica (`?version=<number>` ou `/versions/:version`) preservada em `DocumentTemplateVersion`, garantindo que versões antigas em uso por documentos existentes permaneçam imutáveis e legíveis após novas edições.
+* **Permissão:** `templates:read` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL`).
+* **Respostas:** `200 OK` (objeto do modelo contendo `id`, `organizationId`, `scope`, `isGlobal`, `title`, `type`, `bodyTemplate`, `status`, `version`, `selectable`, `archivedAt`, `createdAt`, `updatedAt`, `variables` e `template`), `404 NOT_FOUND`.
+
+#### `GET /organizations/:orgSlug/templates/:templateId/versions` (alias: `GET /organizations/:orgSlug/document-templates/:templateId/versions`)
+* **Descrição:** Lista todas as versões históricas imutáveis (`DocumentTemplateVersion`) de um modelo de documento em ordem crescente de `version`.
+* **Permissão:** `templates:read` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL`).
+* **Respostas:** `200 OK` (`{ "data": [...], "versions": [ { "id": "...", "templateId": "...", "organizationId": "...", "version": 1, "title": "...", "type": "CERTIFICATE", "bodyTemplate": "...", "variables": ["paciente_nome"], "createdById": "...", "createdAt": "..." } ] }`), `404 NOT_FOUND`.
+
+#### `POST /organizations/:orgSlug/templates` (alias: `POST /organizations/:orgSlug/document-templates`)
+* **Descrição:** Valida a estrutura e as variáveis dinâmicas (`{variavel}`) contra o catálogo homologado (`APPROVED_TEMPLATE_VARIABLES`), cria um novo modelo da clínica na versão `1` (`status: ACTIVE`), grava o snapshot inicial em `DocumentTemplateVersion` e registra `TEMPLATE_CREATED` em `AuditLog` na mesma transação.
+* **Permissão:** `templates:write` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL`).
 * **Body:** `{ "title": "Atestado 3 Dias", "type": "CERTIFICATE", "bodyTemplate": "Atesto para os devidos fins que {paciente_nome}..." }`
-* **Respostas:** `201 Created`.
+* **Respostas:** `201 Created`, `400 VALIDATION_ERROR`, `403 PERMISSION_DENIED`, `422 INVALID_TEMPLATE_STRUCTURE`, `422 INVALID_TEMPLATE_VARIABLE` (com `details.invalidVariables` e `details.allowedVariables`).
+
+#### `PATCH /organizations/:orgSlug/templates/:templateId` e `PUT /organizations/:orgSlug/templates/:templateId` (aliases em `/document-templates/:templateId`)
+* **Descrição:** Valida a estrutura e as variáveis dinâmicas contra o catálogo homologado e salva uma nova versão do modelo da clínica com controle de concorrência otimista (`version`). Incrementa `version`, cria um novo registro imutável em `DocumentTemplateVersion` (preservando todas as versões anteriores inalteradas) e grava `TEMPLATE_UPDATED` em `AuditLog` na mesma transação. Modelos globais (`403 PERMISSION_DENIED`), arquivados (`409 INVALID_STATE_TRANSITION`) ou de outras clínicas (`404 NOT_FOUND`) não podem ser editados.
+* **Permissão:** `templates:write` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL`).
+* **Body:** `{ "version": 1, "title": "Atestado 5 Dias", "type": "CERTIFICATE", "bodyTemplate": "Atesto que {paciente_nome}..." }` (`version` e ao menos um campo editável são obrigatórios).
+* **Respostas:** `200 OK`, `400 VALIDATION_ERROR`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`, `409 VERSION_CONFLICT` (edição concorrente / versão obsoleta), `409 INVALID_STATE_TRANSITION` (modelo arquivado), `422 INVALID_TEMPLATE_STRUCTURE`, `422 INVALID_TEMPLATE_VARIABLE`.
 
 #### `POST /organizations/:orgSlug/document-templates/:templateId/archive`
 * **Descrição:** Arquiva um modelo sem afetar ou alterar os documentos emitidos no passado.
