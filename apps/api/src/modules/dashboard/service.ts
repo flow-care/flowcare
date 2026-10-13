@@ -150,6 +150,7 @@ export class DashboardService {
     const counts: Record<AppointmentStatus, number> = {
       RESERVED: 0,
       CONFIRMED: 0,
+      IN_PROGRESS: 0,
       COMPLETED: 0,
       CANCELLED: 0,
       NO_SHOW: 0,
@@ -169,6 +170,7 @@ export class DashboardService {
       timeZone,
       totalAppointments:
         scheduledAppointments +
+        counts.IN_PROGRESS +
         completedAppointments +
         cancelledAppointments +
         noShowAppointments,

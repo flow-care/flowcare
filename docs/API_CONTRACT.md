@@ -741,13 +741,16 @@ O identificador `revisionId` da versão vigente deve ser armazenado pela futura 
 **Decisão do MVP:** ver [ciclo de vida e snapshot](DOCUMENTS_MVP.md). Receitas controladas e assinatura eletrônica não fazem parte do MVP. `ISSUED` indica PDF final para impressão e assinatura manuscrita, não documento eletrônico assinado. As rotas de criação, leitura, edição de rascunho, histórico de revisões (`#273`) e preparação de snapshot de emissão (`#274`) estão implementadas; emissão definitiva (#275), PDF (#276), retificação (#277) e anulação (#278) seguem planejadas.
 
 #### `GET /organizations/:orgSlug/documents`
-* **Descrição:** Lista documentos da clínica com paginação e filtros, sem conteúdo clínico completo na listagem.
-* **Permissão:** `documents:read`.
+* **Descrição:** Lista documentos clínicos da clínica ativa com paginação e filtros combináveis, sem expor o conteúdo clínico completo na listagem. Documentos de outras clínicas nunca são retornados.
+* **Permissão:** `documents:read` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL`).
+* **Query Params:** `?patientId=<uuid>&type=PRESCRIPTION|CERTIFICATE|REPORT|EXAM_REQUEST&status=DRAFT|ISSUED|VOIDED&authorId=<uuid>&search=amoxicilina&q=amoxicilina&startDate=2026-10-01&endDate=2026-10-31&limit=20&page=1&cursor=<uuid>&order=desc|asc` (`limit` de 1 a 100, padrão 20; ordenação decrescente por `updatedAt` / `createdAt` por padrão).
+* **Respostas:** `200 OK` (`{ "data": [ { "id": "...", "documentId": "...", "organizationId": "...", "patientId": "...", "authorId": "...", "templateId": "...", "templateVersion": 1, "type": "PRESCRIPTION", "title": "Receita Simples", "status": "DRAFT", "version": 1, "revisionId": "...", "currentRevisionId": "...", "patient": { "id": "...", "fullName": "..." }, "author": { "id": "...", "fullName": "..." }, "issuedAt": null, "voidedAt": null, "createdAt": "...", "updatedAt": "..." } ], "documents": [...], "pageInfo": { "limit": 20, "page": 1, "totalCount": 10, "hasNextPage": false, "nextCursor": null } }`), `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 MEMBERSHIP_INACTIVE`, `403 PERMISSION_DENIED`.
 
 #### `GET /organizations/:orgSlug/documents/:documentId`
-* **Descrição:** Consulta detalhe, estado, metadados do modelo utilizado (`templateId`, `templateVersion`), versão atual (`version`, `revisionId`) e histórico completo de revisões (`versions`) de um documento da clínica ativa.
+* **Descrição:** Consulta detalhes completos, estado, metadados do modelo utilizado (`templateId`, `templateVersion`), versão atual (`version`, `revisionId`), resumo de paciente e autor (`patient`, `author`) e histórico de revisões (`versions`) de um documento clínico da clínica ativa. Quando o parâmetro opcional `?version=<number>` é informado, retorna o snapshot e conteúdo daquela versão histórica específica.
 * **Permissão:** `documents:read` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL`).
-* **Respostas:** `200 OK` (`{ "id", "documentId", "organizationId", "patientId", "authorId", "templateId", "templateVersion", "type", "title", "content", "variables", "status", "version", "revisionId", "currentRevisionId", "issuedAt", "voidedAt", "createdAt", "updatedAt", "versions": [...], "document": { ... } }`), `403 PERMISSION_DENIED`, `404 NOT_FOUND` (documento inexistente ou pertencente a outra clínica).
+* **Query Params:** `?version=1` (opcional, para consultar snapshot da versão histórica).
+* **Respostas:** `200 OK` (`{ "id", "documentId", "organizationId", "patientId", "authorId", "templateId", "templateVersion", "type", "title", "content", "variables", "status", "version", "revisionId", "currentRevisionId", "patient": { "id", "fullName" }, "author": { "id", "fullName" }, "issuedAt", "voidedAt", "createdAt", "updatedAt", "versions": [...], "document": { ... } }`), `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 MEMBERSHIP_INACTIVE`, `403 PERMISSION_DENIED`, `404 NOT_FOUND` (documento inexistente ou pertencente a outra clínica).
 
 #### `POST /organizations/:orgSlug/documents` (alias: `POST /organizations/:orgSlug/documents/drafts`)
 * **Descrição:** Cria rascunho (`status: "DRAFT"`, `version: 1`) de receita simples (`PRESCRIPTION`), atestado (`CERTIFICATE`), laudo (`REPORT`) ou solicitação de exame (`EXAM_REQUEST`) vinculado a paciente da clínica ativa, autor (`authorId`) e opcionalmente a um modelo ativo (`templateId`, registrando `templateVersion`). Persiste a revisão inicial em `DocumentVersion` (`version: 1`) e registra `DOCUMENT_DRAFT_CREATED` em `AuditLog`. Receita controlada, documento livre/personalizado e modelos arquivados são recusados (`400 VALIDATION_ERROR`).
@@ -790,13 +793,15 @@ O identificador `revisionId` da versão vigente deve ser armazenado pela futura 
 * **Respostas:** `200 OK` (`{ "status": "VOIDED", "voidedAt": "...", "voidReason": "..." }`), `409 DOCUMENT_STATE_CONFLICT`.
 
 #### `GET /organizations/:orgSlug/documents/:documentId/versions`
-* **Descrição:** Retorna a trilha de histórico ordenada de todas as revisões intermediárias e versões salvas do documento (`DocumentVersion`).
+* **Descrição:** Retorna a trilha de histórico ordenada de todas as revisões intermediárias e versões salvas do documento (`DocumentVersion`) com dados de autoria de salvamento (`savedBy`) e indicação da versão ativa (`isActiveVersion`).
 * **Permissão:** `documents:read` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL`).
-* **Respostas:** `200 OK` (`{ "documentId": "...", "currentVersion": 3, "currentRevisionId": "...", "status": "DRAFT", "versions": [ { "id": "...", "revisionId": "...", "documentId": "...", "version": 1, "title": "...", "content": "...", "variables": {}, "templateId": "...", "templateVersion": 1, "savedById": "...", "createdAt": "..." } ] }`), `403 PERMISSION_DENIED`, `404 NOT_FOUND`.
+* **Query Params:** `?order=asc|desc` (ordenação cronológica ascendente por padrão ou descendente `desc`), `?version=<number>` (filtro opcional por versão).
+* **Respostas:** `200 OK` (`{ "documentId": "...", "currentVersion": 3, "currentRevisionId": "...", "status": "DRAFT", "data": [ { "id": "...", "revisionId": "...", "documentId": "...", "version": 1, "title": "...", "content": "...", "variables": {}, "templateId": "...", "templateVersion": 1, "savedById": "...", "savedBy": { "id": "...", "fullName": "..." }, "isActiveVersion": false, "createdAt": "..." } ], "versions": [...] }`), `403 PERMISSION_DENIED`, `404 NOT_FOUND`.
 
 #### `GET /organizations/:orgSlug/documents/:documentId/versions/:versionId`
-* **Descrição:** Consulta um snapshot histórico imutável autorizado.
-* **Permissão:** `documents:read`.
+* **Descrição:** Consulta o snapshot histórico imutável autorizado de uma revisão específica por UUID da revisão (`revisionId`) ou pelo número da versão (`1`, `2`, `3`...). Garante que o conteúdo e variáveis congelados na revisão histórica permaneçam íntegros mesmo após edições subsequentes do documento.
+* **Permissão:** `documents:read` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL`).
+* **Respostas:** `200 OK` (`{ "id": "...", "revisionId": "...", "documentId": "...", "organizationId": "...", "version": 1, "title": "...", "content": "...", "variables": {}, "templateId": "...", "templateVersion": 1, "savedById": "...", "savedBy": { "id": "...", "fullName": "..." }, "isActiveVersion": false, "createdAt": "...", "snapshot": { "version": 1, "title": "...", "content": "...", "variables": {}, "templateId": "...", "templateVersion": 1, "savedBy": { ... }, "createdAt": "..." } }`), `403 PERMISSION_DENIED`, `404 NOT_FOUND` (documento ou versão inexistente ou pertencente a outra clínica).
 
 ---
 
