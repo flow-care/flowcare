@@ -83,27 +83,15 @@ export function AppSidebar({
     <Sidebar collapsible="icon" className="border-0">
       <SidebarHeader>
         <div className="flex h-12 items-center justify-between px-2 group-data-[collapsible=icon]:hidden">
-          {inSettings ? (
-            <Link
-              href={`${basePath}/dashboard`}
-              onClick={() => setOpenMobile(false)}
-              className="flex min-w-0 items-center gap-2 rounded-md text-sm font-medium hover:text-primary focus-visible:outline-2 focus-visible:outline-primary"
-              aria-label="Voltar para o menu principal"
-            >
-              <ChevronLeft className="size-4 shrink-0" />
-              <span className="truncate">Configurações</span>
-            </Link>
-          ) : (
-            <Link href="/app" aria-label="Flowcare — início">
-              <Image
-                src="/logo-1.png"
-                alt="Flowcare"
-                width={1024}
-                height={409}
-                className="h-auto w-28"
-              />
-            </Link>
-          )}
+          <Link href="/app" aria-label="Flowcare — início">
+            <Image
+              src="/logo-1.png"
+              alt="Flowcare"
+              width={1024}
+              height={409}
+              className="h-auto w-28"
+            />
+          </Link>
           <SidebarTrigger aria-label="Fechar ou recolher menu lateral" />
         </div>
         <div className="group/logo-toggle relative hidden size-8 self-center group-data-[collapsible=icon]:block">
@@ -119,22 +107,34 @@ export function AppSidebar({
             className="absolute inset-0 opacity-0 transition-opacity group-hover/logo-toggle:opacity-100 focus-visible:opacity-100"
           />
         </div>
-        {!inSettings && (
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <OrganizationSwitcher
-                current={current}
-                organizations={organizations}
-                onNavigate={() => setOpenMobile(false)}
-                onNewClinic={() => setSheet("new")}
-              />
-            </SidebarMenuItem>
-          </SidebarMenu>
-        )}
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <OrganizationSwitcher
+              current={current}
+              organizations={organizations}
+              onNavigate={() => setOpenMobile(false)}
+              onNewClinic={() => setSheet("new")}
+            />
+          </SidebarMenuItem>
+        </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
           <SidebarMenu>
+            {inSettings && (
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild tooltip="Voltar ao menu principal">
+                  <Link
+                    href={`${basePath}/dashboard`}
+                    aria-label="Voltar ao menu principal"
+                    onClick={() => setOpenMobile(false)}
+                  >
+                    <ChevronLeft />
+                    <span>Configurações</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            )}
             {inSettings
               ? settingsSections.map((section) => {
                   const href = `${settingsPath}/${section.segment}`;
