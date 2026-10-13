@@ -244,6 +244,8 @@ model Organization {
   clinicalDocuments ClinicalDocument[]
   documentVersions DocumentVersion[]
   whatsappSession WhatsAppSession?
+  whatsappMessages WhatsAppMessage[]
+  whatsappPreferences WhatsAppPreference[]
   activeUsers User[] @relation("ActiveOrganization")
   customRoles OrganizationRole[]
 }
@@ -292,6 +294,7 @@ model Appointment {
   confirmation          AppointmentConfirmation?
   confirmationDecisions ConfirmationDecision[]
   creationRequests      AppointmentCreationRequest[]
+  whatsappMessages       WhatsAppMessage[]
 
   @@index([organizationId, scheduledAt, id])
   @@index([organizationId, professionalId, scheduledAt])
@@ -418,12 +421,99 @@ model Patient {
   consultations    Consultation[]
   attachments      PatientAttachment[]
   clinicalDocuments ClinicalDocument[]
+  whatsappPreference WhatsAppPreference?
+  whatsappMessages WhatsAppMessage[]
 
   @@index([organizationId, cpf])
   @@index([organizationId, fullName])
   @@index([organizationId, normalizedName])
   @@index([organizationId, phone])
   @@index([organizationId, createdAt, id])
+}
+
+enum WhatsAppMessageType {
+  APPOINTMENT_CREATED
+  APPOINTMENT_CANCELLED
+  APPOINTMENT_REMINDER
+}
+
+enum WhatsAppMessageStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+model WhatsAppPreference {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @db.Uuid
+  patientId      String   @unique @db.Uuid
+  optedIn        Boolean  @default(false)
+  source         String
+  recordedById   String   @db.Uuid
+  recordedAt     DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, optedIn])
+}
+
+model WhatsAppMessage {
+  id                String               @id @default(uuid()) @db.Uuid
+  organizationId    String               @db.Uuid
+  patientId         String               @db.Uuid
+  appointmentId     String               @db.Uuid
+  eventId           String
+  type              WhatsAppMessageType
+  status            WhatsAppMessageStatus @default(QUEUED)
+  scheduledFor      DateTime             @default(now())
+  sentAt            DateTime?
+  providerMessageHash String?              @unique
+  attemptCount      Int                  @default(0)
+  nextAttemptAt     DateTime             @default(now())
+  leaseUntil        DateTime?
+  uncertainAt       DateTime?
+  errorCode         String?
+  errorReason       String?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  attempts WhatsAppMessageAttempt[]
+  webhookEvents WhatsAppWebhookEvent[]
+
+  @@unique([organizationId, eventId, type])
+  @@index([organizationId, sentAt, id])
+  @@index([organizationId, status, sentAt, id])
+  @@index([organizationId, patientId, sentAt, id])
+  @@index([status, nextAttemptAt])
+}
+
+model WhatsAppMessageAttempt {
+  id          String   @id @default(uuid()) @db.Uuid
+  messageId   String   @db.Uuid
+  number      Int
+  startedAt   DateTime @default(now())
+  completedAt DateTime?
+  providerMessageHash String?
+  errorCode   String?
+  errorReason String?
+  message WhatsAppMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, number])
+}
+
+model WhatsAppWebhookEvent {
+  id             String   @id @default(uuid()) @db.Uuid
+  providerEventId String   @unique
+  messageId      String   @db.Uuid
+  status         WhatsAppMessageStatus
+  receivedAt     DateTime @default(now())
+  message WhatsAppMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
 }
 
 model PatientAttachment {
@@ -748,4 +838,3 @@ model OrganizationRole {
   @@unique([organizationId, name])
   @@index([organizationId, name])
 }
-

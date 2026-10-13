@@ -12,6 +12,16 @@ export interface WhatsAppProvider {
   createSession(name: string): Promise<WahaSession>;
   restartSession(name: string): Promise<void>;
   getQr(name: string): Promise<WahaQr | null>;
+  sendText?(session: string, chatId: string, text: string): Promise<string>;
+}
+
+export class WahaSendError extends Error {
+  constructor(
+    readonly outcome: "temporary" | "permanent" | "uncertain",
+    readonly code: string,
+  ) {
+    super(code);
+  }
 }
 
 const REQUEST_TIMEOUT_MS = 5_000;
@@ -70,6 +80,54 @@ export class WahaClient implements WhatsAppProvider {
     )
       throw providerUnavailable();
     return { mimetype: value.mimetype, data: value.data };
+  }
+
+  async sendText(
+    session: string,
+    chatId: string,
+    text: string,
+  ): Promise<string> {
+    let response: Response;
+    try {
+      const headers: Record<string, string> = {
+        "content-type": "application/json",
+      };
+      if (this.config.apiKey) headers["x-api-key"] = this.config.apiKey;
+      response = await fetch(
+        `${this.config.baseUrl.replace(/\/$/, "")}/api/sendText`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ session, chatId, text }),
+          redirect: "error",
+          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        },
+      );
+    } catch {
+      throw new WahaSendError("uncertain", "PROVIDER_OUTCOME_UNKNOWN");
+    }
+    if (!response.ok)
+      throw new WahaSendError(
+        response.status >= 500 || response.status === 429
+          ? "temporary"
+          : "permanent",
+        `WAHA_HTTP_${response.status}`,
+      );
+    let value: unknown;
+    try {
+      value = await this.readJson(response);
+    } catch {
+      throw new WahaSendError("uncertain", "PROVIDER_RESPONSE_INVALID");
+    }
+    if (
+      !isRecord(value) ||
+      (typeof value.id !== "string" &&
+        !(isRecord(value.id) && typeof value.id._serialized === "string"))
+    )
+      throw new WahaSendError("uncertain", "PROVIDER_RESPONSE_INVALID");
+    return typeof value.id === "string"
+      ? value.id
+      : (value.id as { _serialized: string })._serialized;
   }
 
   private async request(path: string, init: RequestInit = {}) {

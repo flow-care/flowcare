@@ -23,7 +23,7 @@ Esta é uma política de produto conservadora para o canal. A base legal e os av
 
 ## Fila, estados e idempotência
 
-O agendamento é salvo sem esperar o WAHA. No mesmo fluxo transacional, uma saída persistente registra o evento de mensagem; o worker a processa depois. A chave lógica única é `organizationId + eventId + channel`, em que `eventId` identifica uma mudança de estado ou uma versão de lembrete do agendamento. Reprocessar o mesmo evento não cria outra mensagem. Cada tentativa de envio tem identificador próprio e conserva o vínculo com a mensagem lógica e com o identificador retornado pelo provedor. A chave `Idempotency-Key` é exigida no reenvio manual; repetir a mesma chave devolve o mesmo resultado.
+O agendamento é salvo sem esperar o WAHA. No mesmo fluxo transacional, uma saída persistente registra o evento de mensagem; o worker a processa depois. A chave lógica única é `organizationId + eventId + channel`, em que `eventId` identifica uma mudança de estado ou uma versão de lembrete do agendamento. Reprocessar o mesmo evento não cria outra mensagem. Cada tentativa de envio tem identificador próprio e conserva o vínculo com a mensagem lógica e com o hash do identificador retornado pelo provedor, que pode conter o telefone do destinatário. A chave `Idempotency-Key` é exigida no reenvio manual; repetir a mesma chave devolve o mesmo resultado.
 
 | Estado | Significado |
 |---|---|

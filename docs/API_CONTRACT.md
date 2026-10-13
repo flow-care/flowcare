@@ -880,7 +880,7 @@ O identificador `revisionId` da versão vigente deve ser armazenado pela futura 
 ### Módulo 10: Comunicações & Integração WhatsApp (WAHA)
 *(Ref: Issues [#196](https://github.com/Flowcare-team/flowcare-monorepo/issues/196), [#295](https://github.com/Flowcare-team/flowcare-monorepo/issues/295)–[#298](https://github.com/Flowcare-team/flowcare-monorepo/issues/298))*
 
-**Decisão do MVP:** ver [catálogo, consentimento e estados de mensagens](MESSAGING_MVP.md). Apenas confirmação de agendamento, cancelamento e lembrete 24 horas antes são enviados por WhatsApp, com opt-in ativo do paciente. Mensagens de autenticação e convite usam e-mail. As rotas abaixo ainda são planejadas.
+**Decisão do MVP:** ver [catálogo, consentimento e estados de mensagens](MESSAGING_MVP.md). Apenas confirmação de agendamento, cancelamento e lembrete 24 horas antes são enviados por WhatsApp, com opt-in ativo do paciente. Mensagens de autenticação e convite usam e-mail. As rotas de conexão, histórico, preferência e webhook estão implementadas; templates e reenvio permanecem planejados.
 
 #### `GET /organizations/:orgSlug/communications/whatsapp/status`
 * **Descrição:** Consulta o status da sessão do WhatsApp (conectado, desconectado, QR code pendente).
@@ -894,8 +894,9 @@ O identificador `revisionId` da versão vigente deve ser armazenado pela futura 
 
 #### `GET /organizations/:orgSlug/communications/messages`
 * **Descrição:** Lista o histórico paginado de mensagens operacionais com filtros por estado e período; telefone mascarado.
-* **Permissão:** `communications:read`.
-* **Respostas:** `200 OK` (`{ "items": [{ "id": "msg_1", "type": "APPOINTMENT_REMINDER", "status": "QUEUED", "phoneMasked": "(11) 98765-****" }], "nextCursor": null }`). Estados: `QUEUED`, `SENT`, `DELIVERED`, `READ`, `FAILED`.
+* **Permissão:** `communications:read` ou `appointments:read` para membros ativos da clínica.
+* **Query:** `status`, `patientId`, `from`, `to` (datas ISO UTC, aplicadas a `sentAt`), `cursor` e `limit` (1–100, padrão 25). Ordenação: `sentAt DESC`, `createdAt DESC`, `id DESC`; mensagens ainda não enviadas aparecem após as enviadas.
+* **Respostas:** `200 OK` (`{ "items": [{ "id": "msg_1", "type": "APPOINTMENT_REMINDER", "status": "QUEUED", "patientId": "...", "appointmentId": "...", "phoneMasked": "(11) 98765-****", "createdAt": "...", "sentAt": null, "errorCode": null, "errorReason": null }], "nextCursor": null }`). Estados: `QUEUED`, `SENT`, `DELIVERED`, `READ`, `FAILED`.
 
 #### `PATCH /organizations/:orgSlug/patients/:patientId/communication-preferences`
 * **Descrição:** Registra opt-in ou opt-out de WhatsApp informado pelo paciente, com origem, autor e horário auditáveis. Opt-out cancela disparos pendentes quando possível.
@@ -911,7 +912,7 @@ O identificador `revisionId` da versão vigente deve ser armazenado pela futura 
 * **Permissão:** `communications:write`.
 
 #### `POST /webhooks/whatsapp/status`
-* **Descrição:** Recebe atualização de entrega do WAHA após validar segredo configurado; evento repetido é idempotente e atualização fora de ordem não regride o estado.
+* **Descrição:** Recebe `message.ack` do WAHA. Exige `X-Webhook-Hmac` (HMAC-SHA512 hexadecimal do corpo bruto com `WAHA_WEBHOOK_SECRET`), `X-Webhook-Request-Id` e `X-Webhook-Timestamp` (milissegundos, janela de cinco minutos). Evento repetido é idempotente e atualização fora de ordem não regride o estado. Se o segredo não está configurado, falha fechado. Retorna `{ "accepted": true }`.
 * **Permissão:** segredo do webhook, sem sessão de usuário.
 
 #### `POST /organizations/:orgSlug/communications/messages/:messageId/resend`

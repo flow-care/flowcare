@@ -27,6 +27,8 @@ function fixture() {
   let pause = false;
   let casMiss = false;
   const tx = {
+    whatsAppPreference: { findFirst: async () => null },
+    whatsAppMessage: { updateMany: async () => ({ count: 0 }) },
     $executeRaw: async () => 1,
     appointment: {
       findFirst: async ({
