@@ -39,9 +39,11 @@ import {
   type SettingsSection,
   settingsSections,
 } from "@/lib/app-navigation";
+import type { CurrentUserProfile } from "@/server/invites";
 import type { OrganizationSummary } from "@/server/organizations";
 import { useAppSheet } from "./app-sheet-host";
 import { OrganizationSwitcher } from "./organization-switcher";
+import { ProfileMenu } from "./profile-menu";
 
 const sectionIcons: Record<AppSection, typeof LayoutDashboard> = {
   dashboard: LayoutDashboard,
@@ -66,9 +68,11 @@ const settingsIcons: Record<SettingsSection, typeof Settings> = {
 export function AppSidebar({
   current,
   organizations,
+  user,
 }: {
   current: OrganizationSummary;
   organizations: OrganizationSummary[];
+  user: CurrentUserProfile | null;
 }) {
   const pathname = usePathname();
   const { setOpenMobile } = useSidebar();
@@ -192,9 +196,9 @@ export function AppSidebar({
           </SidebarMenu>
         </SidebarGroup>
       </SidebarContent>
-      {!inSettings && canOpenSection(current.role, "settings") && (
-        <SidebarFooter>
-          <SidebarMenu>
+      <SidebarFooter>
+        <SidebarMenu>
+          {!inSettings && canOpenSection(current.role, "settings") && (
             <SidebarMenuItem>
               <SidebarMenuButton asChild tooltip="Configurações">
                 <Link
@@ -207,9 +211,10 @@ export function AppSidebar({
                 </Link>
               </SidebarMenuButton>
             </SidebarMenuItem>
-          </SidebarMenu>
-        </SidebarFooter>
-      )}
+          )}
+          <ProfileMenu user={user} />
+        </SidebarMenu>
+      </SidebarFooter>
     </Sidebar>
   );
 }
