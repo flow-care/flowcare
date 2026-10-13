@@ -67,6 +67,19 @@ enum ReceptionQueueStatus {
   NO_SHOW
 }
 
+enum ConsultationStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum AnamnesisStatus {
+  PENDING
+  DRAFT
+  APPROVED
+}
+
 model OrganizationInvite {
   id             String         @id @default(uuid()) @db.Uuid
   organizationId String         @db.Uuid
@@ -110,6 +123,7 @@ model User {
   activeOrganizationId String? @db.Uuid
   activeOrganization Organization? @relation("ActiveOrganization", fields: [activeOrganizationId], references: [id], onDelete: SetNull)
   professionalAppointments Appointment[]
+  professionalConsultations Consultation[]
   professionalSchedulePauses ProfessionalSchedulePause[]
   scheduleExceptions ScheduleException[]
   decidedConfirmations AppointmentConfirmation[] @relation("ConfirmationDecidedBy")
@@ -117,6 +131,8 @@ model User {
   uploadedPatientAttachments PatientAttachment[] @relation("PatientAttachmentUploadedBy")
   archivedPatientAttachments PatientAttachment[] @relation("PatientAttachmentArchivedBy")
   notificationPreferences UserNotificationPreference[]
+  authoredDocuments  ClinicalDocument[] @relation("ClinicalDocumentAuthor")
+  savedDocumentVersions DocumentVersion[] @relation("DocumentVersionSavedBy")
 
   @@index([email])
 }
@@ -215,6 +231,7 @@ model Organization {
   documentTemplates DocumentTemplate[]
   documentTemplateVersions DocumentTemplateVersion[]
   appointments Appointment[]
+  consultations Consultation[]
   appointmentConfirmations AppointmentConfirmation[]
   confirmationDecisions ConfirmationDecision[]
   appointmentCreationRequests AppointmentCreationRequest[]
@@ -223,6 +240,8 @@ model Organization {
   patients Patient[]
   patientCreationRequests PatientCreationRequest[]
   patientAttachments PatientAttachment[]
+  clinicalDocuments ClinicalDocument[]
+  documentVersions DocumentVersion[]
   whatsappSession WhatsAppSession?
   activeUsers User[] @relation("ActiveOrganization")
 }
@@ -266,6 +285,7 @@ model Appointment {
   organization          Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   patient               Patient                      @relation(fields: [patientId], references: [id], onDelete: Restrict)
   professional          User                         @relation(fields: [professionalId], references: [id], onDelete: Restrict)
+  consultation          Consultation?
   confirmation          AppointmentConfirmation?
   confirmationDecisions ConfirmationDecision[]
   creationRequests      AppointmentCreationRequest[]
@@ -392,7 +412,9 @@ model Patient {
   organization     Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   creationRequests PatientCreationRequest[]
   appointments     Appointment[]
+  consultations    Consultation[]
   attachments      PatientAttachment[]
+  clinicalDocuments ClinicalDocument[]
 
   @@index([organizationId, cpf])
   @@index([organizationId, fullName])
@@ -520,9 +542,39 @@ model AnamnesisTopicRevision {
   topics    Json
   createdAt DateTime @default(now())
 
-  config AnamnesisTopicConfig @relation(fields: [configId], references: [id], onDelete: Restrict)
+  config        AnamnesisTopicConfig @relation(fields: [configId], references: [id], onDelete: Restrict)
+  consultations Consultation[]
 
   @@unique([configId, version])
+}
+
+model Consultation {
+  id                       String             @id @default(uuid()) @db.Uuid
+  organizationId           String             @db.Uuid
+  appointmentId            String?            @unique @db.Uuid
+  patientId                String             @db.Uuid
+  professionalId           String             @db.Uuid
+  scheduledAt              DateTime
+  startedAt                DateTime?
+  completedAt              DateTime?
+  status                   ConsultationStatus @default(SCHEDULED)
+  anamnesisStatus          AnamnesisStatus    @default(PENDING)
+  anamnesisTopicRevisionId String?            @db.Uuid
+  version                  Int                @default(0)
+  createdAt                DateTime           @default(now())
+  updatedAt                DateTime           @updatedAt
+
+  organization           Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  appointment            Appointment?            @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  patient                Patient                 @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  professional           User                    @relation(fields: [professionalId], references: [id], onDelete: Restrict)
+  anamnesisTopicRevision AnamnesisTopicRevision? @relation(fields: [anamnesisTopicRevisionId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, scheduledAt, id])
+  @@index([organizationId, professionalId, scheduledAt])
+  @@index([organizationId, patientId, scheduledAt])
+  @@index([organizationId, status, scheduledAt])
+  @@index([organizationId, anamnesisStatus, scheduledAt])
 }
 
 // Progresso do onboarding guiado (issue #215) — sobrevive a recarregar a página.
@@ -575,6 +627,12 @@ enum TemplateStatus {
   ARCHIVED
 }
 
+enum DocumentStatus {
+  DRAFT
+  ISSUED
+  VOIDED
+}
+
 model DocumentTemplate {
   id             String         @id @default(uuid()) @db.Uuid
   organizationId String?        @db.Uuid
@@ -589,8 +647,10 @@ model DocumentTemplate {
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
-  organization Organization?             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  versions     DocumentTemplateVersion[]
+  organization      Organization?             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  versions          DocumentTemplateVersion[]
+  clinicalDocuments ClinicalDocument[]
+  documentVersions  DocumentVersion[]
 
   @@index([organizationId, status, type])
   @@index([organizationId, createdAt])
@@ -615,4 +675,56 @@ model DocumentTemplateVersion {
 
   @@unique([templateId, version])
   @@index([organizationId, templateId])
+}
+
+model ClinicalDocument {
+  id                String         @id @default(uuid()) @db.Uuid
+  organizationId    String         @db.Uuid
+  patientId         String         @db.Uuid
+  authorId          String         @db.Uuid
+  templateId        String?        @db.Uuid
+  templateVersion   Int?
+  type              DocumentType
+  title             String
+  content           String
+  variables         Json           @default("{}")
+  status            DocumentStatus @default(DRAFT)
+  version           Int            @default(1)
+  currentRevisionId String?        @db.Uuid
+  issuedAt          DateTime?
+  voidedAt          DateTime?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  patient      Patient           @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  author       User              @relation("ClinicalDocumentAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  template     DocumentTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  versions     DocumentVersion[]
+
+  @@index([organizationId, patientId, createdAt])
+  @@index([organizationId, authorId, createdAt])
+  @@index([organizationId, status, type])
+}
+
+model DocumentVersion {
+  id              String   @id @default(uuid()) @db.Uuid
+  documentId      String   @db.Uuid
+  organizationId  String   @db.Uuid
+  version         Int
+  title           String
+  content         String
+  variables       Json     @default("{}")
+  templateId      String?  @db.Uuid
+  templateVersion Int?
+  savedById       String   @db.Uuid
+  createdAt       DateTime @default(now())
+
+  document     ClinicalDocument  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  template     DocumentTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  savedBy      User              @relation("DocumentVersionSavedBy", fields: [savedById], references: [id], onDelete: Restrict)
+
+  @@unique([documentId, version])
+  @@index([organizationId, documentId, version])
 }

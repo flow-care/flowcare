@@ -543,8 +543,14 @@ O fluxo obrigatório é:
 * **Body:** `{ "version": 1, "topics": [{ "key": "history", "label": "Histórico", "active": true }] }`. `version` é a versão atual esperada, para evitar perda de alterações concorrentes. Máximo de 50 tópicos, chaves únicas.
 * **Respostas:** `200 OK` com a nova versão e `revisionId`; `400 VALIDATION_ERROR` para lista inválida ou retirada de obrigatório; `409 VERSION_CONFLICT` para versão desatualizada.
 
-O identificador `revisionId` da versão vigente deve ser armazenado pela futura criação de anamnese. O módulo de consultas/anamneses ainda não existe no backend; esta rota não altera anamneses existentes.
+O identificador `revisionId` da versão vigente deve ser armazenado pela futura criação de anamnese. Esta rota de tópicos não altera anamneses existentes.
 *(Ref: Issues [#195](https://github.com/Flowcare-team/flowcare-monorepo/issues/195), [#262](https://github.com/Flowcare-team/flowcare-monorepo/issues/262)–[#267](https://github.com/Flowcare-team/flowcare-monorepo/issues/267))*
+
+#### `GET /organizations/:orgSlug/consultations`
+* **Descrição:** Lista os atendimentos clínicos da clínica ativa com paginação (por cursor ou página) e filtros combináveis por período (`startDate`, `endDate` no fuso horário da clínica), profissional (`professionalId`), paciente (`patientId`), busca textual pelo nome do paciente (`search` ou `q`, insensível a caixa e acentuação), status do atendimento (`SCHEDULED`, `IN_PROGRESS`, `COMPLETED`, `CANCELLED`) e status da anamnese (`PENDING`, `DRAFT`, `APPROVED`), ordenados por `scheduledAt` e `id` decrescentes.
+* **Permissão:** `consultations:read` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL`). Papéis `RECEPTIONIST` e `ADMIN` sem atuação clínica recebem `403 PERMISSION_DENIED`.
+* **Query Params:** `?startDate=2026-10-01&endDate=2026-10-31&professionalId=<uuid>&patientId=<uuid>&status=SCHEDULED|IN_PROGRESS|COMPLETED|CANCELLED&anamnesisStatus=PENDING|DRAFT|APPROVED&search=joao&limit=20&page=1&cursor=<uuid>` (`limit` de 1 a 100, padrão 20).
+* **Respostas:** `200 OK` (`{ "timeZone": "America/Fortaleza", "data": [{ "id": "...", "appointmentId": "...", "patientId": "...", "professionalId": "...", "scheduledAt": "2026-10-12T13:00:00.000Z", "localScheduledAt": "2026-10-12T10:00:00", "startedAt": null, "completedAt": null, "status": "SCHEDULED", "anamnesisStatus": "PENDING", "patient": { "id": "...", "fullName": "João Carlos Oliveira" }, "professional": { "id": "...", "fullName": "Dr. Bruno Lima", "professionalTitle": "Médico Clínico", "registrationNumber": "CRM/CE 67890" }, "version": 0, "createdAt": "...", "updatedAt": "..." }], "items": [...], "pageInfo": { "limit": 20, "page": 1, "totalCount": 1, "hasNextPage": false, "nextCursor": null } }`), `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 MEMBERSHIP_INACTIVE`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`.
 
 #### `POST /organizations/:orgSlug/consultations`
 * **Descrição:** Inicia uma nova consulta clínica vinculada a um agendamento prévio e paciente.
@@ -581,27 +587,28 @@ O identificador `revisionId` da versão vigente deve ser armazenado pela futura 
 ### Módulo 8: Documentos Clínicos, Versionamento & Anulação
 *(Ref: Issues [#195](https://github.com/Flowcare-team/flowcare-monorepo/issues/195), [#273](https://github.com/Flowcare-team/flowcare-monorepo/issues/273)–[#278](https://github.com/Flowcare-team/flowcare-monorepo/issues/278))*
 
-**Decisão do MVP:** ver [ciclo de vida e snapshot](DOCUMENTS_MVP.md). Receitas controladas e assinatura eletrônica não fazem parte do MVP. `ISSUED` indica PDF final para impressão e assinatura manuscrita, não documento eletrônico assinado. Todas as rotas deste módulo ainda são planejadas.
+**Decisão do MVP:** ver [ciclo de vida e snapshot](DOCUMENTS_MVP.md). Receitas controladas e assinatura eletrônica não fazem parte do MVP. `ISSUED` indica PDF final para impressão e assinatura manuscrita, não documento eletrônico assinado. As rotas de criação, leitura, edição de rascunho e histórico de revisões (`#273`) estão implementadas; emissão, PDF, retificação e anulação seguem planejadas.
 
 #### `GET /organizations/:orgSlug/documents`
 * **Descrição:** Lista documentos da clínica com paginação e filtros, sem conteúdo clínico completo na listagem.
 * **Permissão:** `documents:read`.
 
 #### `GET /organizations/:orgSlug/documents/:documentId`
-* **Descrição:** Consulta detalhe, estado e vínculo de versões de um documento.
-* **Permissão:** `documents:read`.
+* **Descrição:** Consulta detalhe, estado, metadados do modelo utilizado (`templateId`, `templateVersion`), versão atual (`version`, `revisionId`) e histórico completo de revisões (`versions`) de um documento da clínica ativa.
+* **Permissão:** `documents:read` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL`).
+* **Respostas:** `200 OK` (`{ "id", "documentId", "organizationId", "patientId", "authorId", "templateId", "templateVersion", "type", "title", "content", "variables", "status", "version", "revisionId", "currentRevisionId", "issuedAt", "voidedAt", "createdAt", "updatedAt", "versions": [...], "document": { ... } }`), `403 PERMISSION_DENIED`, `404 NOT_FOUND` (documento inexistente ou pertencente a outra clínica).
 
-#### `POST /organizations/:orgSlug/documents`
-* **Descrição:** Cria rascunho de receita simples, atestado, pedido de exame ou laudo. Receita controlada e documento livre/personalizado são recusados no MVP.
-* **Permissão:** `documents:write`.
-* **Body:** `{ "patientId": "pat_1", "type": "PRESCRIPTION", "title": "Receita Simples", "content": "..." }`
-* **Respostas:** `201 Created` (`{ "documentId": "doc_99", "status": "DRAFT", "version": 1 }`).
+#### `POST /organizations/:orgSlug/documents` (alias: `POST /organizations/:orgSlug/documents/drafts`)
+* **Descrição:** Cria rascunho (`status: "DRAFT"`, `version: 1`) de receita simples (`PRESCRIPTION`), atestado (`CERTIFICATE`), laudo (`REPORT`) ou solicitação de exame (`EXAM_REQUEST`) vinculado a paciente da clínica ativa, autor (`authorId`) e opcionalmente a um modelo ativo (`templateId`, registrando `templateVersion`). Persiste a revisão inicial em `DocumentVersion` (`version: 1`) e registra `DOCUMENT_DRAFT_CREATED` em `AuditLog`. Receita controlada, documento livre/personalizado e modelos arquivados são recusados (`400 VALIDATION_ERROR`).
+* **Permissão:** `documents:write` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL`).
+* **Body:** `{ "patientId": "<uuid>", "type": "PRESCRIPTION", "templateId": "<uuid opcional>", "title": "Receita Simples", "content": "...", "variables": { ... } }` (`body` também é aceito como alias de `content`; quando `templateId` é informado, `title` e `content` herdam o padrão do modelo caso omitidos).
+* **Respostas:** `201 Created` (mesmo DTO de `GET /organizations/:orgSlug/documents/:documentId` com `status: "DRAFT"` e `version: 1`), `400 VALIDATION_ERROR`, `403 PERMISSION_DENIED`, `404 NOT_FOUND` (paciente ou modelo de outra clínica/inexistente).
 
-#### `PATCH /organizations/:orgSlug/documents/:documentId`
-* **Descrição:** Edita o conteúdo de um documento **enquanto ele for RASCUNHO** (`DRAFT`).
-* **Permissão:** `documents:write`.
-* **Body:** `{ "content": "Novo texto...", "version": 1 }`
-* **Respostas:** `200 OK`, `409 DOCUMENT_STATE_CONFLICT` (se não estiver em `DRAFT`), `409 VERSION_CONFLICT`.
+#### `PATCH /organizations/:orgSlug/documents/:documentId` (aliases: `PUT /organizations/:orgSlug/documents/:documentId`, `PATCH/PUT .../documents/:documentId/draft`)
+* **Descrição:** Atualiza um documento **enquanto ele estiver em rascunho** (`DRAFT`) com controle de concorrência otimista (`version`). Cada salvamento incrementa `version`, persiste uma nova revisão intermediária imutável em `DocumentVersion` (`revisionId`) e registra `DOCUMENT_DRAFT_UPDATED` em `AuditLog`. Documentos `ISSUED` ou `VOIDED` são rejeitados sem alteração.
+* **Permissão:** `documents:write` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL`).
+* **Body:** `{ "version": 1, "title": "...", "content": "Novo texto...", "templateId": "<uuid|null>", "variables": { ... } }` (exige `version` e ao menos um campo editável).
+* **Respostas:** `200 OK` (DTO atualizado com `version: 2`, novo `revisionId` e lista `versions` atualizada), `400 VALIDATION_ERROR`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`, `409 DOCUMENT_STATE_CONFLICT` (quando `status !== "DRAFT"`), `409 VERSION_CONFLICT` (quando `version` diverge da versão atual).
 
 #### `POST /organizations/:orgSlug/documents/:documentId/issue`
 * **Descrição:** Finaliza o documento com snapshot imutável e PDF para impressão e assinatura manuscrita; não assina eletronicamente.
@@ -626,9 +633,9 @@ O identificador `revisionId` da versão vigente deve ser armazenado pela futura 
 * **Respostas:** `200 OK` (`{ "status": "VOIDED", "voidedAt": "...", "voidReason": "..." }`), `409 DOCUMENT_STATE_CONFLICT`.
 
 #### `GET /organizations/:orgSlug/documents/:documentId/versions`
-* **Descrição:** Retorna a trilha de histórico de todas as alterações e snapshots do documento.
-* **Permissão:** `documents:read`.
-* **Respostas:** `200 OK` (`{ "versions": [ { "version": 1, "status": "DRAFT" }, { "version": 2, "status": "ISSUED" } ] }`).
+* **Descrição:** Retorna a trilha de histórico ordenada de todas as revisões intermediárias e versões salvas do documento (`DocumentVersion`).
+* **Permissão:** `documents:read` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL`).
+* **Respostas:** `200 OK` (`{ "documentId": "...", "currentVersion": 3, "currentRevisionId": "...", "status": "DRAFT", "versions": [ { "id": "...", "revisionId": "...", "documentId": "...", "version": 1, "title": "...", "content": "...", "variables": {}, "templateId": "...", "templateVersion": 1, "savedById": "...", "createdAt": "..." } ] }`), `403 PERMISSION_DENIED`, `404 NOT_FOUND`.
 
 #### `GET /organizations/:orgSlug/documents/:documentId/versions/:versionId`
 * **Descrição:** Consulta um snapshot histórico imutável autorizado.
