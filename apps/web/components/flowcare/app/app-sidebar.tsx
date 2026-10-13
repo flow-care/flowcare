@@ -123,14 +123,20 @@ export function AppSidebar({
           <SidebarMenu>
             {inSettings && (
               <SidebarMenuItem>
-                <SidebarMenuButton asChild tooltip="Voltar ao menu principal">
+                <SidebarMenuButton
+                  asChild
+                  tooltip="Voltar ao menu principal"
+                  className="relative justify-center"
+                >
                   <Link
                     href={`${basePath}/dashboard`}
                     aria-label="Voltar ao menu principal"
                     onClick={() => setOpenMobile(false)}
                   >
-                    <ChevronLeft />
-                    <span>Configurações</span>
+                    <ChevronLeft className="absolute left-2" />
+                    <span className="group-data-[collapsible=icon]:hidden">
+                      Configurações
+                    </span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
