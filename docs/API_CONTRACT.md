@@ -77,6 +77,7 @@ Em caso de falha (códigos HTTP 4xx e 5xx), a API responde com a seguinte estrut
 | **409** | `INVALID_STATE_TRANSITION` | Tentativa de aplicar transição fora da máquina de estados permitida para o recurso. |
 | **410** | `INVITE_EXPIRED` | O convite para a equipe expirou ou foi revogado. |
 | **422** | `BUSINESS_RULE_VIOLATION` | Violação de regra de negócio com estado válido (ex: campos clínicos obrigatórios ausentes para emissão). |
+| **422** | `CLINICAL_QUALIFICATION_REQUIRED` | Dados profissionais exigidos ausentes para atribuição de papel clínico (`registrationNumber` e `professionalTitle`). |
 | **422** | `INVALID_TEMPLATE_STRUCTURE` | Estrutura de modelo de documento inválida (ex: título/conteúdo vazio, chaves desbalanceadas ou placeholder malformado). |
 | **422** | `INVALID_TEMPLATE_VARIABLE` | Variável automática fora do catálogo homologado (`APPROVED_TEMPLATE_VARIABLES`). |
 | **429** | `RATE_LIMITED` | Limite de requisições excedido. |
@@ -375,10 +376,25 @@ O fluxo obrigatório é:
 * **Regras:** Convite válido por 7 dias, uso único e vinculado a e-mail, clínica e papel. Revogação ou reenvio invalidam o token anterior. Aceite repetido pelo mesmo usuário é idempotente e retorna o slug da clínica (`200 OK`) sem duplicar vínculos ou registros de auditoria.
 
 #### `PATCH /organizations/:orgSlug/members/:memberId/role`
-* **Descrição:** Altera o papel de um membro. Valida obrigatoriamente a proteção do último administrador.
-* **Permissão:** `team:manage`.
-* **Body:** `{ "role": "PROFESSIONAL", "version": 1 }`
-* **Respostas:** `200 OK`, `409 LAST_ADMIN_REQUIRED`, `409 VERSION_CONFLICT`.
+* **Descrição:** Altera o papel de outro membro ativo da clínica, aplicando controle de concorrência otimista (`version`), validação de habilitação clínica e proteção contra perda do último administrador.
+* **Permissão:** `team:manage` (`ADMIN` ou `ADMIN_PROFESSIONAL`).
+* **Body:**
+  ```json
+  {
+    "role": "PROFESSIONAL",
+    "version": 1
+  }
+  ```
+  `role` aceita os papéis fixos do sistema (`ADMIN`, `ADMIN_PROFESSIONAL`, `PROFESSIONAL`, `RECEPTIONIST`). `version` é o número da versão atual do `Membership` a ser incrementado atomicamente.
+* **Validações e regras:**
+  * **Isolamento multi-tenant:** Se `memberId` não pertencer à clínica resolvida por `:orgSlug`, responde `404 NOT_FOUND` sem revelar dados.
+  * **Proibição de autoalteração:** Administrador não pode alterar o próprio papel por esta rota (`auth.userId === membership.userId`), retornando `403 FORBIDDEN` (`"Não é permitido alterar o próprio papel por esta rota."`).
+  * **Vínculo ativo:** Vínculos inativos (`SUSPENDED` ou `INVITED`) retornam `403 MEMBERSHIP_INACTIVE`.
+  * **Proteção do último administrador:** Rebaixar membro de papel administrativo (`ADMIN` ou `ADMIN_PROFESSIONAL`) para não administrativo (`PROFESSIONAL` ou `RECEPTIONIST`) exige que a clínica mantenha ao menos um outro administrador ativo (`status: "ACTIVE"`). Caso contrário, responde `409 LAST_ADMIN_REQUIRED` (`"A clínica deve manter ao menos um administrador ativo."`).
+  * **Habilitação clínica:** Atribuição de papel clínico (`PROFESSIONAL` ou `ADMIN_PROFESSIONAL`) exige dados profissionais cadastrados (`registrationNumber` e `professionalTitle` no usuário alvo). Ausência desses dados retorna `422 CLINICAL_QUALIFICATION_REQUIRED` (`"Dados profissionais exigidos para atribuição de papel clínico."`).
+  * **Concorrência otimista:** Se o `version` enviado for divergente da versão atual no banco, retorna `409 VERSION_CONFLICT`.
+  * **Efeito imediato e auditoria:** O novo papel vale imediatamente na próxima requisição do membro. Registra evento de auditoria `MEMBER_ROLE_CHANGED` (`targetType: "MEMBERSHIP"`, `targetId: membership.id`, `metadata: { targetUserId, previousRole, newRole, version }`) na mesma transação.
+* **Respostas:** `200 OK` com dados do membro atualizado (`id`, `userId`, `organizationId`, `role`, `status`, `version`, `createdAt`, `updatedAt`, `user`, `member`), `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 FORBIDDEN`, `403 MEMBERSHIP_INACTIVE`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`, `409 LAST_ADMIN_REQUIRED`, `409 VERSION_CONFLICT`, `422 CLINICAL_QUALIFICATION_REQUIRED`.
 
 #### `DELETE /organizations/:orgSlug/members/:memberId` (aliases: `DELETE /organizations/:orgSlug/settings/team/:memberId`, `DELETE /settings/team/:memberId`)
 * **Descrição:** Remove um membro da clínica desativando seu vínculo (`status: "SUSPENDED"`) de forma segura, garantindo isolamento multi-tenant, bloqueio imediato de acesso à clínica com `403 MEMBERSHIP_INACTIVE`, preservação da integridade referencial dos registros clínicos históricos criados pelo profissional, proteção contra remoção do último administrador e gravação transacional na trilha de auditoria (`MEMBER_REMOVED`).
@@ -430,6 +446,33 @@ O fluxo obrigatório é:
   * Nome deve ser único dentro da mesma clínica (colisão retorna `409 ALREADY_EXISTS`), mas pode ser repetido em clínicas distintas (isolamento multi-tenant).
   * `capabilities`: array não vazio contendo apenas strings válidas do catálogo oficial de capacidades (`ALLOWED_CUSTOM_ROLE_CAPABILITIES`). Capacidades inválidas ou desconhecidas são rejeitadas com `400 INVALID_CAPABILITY` e `details.invalidCapabilities`.
 * **Respostas:** `201 Created` (`{ "id": "...", "organizationId": "...", "name": "Coordenador de Atendimento", "description": "...", "capabilities": [...], "createdAt": "...", "updatedAt": "...", "isSystem": false, "role": { ... } }`), `400 VALIDATION_ERROR`, `400 INVALID_CAPABILITY`, `401 UNAUTHENTICATED`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`, `409 ALREADY_EXISTS`, `409 ROLE_NAME_CONFLICT`.
+
+#### `PATCH /organizations/:orgSlug/roles/:roleId` (aliases: `PUT /organizations/:orgSlug/roles/:roleId`, `PATCH /organizations/:orgSlug/settings/roles/:id`, `PATCH /settings/roles/:id`)
+* **Descrição:** Atualiza o nome, a descrição ou as capacidades de um papel personalizado existente no escopo da clínica ativa. A alteração de capacidades entra em vigor imediatamente para todos os membros que possuem o papel atribuído. Grava `ROLE_UPDATED` em `AuditLog` (`targetType: "ORGANIZATION_ROLE"`, `targetId: role.id`, `metadata: { previousName, newName, previousCapabilities, newCapabilities, diff }`) na mesma transação.
+* **Permissão:** `team:manage`.
+* **Body:**
+  ```json
+  {
+    "name": "Coordenador de Recepção e Atendimento",
+    "description": "Supervisão da recepção, agendamentos e prontuários",
+    "capabilities": [
+      "patients:read",
+      "patients:write",
+      "appointments:read",
+      "appointments:write",
+      "reception:read",
+      "reception:write",
+      "consultations:read"
+    ]
+  }
+  ```
+* **Validações e regras:**
+  * **Imutabilidade de papéis do sistema:** Papéis fixos do sistema (`ADMIN`, `ADMIN_PROFESSIONAL`, `PROFESSIONAL`, `RECEPTIONIST`) são imutáveis e não podem ser editados (`400 RESERVED_ROLE_IMMUTABLE`).
+  * **Isolamento multi-tenant:** O papel deve pertencer à clínica resolvida pelo `orgSlug`. Tentativas de editar papéis de outra clínica ou papéis inexistentes retornam `404 NOT_FOUND`.
+  * `name` (quando enviado): 2 a 50 caracteres após trim. Não pode coincidir com nomes reservados pelo sistema (`409 ROLE_NAME_CONFLICT`) nem colidir com outro papel personalizado na mesma clínica (`409 ALREADY_EXISTS`).
+  * `capabilities` (quando enviado): array não vazio contendo apenas capacidades homologadas em `ALLOWED_CUSTOM_ROLE_CAPABILITIES`. Capacidades desconhecidas ou inválidas são rejeitadas com `400 INVALID_CAPABILITY` e `details.invalidCapabilities`. Lista vazia é rejeitada com `400 VALIDATION_ERROR`.
+  * Atualização e gravação na trilha de auditoria (`AuditLog`) são executadas atomicamente na mesma transação.
+* **Respostas:** `200 OK` (`{ "id": "...", "organizationId": "...", "name": "...", "description": "...", "capabilities": [...], "createdAt": "...", "updatedAt": "...", "isSystem": false, "role": { ... } }`), `400 VALIDATION_ERROR`, `400 INVALID_CAPABILITY`, `400 RESERVED_ROLE_IMMUTABLE`, `401 UNAUTHENTICATED`, `403 MEMBERSHIP_INACTIVE`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`, `409 ALREADY_EXISTS`, `409 ROLE_NAME_CONFLICT`.
 
 ---
 

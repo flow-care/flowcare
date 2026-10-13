@@ -21,6 +21,23 @@ export function teamModule(deps: { prisma: PrismaClient; jwtSecret: string }) {
         response: { 200: m.listMembersResponse },
       },
     )
+    .patch(
+      "/organizations/:orgSlug/members/:memberId/role",
+      ({ organizationAccess, auth, params, body }) =>
+        service.updateMemberRole({
+          organizationId: organizationAccess.organizationId,
+          actorUserId: auth!.userId,
+          memberId: params.memberId,
+          role: body.role,
+          version: body.version,
+        }),
+      {
+        params: m.memberRoleParams,
+        body: m.updateMemberRoleBody,
+        organizationAccess: "team:manage",
+        response: { 200: m.updateMemberRoleResponse },
+      },
+    )
     .delete(
       "/organizations/:orgSlug/members/:memberId",
       ({ organizationAccess, auth, params }) =>

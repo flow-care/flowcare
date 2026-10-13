@@ -435,6 +435,7 @@ export class AuditLogger {
         | "TEAM_INVITE_REVOKED"
         | "TEAM_INVITE_RESENT"
         | "MEMBERSHIP_ROLE_CHANGED"
+        | "MEMBER_ROLE_CHANGED"
         | "MEMBERSHIP_STATUS_CHANGED"
         | "MEMBER_REMOVED";
       targetType?: "ORGANIZATION_INVITE" | "MEMBERSHIP";

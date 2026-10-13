@@ -8,9 +8,9 @@ import type {
 } from "../src/generated/prisma/client";
 import type {
   CreateRoleResponse,
-  CustomRoleItem,
   ListCapabilitiesResponse,
   ListRolesResponse,
+  UpdateRoleResponse,
 } from "../src/modules/roles/model";
 import { signSessionToken } from "../src/services/session-token";
 
@@ -171,10 +171,20 @@ function setup() {
       },
     },
     organizationRole: {
+      findUnique: async ({ where }: { where: { id: string } }) => {
+        return customRoles.find((r) => r.id === where.id) ?? null;
+      },
       findFirst: async ({ where }: { where: Record<string, any> }) => {
         return (
           customRoles.find((r) => {
-            if (r.organizationId !== where.organizationId) return false;
+            if (
+              where.organizationId &&
+              r.organizationId !== where.organizationId
+            )
+              return false;
+            if (where.id && typeof where.id === "string" && r.id !== where.id)
+              return false;
+            if (where.id?.not && r.id === where.id.not) return false;
             if (where.name?.equals) {
               const matches =
                 where.name.mode === "insensitive"
@@ -209,6 +219,31 @@ function setup() {
         customRoles.push(record);
         return record;
       },
+      update: async ({
+        where,
+        data,
+      }: {
+        where: { id: string };
+        data: Record<string, any>;
+      }) => {
+        const index = customRoles.findIndex((r) => r.id === where.id);
+        if (index === -1) throw new Error("Role not found");
+        const existing = customRoles[index]!;
+        const updated: CustomRoleRecord = {
+          ...existing,
+          name: data.name ?? existing.name,
+          description:
+            data.description !== undefined
+              ? data.description
+              : existing.description,
+          capabilities: data.capabilities
+            ? [...data.capabilities]
+            : existing.capabilities,
+          updatedAt: new Date(),
+        };
+        customRoles[index] = updated;
+        return updated;
+      },
     },
     auditLog: {
       create: async ({ data }: { data: AuditRecord }) => {
@@ -232,6 +267,31 @@ function setup() {
             };
             customRoles.push(record);
             return record;
+          },
+          update: async ({
+            where,
+            data,
+          }: {
+            where: { id: string };
+            data: Record<string, any>;
+          }) => {
+            const index = customRoles.findIndex((r) => r.id === where.id);
+            if (index === -1) throw new Error("Role not found");
+            const existing = customRoles[index]!;
+            const updated: CustomRoleRecord = {
+              ...existing,
+              name: data.name ?? existing.name,
+              description:
+                data.description !== undefined
+                  ? data.description
+                  : existing.description,
+              capabilities: data.capabilities
+                ? [...data.capabilities]
+                : existing.capabilities,
+              updatedAt: new Date(),
+            };
+            customRoles[index] = updated;
+            return updated;
           },
         },
         auditLog: {
@@ -652,5 +712,520 @@ describe("Task #316: Custom Organization Roles", () => {
       }),
     });
     expect(foreignPost.status).toBe(404);
+  });
+});
+
+describe("Task #319: Update Custom Organization Roles", () => {
+  test("updates custom role name, description, and capabilities with immediate persistence and AuditLog diff", async () => {
+    const { request, customRoles, auditLogs } = setup();
+
+    customRoles.push({
+      id: "role-1",
+      organizationId: "org-a",
+      name: "Coordenador de Atendimento",
+      description: "Supervisão da recepção",
+      capabilities: ["patients:read", "appointments:read"],
+      createdAt: new Date("2026-10-01T10:00:00.000Z"),
+      updatedAt: new Date("2026-10-01T10:00:00.000Z"),
+    });
+
+    const payload = {
+      name: "Coordenador Geral",
+      description: "Supervisão completa da clínica",
+      capabilities: [
+        "patients:read",
+        "appointments:read",
+        "consultations:read",
+      ],
+    };
+
+    const res = await request("/organizations/clinica-vida/roles/role-1", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as UpdateRoleResponse;
+
+    expect(body.id).toBe("role-1");
+    expect(body.name).toBe("Coordenador Geral");
+    expect(body.description).toBe("Supervisão completa da clínica");
+    expect(body.capabilities).toEqual([
+      "patients:read",
+      "appointments:read",
+      "consultations:read",
+    ]);
+    expect(body.isSystem).toBe(false);
+    expect(body.role.name).toBe("Coordenador Geral");
+
+    // Immediate persistence
+    expect(customRoles[0]?.name).toBe("Coordenador Geral");
+    expect(customRoles[0]?.description).toBe("Supervisão completa da clínica");
+    expect(customRoles[0]?.capabilities).toEqual([
+      "patients:read",
+      "appointments:read",
+      "consultations:read",
+    ]);
+
+    // AuditLog verification
+    expect(auditLogs).toHaveLength(1);
+    expect(auditLogs[0]).toMatchObject({
+      organizationId: "org-a",
+      actorUserId: "user-admin",
+      action: "ROLE_UPDATED",
+      targetType: "ORGANIZATION_ROLE",
+      targetId: "role-1",
+      metadata: {
+        previousName: "Coordenador de Atendimento",
+        newName: "Coordenador Geral",
+        previousCapabilities: ["patients:read", "appointments:read"],
+        newCapabilities: [
+          "patients:read",
+          "appointments:read",
+          "consultations:read",
+        ],
+        diff: {
+          name: {
+            from: "Coordenador de Atendimento",
+            to: "Coordenador Geral",
+          },
+          description: {
+            from: "Supervisão da recepção",
+            to: "Supervisão completa da clínica",
+          },
+          addedCapabilities: ["consultations:read"],
+          removedCapabilities: [],
+        },
+      },
+    });
+  });
+
+  test("supports partial update of only capabilities, calculating added and removed diff", async () => {
+    const { request, customRoles, auditLogs } = setup();
+
+    customRoles.push({
+      id: "role-1",
+      organizationId: "org-a",
+      name: "Enfermeiro Chefe",
+      description: "Coordenação de enfermagem",
+      capabilities: ["patients:read", "patients:write", "appointments:read"],
+      createdAt: new Date("2026-10-01T10:00:00.000Z"),
+      updatedAt: new Date("2026-10-01T10:00:00.000Z"),
+    });
+
+    const res = await request("/organizations/clinica-vida/roles/role-1", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        capabilities: ["patients:read", "documents:read"],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as UpdateRoleResponse;
+
+    expect(body.name).toBe("Enfermeiro Chefe");
+    expect(body.description).toBe("Coordenação de enfermagem");
+    expect(body.capabilities).toEqual(["patients:read", "documents:read"]);
+
+    expect(auditLogs).toHaveLength(1);
+    const meta = auditLogs[0]?.metadata as {
+      diff: {
+        addedCapabilities: string[];
+        removedCapabilities: string[];
+        name?: unknown;
+      };
+    };
+    expect(meta.diff.addedCapabilities).toEqual(["documents:read"]);
+    expect(meta.diff.removedCapabilities).toContain("patients:write");
+    expect(meta.diff.removedCapabilities).toContain("appointments:read");
+    expect(meta.diff.name).toBeUndefined();
+  });
+
+  test("rejects unknown or disallowed capabilities with HTTP 400 INVALID_CAPABILITY and structured details", async () => {
+    const { request, customRoles, auditLogs } = setup();
+
+    customRoles.push({
+      id: "role-1",
+      organizationId: "org-a",
+      name: "Papel Válido",
+      description: "Descrição",
+      capabilities: ["patients:read"],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const res = await request("/organizations/clinica-vida/roles/role-1", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        capabilities: [
+          "patients:read",
+          "unauthorized_root_access",
+          "system_destroy",
+        ],
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error: { code: string; details?: { invalidCapabilities?: string[] } };
+    };
+
+    expect(body.error.code).toBe("INVALID_CAPABILITY");
+    expect(body.error.details?.invalidCapabilities).toContain(
+      "unauthorized_root_access",
+    );
+    expect(body.error.details?.invalidCapabilities).toContain("system_destroy");
+
+    // State not modified, no AuditLog created
+    expect(customRoles[0]?.capabilities).toEqual(["patients:read"]);
+    expect(auditLogs).toHaveLength(0);
+  });
+
+  test("rejects empty capabilities array with HTTP 400 VALIDATION_ERROR", async () => {
+    const { request, customRoles } = setup();
+
+    customRoles.push({
+      id: "role-1",
+      organizationId: "org-a",
+      name: "Papel Válido",
+      description: "Descrição",
+      capabilities: ["patients:read"],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const res = await request("/organizations/clinica-vida/roles/role-1", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        capabilities: [],
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  test("rejects attempts to edit reserved system roles with HTTP 400 RESERVED_ROLE_IMMUTABLE", async () => {
+    const { request } = setup();
+
+    const reservedRoles = [
+      "ADMIN",
+      "admin",
+      "ADMIN_PROFESSIONAL",
+      "admin_professional",
+      "PROFESSIONAL",
+      "professional",
+      "RECEPTIONIST",
+      "receptionist",
+    ];
+
+    for (const reserved of reservedRoles) {
+      const res = await request(
+        `/organizations/clinica-vida/roles/${reserved}`,
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            name: "Novo Nome Qualquer",
+            capabilities: ["patients:read"],
+          }),
+        },
+      );
+
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: { code: string } };
+      expect(body.error.code).toBe("RESERVED_ROLE_IMMUTABLE");
+    }
+  });
+
+  test("rejects duplicate name collision with another custom role in the same clinic with HTTP 409", async () => {
+    const { request, customRoles } = setup();
+
+    customRoles.push({
+      id: "role-1",
+      organizationId: "org-a",
+      name: "Atendente Júnior",
+      description: null,
+      capabilities: ["patients:read"],
+      createdAt: new Date("2026-10-01T10:00:00.000Z"),
+      updatedAt: new Date("2026-10-01T10:00:00.000Z"),
+    });
+
+    customRoles.push({
+      id: "role-2",
+      organizationId: "org-a",
+      name: "Supervisor Geral",
+      description: null,
+      capabilities: ["patients:read", "appointments:read"],
+      createdAt: new Date("2026-10-02T10:00:00.000Z"),
+      updatedAt: new Date("2026-10-02T10:00:00.000Z"),
+    });
+
+    // Trying to rename role-1 to colliding name fails with 409
+    const collisionRes = await request(
+      "/organizations/clinica-vida/roles/role-1",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "  supervisor geral  ",
+        }),
+      },
+    );
+
+    expect(collisionRes.status).toBe(409);
+    const body = (await collisionRes.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("ALREADY_EXISTS");
+
+    // Updating role-1 while keeping its own name succeeds
+    const sameNameRes = await request(
+      "/organizations/clinica-vida/roles/role-1",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "Atendente Júnior",
+          description: "Nova descrição atualizada",
+        }),
+      },
+    );
+
+    expect(sameNameRes.status).toBe(200);
+  });
+
+  test("rejects renaming custom role to a reserved system role name with HTTP 409 ROLE_NAME_CONFLICT", async () => {
+    const { request, customRoles } = setup();
+
+    customRoles.push({
+      id: "role-1",
+      organizationId: "org-a",
+      name: "Papel Customizado",
+      description: null,
+      capabilities: ["patients:read"],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const reserved = ["ADMIN", "admin", "PROFESSIONAL", "RECEPTIONIST"];
+    for (const name of reserved) {
+      const res = await request("/organizations/clinica-vida/roles/role-1", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name,
+        }),
+      });
+
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as { error: { code: string } };
+      expect(body.error.code).toBe("ROLE_NAME_CONFLICT");
+    }
+  });
+
+  test("rejects invalid role name length (<2 or >50 chars) with HTTP 400 VALIDATION_ERROR", async () => {
+    const { request, customRoles } = setup();
+
+    customRoles.push({
+      id: "role-1",
+      organizationId: "org-a",
+      name: "Papel Customizado",
+      description: null,
+      capabilities: ["patients:read"],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    // Too short
+    const shortRes = await request("/organizations/clinica-vida/roles/role-1", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "A",
+      }),
+    });
+    expect(shortRes.status).toBe(400);
+
+    // Whitespace only
+    const whitespaceRes = await request(
+      "/organizations/clinica-vida/roles/role-1",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "   ",
+        }),
+      },
+    );
+    expect(whitespaceRes.status).toBe(400);
+
+    // Too long (51 chars)
+    const longRes = await request("/organizations/clinica-vida/roles/role-1", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "A".repeat(51),
+      }),
+    });
+    expect(longRes.status).toBe(400);
+  });
+
+  test("enforces multi-tenant isolation and 404 for non-existent roles", async () => {
+    const { request, customRoles } = setup();
+
+    // Role belongs to Clinic B (org-b)
+    customRoles.push({
+      id: "role-b-1",
+      organizationId: "org-b",
+      name: "Auditor Sul",
+      description: null,
+      capabilities: ["audit:read"],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    // Admin of Clinic A attempts to edit Clinic B's role
+    const foreignRes = await request(
+      "/organizations/clinica-vida/roles/role-b-1",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "Hack Sul",
+        }),
+      },
+    );
+    expect(foreignRes.status).toBe(404);
+    expect(await foreignRes.json()).toMatchObject({
+      error: { code: "NOT_FOUND" },
+    });
+
+    // Non-existent role ID
+    const notFoundRes = await request(
+      "/organizations/clinica-vida/roles/role-inexistente",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "Novo Nome",
+        }),
+      },
+    );
+    expect(notFoundRes.status).toBe(404);
+  });
+
+  test("enforces RBAC permissions on role update", async () => {
+    const { request, customRoles } = setup();
+
+    customRoles.push({
+      id: "role-1",
+      organizationId: "org-a",
+      name: "Papel Teste",
+      description: null,
+      capabilities: ["patients:read"],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    // Non-admin roles (PROFESSIONAL, RECEPTIONIST) are denied with 403 PERMISSION_DENIED
+    for (const userId of ["user-prof", "user-recep"]) {
+      const res = await request("/organizations/clinica-vida/roles/role-1", {
+        userId,
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "Tentativa Bloqueada",
+        }),
+      });
+      expect(res.status).toBe(403);
+      expect(await res.json()).toMatchObject({
+        error: { code: "PERMISSION_DENIED" },
+      });
+    }
+
+    // Suspended admin is denied with 403 MEMBERSHIP_INACTIVE
+    const suspendedRes = await request(
+      "/organizations/clinica-vida/roles/role-1",
+      {
+        userId: "user-suspended",
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "Bloqueado",
+        }),
+      },
+    );
+    expect(suspendedRes.status).toBe(403);
+    expect(await suspendedRes.json()).toMatchObject({
+      error: { code: "MEMBERSHIP_INACTIVE" },
+    });
+
+    // Unauthenticated request is denied with 401 UNAUTHENTICATED
+    const unauthRes = await request(
+      "/organizations/clinica-vida/roles/role-1",
+      {
+        userId: null,
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "Sem Auth",
+        }),
+      },
+    );
+    expect(unauthRes.status).toBe(401);
+  });
+
+  test("supports route aliases: PUT and settings routes", async () => {
+    const { request, customRoles } = setup();
+
+    customRoles.push({
+      id: "role-1",
+      organizationId: "org-a",
+      name: "Papel Original",
+      description: "Desc",
+      capabilities: ["patients:read"],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    // Alias 1: PUT /organizations/:orgSlug/roles/:roleId
+    const putRes = await request("/organizations/clinica-vida/roles/role-1", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Papel Atualizado PUT",
+      }),
+    });
+    expect(putRes.status).toBe(200);
+    expect(customRoles[0]?.name).toBe("Papel Atualizado PUT");
+
+    // Alias 2: PATCH /organizations/:orgSlug/settings/roles/:id
+    const settingsOrgRes = await request(
+      "/organizations/clinica-vida/settings/roles/role-1",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "Papel Settings Org",
+        }),
+      },
+    );
+    expect(settingsOrgRes.status).toBe(200);
+    expect(customRoles[0]?.name).toBe("Papel Settings Org");
+
+    // Alias 3: PATCH /settings/roles/:id
+    const globalSettingsRes = await request("/settings/roles/role-1", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Papel Global Settings",
+      }),
+    });
+    expect(globalSettingsRes.status).toBe(200);
+    expect(customRoles[0]?.name).toBe("Papel Global Settings");
   });
 });

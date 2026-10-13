@@ -6,6 +6,7 @@ import type {
 import { ApiError } from "../../lib/api-error";
 import {
   CUSTOM_ROLE_CAPABILITIES_CATALOG,
+  hasOrganizationCapability,
   isAllowedCustomRoleCapability,
   isReservedRoleName,
   SYSTEM_ROLES_METADATA,
@@ -17,6 +18,8 @@ import type {
   ListCapabilitiesResponse,
   ListRolesResponse,
   SystemRoleItem,
+  UpdateRoleInput,
+  UpdateRoleResponse,
 } from "./model";
 
 export class RolesService {
@@ -217,5 +220,254 @@ export class RolesService {
       }
       throw err;
     }
+  }
+
+  async updateCustomRole(
+    organizationId: string,
+    actorUserId: string,
+    roleId: string,
+    input: UpdateRoleInput,
+  ): Promise<UpdateRoleResponse> {
+    if (isReservedRoleName(roleId)) {
+      throw new ApiError(
+        "RESERVED_ROLE_IMMUTABLE",
+        400,
+        "Papéis fixos do sistema são imutáveis e não podem ser editados.",
+      );
+    }
+
+    const existingRole = await this.prisma.organizationRole.findFirst({
+      where: {
+        id: roleId,
+        organizationId,
+      },
+    });
+
+    if (!existingRole) {
+      throw new ApiError("NOT_FOUND", 404, "Papel não encontrado.");
+    }
+
+    let targetName = existingRole.name;
+    if (input.name !== undefined) {
+      const trimmedName = input.name.trim();
+
+      if (trimmedName.length < 2 || trimmedName.length > 50) {
+        throw new ApiError(
+          "VALIDATION_ERROR",
+          400,
+          "O nome do papel deve ter entre 2 e 50 caracteres.",
+          { field: "name" },
+        );
+      }
+
+      if (isReservedRoleName(trimmedName)) {
+        throw new ApiError(
+          "ROLE_NAME_CONFLICT",
+          409,
+          "O nome informado é reservado pelo sistema e não pode ser utilizado.",
+          { field: "name" },
+        );
+      }
+
+      const existingRoleWithName = await this.prisma.organizationRole.findFirst(
+        {
+          where: {
+            organizationId,
+            name: {
+              equals: trimmedName,
+              mode: "insensitive",
+            },
+            id: {
+              not: roleId,
+            },
+          },
+        },
+      );
+
+      if (existingRoleWithName) {
+        throw new ApiError(
+          "ALREADY_EXISTS",
+          409,
+          "Já existe um papel personalizado com este nome nesta clínica.",
+          { field: "name" },
+        );
+      }
+
+      targetName = trimmedName;
+    }
+
+    let targetCapabilities = existingRole.capabilities;
+    if (input.capabilities !== undefined) {
+      if (
+        !Array.isArray(input.capabilities) ||
+        input.capabilities.length === 0
+      ) {
+        throw new ApiError(
+          "VALIDATION_ERROR",
+          400,
+          "O papel deve conter ao menos uma capacidade válida.",
+          { field: "capabilities" },
+        );
+      }
+
+      const invalidCapabilities = input.capabilities.filter(
+        (cap) => !isAllowedCustomRoleCapability(cap),
+      );
+      if (invalidCapabilities.length > 0) {
+        throw new ApiError(
+          "INVALID_CAPABILITY",
+          400,
+          "Uma ou mais capacidades informadas são inválidas ou não pertencem ao catálogo aprovado.",
+          { invalidCapabilities },
+        );
+      }
+
+      targetCapabilities = Array.from(new Set(input.capabilities));
+    }
+
+    let targetDescription = existingRole.description;
+    if (input.description !== undefined) {
+      targetDescription = input.description?.trim() || null;
+    }
+
+    const nameChanged = targetName !== existingRole.name;
+    const descriptionChanged = targetDescription !== existingRole.description;
+    const addedCapabilities = targetCapabilities.filter(
+      (cap) => !existingRole.capabilities.includes(cap),
+    );
+    const removedCapabilities = existingRole.capabilities.filter(
+      (cap) => !targetCapabilities.includes(cap),
+    );
+
+    const diff: Prisma.InputJsonObject = {
+      addedCapabilities,
+      removedCapabilities,
+      ...(nameChanged
+        ? { name: { from: existingRole.name, to: targetName } }
+        : {}),
+      ...(descriptionChanged
+        ? {
+            description: {
+              from: existingRole.description,
+              to: targetDescription,
+            },
+          }
+        : {}),
+    };
+
+    try {
+      const updated = await this.prisma.$transaction(async (tx) => {
+        const role = await tx.organizationRole.update({
+          where: {
+            id: roleId,
+          },
+          data: {
+            name: targetName,
+            description: targetDescription,
+            capabilities: targetCapabilities,
+          },
+        });
+
+        await tx.auditLog.create({
+          data: {
+            organizationId,
+            actorUserId,
+            action: "ROLE_UPDATED",
+            targetType: "ORGANIZATION_ROLE",
+            targetId: role.id,
+            metadata: {
+              previousName: existingRole.name,
+              newName: role.name,
+              previousCapabilities: existingRole.capabilities,
+              newCapabilities: role.capabilities,
+              diff,
+            },
+          },
+        });
+
+        return role;
+      });
+
+      const roleDto: CustomRoleItem = {
+        id: updated.id,
+        organizationId: updated.organizationId,
+        name: updated.name,
+        description: updated.description,
+        capabilities: updated.capabilities,
+        createdAt: updated.createdAt.toISOString(),
+        updatedAt: updated.updatedAt.toISOString(),
+        isSystem: false,
+      };
+
+      return {
+        ...roleDto,
+        role: roleDto,
+      };
+    } catch (err) {
+      if (
+        err instanceof Error &&
+        (err as Prisma.PrismaClientKnownRequestError).code === "P2002"
+      ) {
+        throw new ApiError(
+          "ALREADY_EXISTS",
+          409,
+          "Já existe um papel personalizado com este nome nesta clínica.",
+          { field: "name" },
+        );
+      }
+      throw err;
+    }
+  }
+
+  async updateCustomRoleByGlobalId(
+    actorUserId: string,
+    roleId: string,
+    input: UpdateRoleInput,
+  ): Promise<UpdateRoleResponse> {
+    if (isReservedRoleName(roleId)) {
+      throw new ApiError(
+        "RESERVED_ROLE_IMMUTABLE",
+        400,
+        "Papéis fixos do sistema são imutáveis e não podem ser editados.",
+      );
+    }
+
+    const role = await this.prisma.organizationRole.findUnique({
+      where: { id: roleId },
+    });
+    if (!role) {
+      throw new ApiError("NOT_FOUND", 404, "Papel não encontrado.");
+    }
+
+    const membership = await this.prisma.membership.findFirst({
+      where: {
+        userId: actorUserId,
+        organizationId: role.organizationId,
+      },
+    });
+
+    if (!membership) {
+      throw new ApiError("NOT_FOUND", 404, "Papel não encontrado.");
+    }
+
+    if (membership.status !== "ACTIVE") {
+      throw new ApiError("MEMBERSHIP_INACTIVE", 403, "Vínculo inativo.");
+    }
+
+    if (!hasOrganizationCapability(membership.role, "team:manage")) {
+      throw new ApiError(
+        "PERMISSION_DENIED",
+        403,
+        "Você não possui permissão para realizar esta ação.",
+        { requiredPermission: "team:manage" },
+      );
+    }
+
+    return this.updateCustomRole(
+      role.organizationId,
+      actorUserId,
+      roleId,
+      input,
+    );
   }
 }
