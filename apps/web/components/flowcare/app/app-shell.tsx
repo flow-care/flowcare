@@ -26,9 +26,9 @@ export function AppShell({
           organizations={organizations}
           user={user}
         />
-        <SidebarInset className="p-">
+        <SidebarInset className="my-2 mr-2">
           <AppHeader />
-          {children}
+          <div className="flex-1 rounded-xl bg-card p-1.5">{children}</div>
         </SidebarInset>
       </AppSheetHost>
     </SidebarProvider>

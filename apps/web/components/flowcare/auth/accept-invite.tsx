@@ -213,7 +213,7 @@ export function AcceptInvite({
           organizationName={invite.organizationName}
           inviterName={invite.inviterName}
         />
-        <div className="flex items-center gap-3 rounded-lg bg-card p-3 shadow-none">
+        <div className="flex items-center gap-3 rounded-lg bg-card p-3 ">
           <Avatar className="size-10 after:hidden">
             <AvatarImage
               src={dicebearInitialUrl(invite.email)}
@@ -271,7 +271,7 @@ export function AcceptInvite({
           isAlreadyMember={isAlreadyMember}
         />
         <div className="space-y-4">
-          <div className="flex items-center gap-3 rounded-lg bg-card p-3 shadow-none">
+          <div className="flex items-center gap-3 rounded-lg bg-card p-3 ">
             <Avatar className="size-10 after:hidden">
               <AvatarImage
                 src={dicebearInitialUrl(invite.email)}
