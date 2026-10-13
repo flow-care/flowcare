@@ -25,3 +25,4 @@ export const dashboardMetricsResponse = t.Object({
 });
 
 export type DashboardQuery = typeof dashboardQuery.static;
+export type DashboardMetricsResponse = typeof dashboardMetricsResponse.static;

@@ -7,6 +7,7 @@ import type {
   MembershipStatus,
   PrismaClient,
 } from "../src/generated/prisma/client";
+import type { DashboardMetricsResponse } from "../src/modules/dashboard/model";
 import { metricsPeriod } from "../src/modules/dashboard/service";
 import type { Mailer } from "../src/services/mailer";
 import { signSessionToken } from "../src/services/session-token";
@@ -300,7 +301,7 @@ function createFixture() {
     },
   } as unknown as PrismaClient;
 
-  const env: Env = {
+  const env = {
     port: 3000,
     version: "0.1.0",
     jwtSecret: secret,
@@ -309,7 +310,7 @@ function createFixture() {
     wahaBaseUrl: "http://localhost:3001",
     wahaApiKey: "test-waha-key",
     trustProxy: false,
-  };
+  } as Env;
 
   const app = createApp(env, {
     prisma,
@@ -460,7 +461,7 @@ describe("GET /organizations/:orgSlug/dashboard/metrics HTTP Integration", () =>
     );
     expect(res.status).toBe(200);
 
-    const data = await res.json();
+    const data = (await res.json()) as DashboardMetricsResponse;
     expect(data.timeZone).toBe("America/Sao_Paulo");
     expect(data.periodStart).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
     expect(data.periodEnd).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
@@ -480,7 +481,7 @@ describe("GET /organizations/:orgSlug/dashboard/metrics HTTP Integration", () =>
       { token },
     );
     expect(weekRes.status).toBe(200);
-    const weekData = await weekRes.json();
+    const weekData = (await weekRes.json()) as DashboardMetricsResponse;
     expect(weekData.timeZone).toBe("America/Sao_Paulo");
     expect(weekData.totalAppointments).toBeGreaterThanOrEqual(0);
 
@@ -489,7 +490,7 @@ describe("GET /organizations/:orgSlug/dashboard/metrics HTTP Integration", () =>
       { token },
     );
     expect(monthRes.status).toBe(200);
-    const monthData = await monthRes.json();
+    const monthData = (await monthRes.json()) as DashboardMetricsResponse;
     expect(monthData.timeZone).toBe("America/Sao_Paulo");
     expect(monthData.totalAppointments).toBeGreaterThanOrEqual(0);
   });
@@ -503,7 +504,7 @@ describe("GET /organizations/:orgSlug/dashboard/metrics HTTP Integration", () =>
       { token },
     );
     expect(res.status).toBe(200);
-    const data = await res.json();
+    const data = (await res.json()) as DashboardMetricsResponse;
     expect(data.periodStart).toBe("2026-10-13T03:00:00.000Z");
     expect(data.periodEnd).toBe("2026-10-14T03:00:00.000Z");
     expect(data.timeZone).toBe("America/Sao_Paulo");
@@ -563,7 +564,7 @@ describe("GET /organizations/:orgSlug/dashboard/metrics HTTP Integration", () =>
       { token },
     );
     expect(res.status).toBe(200);
-    const data = await res.json();
+    const data = (await res.json()) as DashboardMetricsResponse;
     expect(data.completedAppointments).toBe(5);
     expect(data.noShowAppointments).toBe(1);
     expect(data.noShowRate).toBe(0.1667);
@@ -586,7 +587,7 @@ describe("GET /organizations/:orgSlug/dashboard/metrics HTTP Integration", () =>
       { token },
     );
     expect(res.status).toBe(200);
-    const data = await res.json();
+    const data = (await res.json()) as DashboardMetricsResponse;
     expect(data.totalAppointments).toBe(1);
     expect(data.scheduledAppointments).toBe(1);
     expect(data.completedAppointments).toBe(0);
@@ -604,7 +605,7 @@ describe("GET /organizations/:orgSlug/dashboard/metrics HTTP Integration", () =>
       { token: tokenA },
     );
     expect(resA.status).toBe(200);
-    const dataA = await resA.json();
+    const dataA = (await resA.json()) as DashboardMetricsResponse;
     expect(dataA.totalAppointments).toBe(10);
     expect(dataA.timeZone).toBe("America/Sao_Paulo");
 
@@ -613,7 +614,7 @@ describe("GET /organizations/:orgSlug/dashboard/metrics HTTP Integration", () =>
       { token: tokenB },
     );
     expect(resB.status).toBe(200);
-    const dataB = await resB.json();
+    const dataB = (await resB.json()) as DashboardMetricsResponse;
     expect(dataB.totalAppointments).toBe(5);
     expect(dataB.completedAppointments).toBe(5);
     expect(dataB.timeZone).toBe("America/Fortaleza");
@@ -628,7 +629,7 @@ describe("GET /organizations/:orgSlug/dashboard/metrics HTTP Integration", () =>
       { token },
     );
     expect(res.status).toBe(400);
-    const data = await res.json();
+    const data = (await res.json()) as { error: { code: string } };
     expect(data.error.code).toBe("VALIDATION_ERROR");
   });
 
@@ -641,7 +642,7 @@ describe("GET /organizations/:orgSlug/dashboard/metrics HTTP Integration", () =>
       { token },
     );
     expect(res.status).toBe(400);
-    const data = await res.json();
+    const data = (await res.json()) as { error: { code: string } };
     expect(data.error.code).toBe("VALIDATION_ERROR");
   });
 
@@ -654,7 +655,7 @@ describe("GET /organizations/:orgSlug/dashboard/metrics HTTP Integration", () =>
       { token },
     );
     expect(res.status).toBe(400);
-    const data = await res.json();
+    const data = (await res.json()) as { error: { code: string } };
     expect(data.error.code).toBe("VALIDATION_ERROR");
   });
 
@@ -667,7 +668,7 @@ describe("GET /organizations/:orgSlug/dashboard/metrics HTTP Integration", () =>
       { token },
     );
     expect(res.status).toBe(400);
-    const data = await res.json();
+    const data = (await res.json()) as { error: { code: string } };
     expect(data.error.code).toBe("VALIDATION_ERROR");
   });
 
@@ -680,7 +681,7 @@ describe("GET /organizations/:orgSlug/dashboard/metrics HTTP Integration", () =>
       { token },
     );
     expect(res.status).toBe(400);
-    const data = await res.json();
+    const data = (await res.json()) as { error: { code: string } };
     expect(data.error.code).toBe("VALIDATION_ERROR");
   });
 
@@ -693,7 +694,7 @@ describe("GET /organizations/:orgSlug/dashboard/metrics HTTP Integration", () =>
       { token },
     );
     expect(res.status).toBe(400);
-    const data = await res.json();
+    const data = (await res.json()) as { error: { code: string } };
     expect(data.error.code).toBe("VALIDATION_ERROR");
   });
 
@@ -719,7 +720,7 @@ describe("GET /organizations/:orgSlug/dashboard/metrics HTTP Integration", () =>
     const fix = createFixture();
     const res = await fix.request("/organizations/clinica-a/dashboard/metrics");
     expect(res.status).toBe(401);
-    const data = await res.json();
+    const data = (await res.json()) as { error: { code: string } };
     expect(data.error.code).toBe("UNAUTHENTICATED");
   });
 
@@ -734,7 +735,7 @@ describe("GET /organizations/:orgSlug/dashboard/metrics HTTP Integration", () =>
       },
     );
     expect(res.status).toBe(404);
-    const data = await res.json();
+    const data = (await res.json()) as { error: { code: string } };
     expect(data.error.code).toBe("NOT_FOUND");
   });
 
@@ -749,7 +750,7 @@ describe("GET /organizations/:orgSlug/dashboard/metrics HTTP Integration", () =>
       },
     );
     expect(res.status).toBe(403);
-    const data = await res.json();
+    const data = (await res.json()) as { error: { code: string } };
     expect(data.error.code).toBe("MEMBERSHIP_INACTIVE");
   });
 });
