@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar";
 import type { CurrentUserProfile } from "@/server/invites";
+import { ThemeSelector } from "./theme-selector";
 
 export function ProfileMenu({
   user,
@@ -67,6 +68,12 @@ export function ProfileMenu({
               </Link>
             </DropdownMenuItem>
           )}
+          <DropdownMenuSeparator />
+          <div className="flex items-center justify-between gap-3 px-2 py-1.5 text-xs text-muted-foreground">
+            <span>Tema</span>
+            <ThemeSelector />
+          </div>
+          <DropdownMenuSeparator />
           <form action={logoutAction}>
             <DropdownMenuItem asChild>
               <button type="submit" className="w-full">
