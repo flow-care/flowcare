@@ -4,7 +4,7 @@ import { ApiError } from "../lib/api-error";
 import { Unauthenticated } from "../modules/auth/errors";
 import { authPlugin } from "./auth";
 
-const capacityGroups = {
+export const capacityGroups = {
   common: [
     "organizations:read",
     "patients:read",
@@ -43,9 +43,9 @@ const capacityGroups = {
 
 export type OrganizationCapability =
   (typeof capacityGroups)[keyof typeof capacityGroups][number];
-type Role = MembershipRole;
+export type Role = MembershipRole;
 
-const capabilities: Record<Role, ReadonlySet<OrganizationCapability>> = {
+export const capabilities: Record<Role, ReadonlySet<OrganizationCapability>> = {
   ADMIN: new Set([
     ...capacityGroups.common,
     ...capacityGroups.administration,
@@ -58,6 +58,227 @@ const capabilities: Record<Role, ReadonlySet<OrganizationCapability>> = {
     ...capacityGroups.logistics,
   ]),
 };
+
+export interface CapabilityCatalogItem {
+  name: OrganizationCapability;
+  group: keyof typeof capacityGroups;
+  description: string;
+}
+
+export const CUSTOM_ROLE_CAPABILITIES_CATALOG: readonly CapabilityCatalogItem[] =
+  [
+    // common
+    {
+      name: "organizations:read",
+      group: "common",
+      description: "Visualização dos dados da clínica",
+    },
+    {
+      name: "patients:read",
+      group: "common",
+      description: "Visualização de dados cadastrais de pacientes",
+    },
+    {
+      name: "patients:write",
+      group: "common",
+      description: "Cadastro e atualização cadastral de pacientes",
+    },
+    {
+      name: "appointments:read",
+      group: "common",
+      description: "Visualização de agendamentos e agenda da clínica",
+    },
+    {
+      name: "appointments:write",
+      group: "common",
+      description: "Criação e remarcação de agendamentos",
+    },
+    {
+      name: "reception:read",
+      group: "common",
+      description: "Visualização da fila de recepção",
+    },
+    {
+      name: "dashboard:read",
+      group: "common",
+      description: "Visualização do painel operacional",
+    },
+    // administration
+    {
+      name: "team:read",
+      group: "administration",
+      description: "Visualização de membros da equipe",
+    },
+    {
+      name: "team:invite",
+      group: "administration",
+      description: "Envio e cancelamento de convites de equipe",
+    },
+    {
+      name: "team:manage",
+      group: "administration",
+      description: "Gerenciamento de membros e papéis da equipe",
+    },
+    {
+      name: "roles:read",
+      group: "administration",
+      description: "Visualização de papéis e capacidades da clínica",
+    },
+    {
+      name: "usage:read",
+      group: "administration",
+      description: "Visualização do consumo de recursos e transcrição",
+    },
+    {
+      name: "settings:read",
+      group: "administration",
+      description: "Visualização das configurações da clínica",
+    },
+    {
+      name: "settings:write",
+      group: "administration",
+      description: "Edição de configurações institucionais da clínica",
+    },
+    {
+      name: "audit:read",
+      group: "administration",
+      description: "Visualização da trilha de auditoria da clínica",
+    },
+    // clinical
+    {
+      name: "patients:read_history",
+      group: "clinical",
+      description: "Visualização de histórico clínico do paciente",
+    },
+    {
+      name: "patients:attachments:read",
+      group: "clinical",
+      description: "Visualização e download de anexos clínicos",
+    },
+    {
+      name: "patients:attachments:write",
+      group: "clinical",
+      description: "Upload e arquivamento de anexos clínicos",
+    },
+    {
+      name: "consultations:read",
+      group: "clinical",
+      description: "Visualização de consultas e prontuários",
+    },
+    {
+      name: "consultations:write",
+      group: "clinical",
+      description: "Registro e edição de consultas e atendimentos",
+    },
+    {
+      name: "consultations:approve",
+      group: "clinical",
+      description: "Aprovação clínica de anamnese",
+    },
+    {
+      name: "documents:read",
+      group: "clinical",
+      description: "Leitura de documentos clínicos",
+    },
+    {
+      name: "documents:write",
+      group: "clinical",
+      description: "Criação e edição de minutas de documentos clínicos",
+    },
+    {
+      name: "documents:issue",
+      group: "clinical",
+      description: "Emissão definitiva de documentos clínicos",
+    },
+    {
+      name: "documents:void",
+      group: "clinical",
+      description: "Anulação de documentos clínicos emitidos",
+    },
+    {
+      name: "templates:read",
+      group: "clinical",
+      description: "Visualização de modelos de documentos clínicos",
+    },
+    {
+      name: "templates:write",
+      group: "clinical",
+      description: "Criação e edição de modelos de documentos clínicos",
+    },
+    // logistics
+    {
+      name: "reception:write",
+      group: "logistics",
+      description: "Movimentação e atendimento na fila da recepção",
+    },
+    {
+      name: "communications:read",
+      group: "logistics",
+      description: "Visualização de mensagens e comunicações",
+    },
+    {
+      name: "communications:write",
+      group: "logistics",
+      description: "Disparo de mensagens logísticas e WhatsApp",
+    },
+  ];
+
+export const ALLOWED_CUSTOM_ROLE_CAPABILITIES: readonly OrganizationCapability[] =
+  CUSTOM_ROLE_CAPABILITIES_CATALOG.map((item) => item.name);
+
+export const ALLOWED_CUSTOM_ROLE_CAPABILITIES_SET = new Set<string>(
+  ALLOWED_CUSTOM_ROLE_CAPABILITIES,
+);
+
+export function isAllowedCustomRoleCapability(
+  capability: string,
+): capability is OrganizationCapability {
+  return ALLOWED_CUSTOM_ROLE_CAPABILITIES_SET.has(capability);
+}
+
+export const RESERVED_SYSTEM_ROLE_NAMES = [
+  "ADMIN",
+  "ADMIN_PROFESSIONAL",
+  "PROFESSIONAL",
+  "RECEPTIONIST",
+] as const;
+
+export function isReservedRoleName(name: string): boolean {
+  const normalized = name.trim().toUpperCase();
+  return RESERVED_SYSTEM_ROLE_NAMES.some((r) => r === normalized);
+}
+
+export const SYSTEM_ROLES_METADATA = [
+  {
+    role: "ADMIN" as const,
+    name: "Administrador",
+    description: "Gerencia clínica, equipe, agenda, operação e consumo.",
+    capabilities: Array.from(capabilities.ADMIN),
+    isSystem: true as const,
+  },
+  {
+    role: "ADMIN_PROFESSIONAL" as const,
+    name: "Administrador e Profissional",
+    description: "Reúne administração e atuação clínica na clínica.",
+    capabilities: Array.from(capabilities.ADMIN_PROFESSIONAL),
+    isSystem: true as const,
+  },
+  {
+    role: "PROFESSIONAL" as const,
+    name: "Profissional de Saúde",
+    description: "Atua em atendimentos, prontuários e documentos clínicos.",
+    capabilities: Array.from(capabilities.PROFESSIONAL),
+    isSystem: true as const,
+  },
+  {
+    role: "RECEPTIONIST" as const,
+    name: "Recepcionista",
+    description:
+      "Cuida do cadastro de pacientes, agenda, fila e mensagens logísticas.",
+    capabilities: Array.from(capabilities.RECEPTIONIST),
+    isSystem: true as const,
+  },
+] as const;
 
 // Only these actions require a separate clinical qualification decision. The
 // route implementing a clinical resource must supply its own resource-specific
