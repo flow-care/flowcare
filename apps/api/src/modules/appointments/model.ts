@@ -28,6 +28,7 @@ export const idempotencyHeaders = t.Object(
 export const appointmentStatus = t.Union([
   t.Literal("RESERVED"),
   t.Literal("CONFIRMED"),
+  t.Literal("IN_PROGRESS"),
   t.Literal("CANCELLED"),
   t.Literal("COMPLETED"),
   t.Literal("NO_SHOW"),

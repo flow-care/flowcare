@@ -172,6 +172,7 @@ export const upcomingPatientAppointmentItem = t.Object({
   status: t.Union([
     t.Literal("RESERVED"),
     t.Literal("CONFIRMED"),
+    t.Literal("IN_PROGRESS"),
     t.Literal("CANCELLED"),
     t.Literal("COMPLETED"),
     t.Literal("NO_SHOW"),

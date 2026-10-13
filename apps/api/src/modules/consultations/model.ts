@@ -85,10 +85,47 @@ export const listConsultationsResponse = t.Object({
   pageInfo: consultationsPageInfo,
 });
 
+export const consultationIdParams = t.Object({
+  orgSlug: t.String({ minLength: 2, maxLength: 60 }),
+  consultationId: uuid,
+});
+
+export const startConsultationBody = t.Object({
+  patientId: uuid,
+  appointmentId: t.Optional(uuid),
+  scheduledAt: t.Optional(t.String()),
+  notes: t.Optional(t.String({ maxLength: 5000 })),
+  professionalId: t.Optional(uuid),
+});
+
+export const consultationDetailResponse = t.Object({
+  id: t.String(),
+  consultationId: t.String(),
+  organizationId: t.String(),
+  appointmentId: t.Nullable(t.String()),
+  patientId: t.String(),
+  professionalId: t.String(),
+  scheduledAt: t.String(),
+  localScheduledAt: t.Optional(t.String()),
+  startedAt: t.Nullable(t.String()),
+  completedAt: t.Nullable(t.String()),
+  status: consultationStatus,
+  anamnesisStatus: anamnesisStatus,
+  anamnesisTopicRevisionId: t.Optional(t.Nullable(t.String())),
+  version: t.Integer({ minimum: 0 }),
+  createdAt: t.String(),
+  updatedAt: t.String(),
+  patient: t.Optional(consultationPatientSummary),
+  professional: t.Optional(consultationProfessionalSummary),
+  consultation: t.Optional(t.Any()),
+});
+
 export type OrgSlugParams = typeof orgSlugParams.static;
+export type ConsultationIdParams = typeof consultationIdParams.static;
 export type ConsultationStatus = typeof consultationStatus.static;
 export type AnamnesisStatus = typeof anamnesisStatus.static;
 export type ListConsultationsQuery = typeof listConsultationsQuery.static;
+export type StartConsultationBody = typeof startConsultationBody.static;
 export type ConsultationPatientSummary =
   typeof consultationPatientSummary.static;
 export type ConsultationProfessionalSummary =
@@ -96,3 +133,5 @@ export type ConsultationProfessionalSummary =
 export type ConsultationListItem = typeof consultationListItem.static;
 export type ConsultationsPageInfo = typeof consultationsPageInfo.static;
 export type ListConsultationsResponse = typeof listConsultationsResponse.static;
+export type ConsultationDetailResponse =
+  typeof consultationDetailResponse.static;

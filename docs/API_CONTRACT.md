@@ -634,11 +634,35 @@ O identificador `revisionId` da versão vigente deve ser armazenado pela futura 
 * **Query Params:** `?startDate=2026-10-01&endDate=2026-10-31&professionalId=<uuid>&patientId=<uuid>&status=SCHEDULED|IN_PROGRESS|COMPLETED|CANCELLED&anamnesisStatus=PENDING|DRAFT|APPROVED&search=joao&limit=20&page=1&cursor=<uuid>` (`limit` de 1 a 100, padrão 20).
 * **Respostas:** `200 OK` (`{ "timeZone": "America/Fortaleza", "data": [{ "id": "...", "appointmentId": "...", "patientId": "...", "professionalId": "...", "scheduledAt": "2026-10-12T13:00:00.000Z", "localScheduledAt": "2026-10-12T10:00:00", "startedAt": null, "completedAt": null, "status": "SCHEDULED", "anamnesisStatus": "PENDING", "patient": { "id": "...", "fullName": "João Carlos Oliveira" }, "professional": { "id": "...", "fullName": "Dr. Bruno Lima", "professionalTitle": "Médico Clínico", "registrationNumber": "CRM/CE 67890" }, "version": 0, "createdAt": "...", "updatedAt": "..." }], "items": [...], "pageInfo": { "limit": 20, "page": 1, "totalCount": 1, "hasNextPage": false, "nextCursor": null } }`), `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 MEMBERSHIP_INACTIVE`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`.
 
-#### `POST /organizations/:orgSlug/consultations`
-* **Descrição:** Inicia uma nova consulta clínica vinculada a um agendamento prévio e paciente.
-* **Permissão:** `consultations:write`.
-* **Body:** `{ "appointmentId": "app_100", "patientId": "pat_1" }`
-* **Respostas:** `201 Created` (`{ "consultationId": "con_55", "status": "IN_PROGRESS" }`).
+#### `POST /organizations/:orgSlug/consultations` (alias: `POST /organizations/:orgSlug/consultations/start`)
+* **Descrição:** Inicia uma nova consulta clínica vinculada a paciente e, opcionalmente, a um agendamento prévio (ou atendimento avulso/walk-in), prevenindo duplicidade de consultas para o mesmo agendamento e garantindo isolamento multi-tenant estrito. Caso já exista um atendimento ativo para o agendamento informado, a operação é idempotente e retorna o atendimento existente (`200 OK`) sem duplicar registros ou auditoria. Quando vinculado a um agendamento em estado `CONFIRMED` ou `RESERVED`, transiciona o agendamento para `IN_PROGRESS` (e fila para `IN_SERVICE`). Grava `CONSULTATION_STARTED` em `AuditLog` na mesma transação.
+* **Permissão:** `consultations:write` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL`). Papéis exclusivamente administrativos (`ADMIN` sem atuação clínica e `RECEPTIONIST`) são recusados com `403 PERMISSION_DENIED`.
+* **Body:**
+  ```json
+  {
+    "patientId": "<uuid>",
+    "appointmentId": "<uuid opcional>",
+    "scheduledAt": "2026-10-15T13:00:00.000Z",
+    "notes": "Observações iniciais do atendimento",
+    "professionalId": "<uuid opcional>"
+  }
+  ```
+* **Validações e regras:**
+  * O paciente deve pertencer à clínica ativa (`404 NOT_FOUND` se inexistente ou de outra clínica).
+  * Se `appointmentId` for informado:
+    * O agendamento deve pertencer à clínica ativa (`404 NOT_FOUND` se inexistente ou de outra clínica).
+    * O `patientId` do agendamento deve coincidir com o `patientId` informado (`400 VALIDATION_ERROR` com `details.field: "patientId"`).
+    * Se já existir consulta ativa para este agendamento, responde `200 OK` com o registro existente.
+    * Agendamento em estado `CONFIRMED` ou `RESERVED` é atualizado para `status: "IN_PROGRESS"` (e `queueStatus: "IN_SERVICE"` caso esteja na fila).
+  * O profissional responsável é o usuário autenticado (`auth.userId`), ou o profissional especificado caso possua vínculo clínico ativo na clínica.
+  * Define `startedAt: new Date()`, `status: "IN_PROGRESS"`, `anamnesisStatus: "PENDING"`, `version: 0`.
+  * Na mesma transação, registra `AuditLog` (`action: "CONSULTATION_STARTED"`, `targetType: "CONSULTATION"`, `targetId: consultation.id`, `metadata: { patientId, professionalId, appointmentId, notes }`).
+* **Respostas:** `201 Created` (para novo atendimento) ou `200 OK` (caso já exista consulta ativa vinculada ao agendamento), `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 MEMBERSHIP_INACTIVE`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`.
+
+#### `GET /organizations/:orgSlug/consultations/:consultationId`
+* **Descrição:** Retorna os detalhes completos do atendimento clínico na clínica ativa, incluindo identificadores, vínculos (`patient`, `professional`), status de atendimento e anamnese, versão e carimbos de data/hora no fuso da clínica.
+* **Permissão:** `consultations:read` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL`). Papéis `RECEPTIONIST` e `ADMIN` sem atuação clínica recebem `403 PERMISSION_DENIED`.
+* **Respostas:** `200 OK` (`{ "id": "...", "consultationId": "...", "organizationId": "...", "appointmentId": "...", "patientId": "...", "professionalId": "...", "scheduledAt": "...", "localScheduledAt": "...", "startedAt": "...", "completedAt": null, "status": "IN_PROGRESS", "anamnesisStatus": "PENDING", "version": 0, "patient": { "id": "...", "fullName": "..." }, "professional": { "id": "...", "fullName": "...", "professionalTitle": "...", "registrationNumber": "..." }, "createdAt": "...", "updatedAt": "..." }`), `401 UNAUTHENTICATED`, `403 MEMBERSHIP_INACTIVE`, `403 PERMISSION_DENIED`, `404 NOT_FOUND` (atendimento inexistente ou de outra clínica).
 
 #### `POST /organizations/:orgSlug/consultations/:consultationId/audio`
 * **Descrição:** Envia o arquivo de áudio gravado da consulta após obtenção explícita do consentimento do paciente.
