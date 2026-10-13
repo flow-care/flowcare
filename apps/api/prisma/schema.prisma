@@ -117,6 +117,8 @@ model User {
   uploadedPatientAttachments PatientAttachment[] @relation("PatientAttachmentUploadedBy")
   archivedPatientAttachments PatientAttachment[] @relation("PatientAttachmentArchivedBy")
   notificationPreferences UserNotificationPreference[]
+  authoredDocuments  ClinicalDocument[] @relation("ClinicalDocumentAuthor")
+  savedDocumentVersions DocumentVersion[] @relation("DocumentVersionSavedBy")
 
   @@index([email])
 }
@@ -222,6 +224,8 @@ model Organization {
   patients Patient[]
   patientCreationRequests PatientCreationRequest[]
   patientAttachments PatientAttachment[]
+  clinicalDocuments ClinicalDocument[]
+  documentVersions DocumentVersion[]
   whatsappSession WhatsAppSession?
   activeUsers User[] @relation("ActiveOrganization")
 }
@@ -392,6 +396,7 @@ model Patient {
   creationRequests PatientCreationRequest[]
   appointments     Appointment[]
   attachments      PatientAttachment[]
+  clinicalDocuments ClinicalDocument[]
 
   @@index([organizationId, cpf])
   @@index([organizationId, fullName])
@@ -574,6 +579,12 @@ enum TemplateStatus {
   ARCHIVED
 }
 
+enum DocumentStatus {
+  DRAFT
+  ISSUED
+  VOIDED
+}
+
 model DocumentTemplate {
   id             String         @id @default(uuid()) @db.Uuid
   organizationId String?        @db.Uuid
@@ -588,8 +599,63 @@ model DocumentTemplate {
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
-  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization      Organization?      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clinicalDocuments ClinicalDocument[]
+  documentVersions  DocumentVersion[]
 
   @@index([organizationId, status, type])
   @@index([organizationId, createdAt])
 }
+
+model ClinicalDocument {
+  id                String         @id @default(uuid()) @db.Uuid
+  organizationId    String         @db.Uuid
+  patientId         String         @db.Uuid
+  authorId          String         @db.Uuid
+  templateId        String?        @db.Uuid
+  templateVersion   Int?
+  type              DocumentType
+  title             String
+  content           String
+  variables         Json           @default("{}")
+  status            DocumentStatus @default(DRAFT)
+  version           Int            @default(1)
+  currentRevisionId String?        @db.Uuid
+  issuedAt          DateTime?
+  voidedAt          DateTime?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  patient      Patient           @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  author       User              @relation("ClinicalDocumentAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  template     DocumentTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  versions     DocumentVersion[]
+
+  @@index([organizationId, patientId, createdAt])
+  @@index([organizationId, authorId, createdAt])
+  @@index([organizationId, status, type])
+}
+
+model DocumentVersion {
+  id              String   @id @default(uuid()) @db.Uuid
+  documentId      String   @db.Uuid
+  organizationId  String   @db.Uuid
+  version         Int
+  title           String
+  content         String
+  variables       Json     @default("{}")
+  templateId      String?  @db.Uuid
+  templateVersion Int?
+  savedById       String   @db.Uuid
+  createdAt       DateTime @default(now())
+
+  document     ClinicalDocument  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  template     DocumentTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  savedBy      User              @relation("DocumentVersionSavedBy", fields: [savedById], references: [id], onDelete: Restrict)
+
+  @@unique([documentId, version])
+  @@index([organizationId, documentId, version])
+}
+

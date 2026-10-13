@@ -9,6 +9,7 @@ import { appointmentsModule } from "./modules/appointments";
 import { authModule } from "./modules/auth";
 import type { AuthDeps } from "./modules/auth/service";
 import { communicationsModule } from "./modules/communications";
+import { documentsModule } from "./modules/documents";
 import { inviteModule } from "./modules/invites";
 import { notificationsModule } from "./modules/notifications";
 import { onboardingModule } from "./modules/onboarding";
@@ -246,6 +247,7 @@ export function createApp(env: Env, deps: AppDeps) {
       }),
     )
     .use(templatesModule({ prisma: deps.prisma, jwtSecret: env.jwtSecret }))
+    .use(documentsModule({ prisma: deps.prisma, jwtSecret: env.jwtSecret }))
     .use(
       anamnesisTopicsModule({ prisma: deps.prisma, jwtSecret: env.jwtSecret }),
     );
