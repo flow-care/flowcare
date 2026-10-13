@@ -109,6 +109,8 @@ export const documentVersionItem = t.Object({
 export const documentListItem = t.Object({
   id: t.String(),
   documentId: t.String(),
+  chainVersion: t.Optional(t.Integer({ minimum: 1 })),
+  replacesDocumentId: t.Optional(t.Nullable(t.String())),
   organizationId: t.String(),
   patientId: t.String(),
   authorId: t.String(),
@@ -145,6 +147,8 @@ export const listDocumentsResponse = t.Object({
 export const documentItem = t.Object({
   id: t.String(),
   documentId: t.String(),
+  chainVersion: t.Optional(t.Integer({ minimum: 1 })),
+  replacesDocumentId: t.Optional(t.Nullable(t.String())),
   organizationId: t.String(),
   patientId: t.String(),
   authorId: t.String(),
@@ -170,6 +174,8 @@ export const documentItem = t.Object({
 export const documentResponse = t.Object({
   id: t.String(),
   documentId: t.String(),
+  chainVersion: t.Optional(t.Integer({ minimum: 1 })),
+  replacesDocumentId: t.Optional(t.Nullable(t.String())),
   organizationId: t.String(),
   patientId: t.String(),
   authorId: t.String(),
@@ -271,6 +277,21 @@ export const prepareDocumentSnapshotResponse = t.Object({
   versions: t.Array(documentVersionItem),
   document: documentItem,
   snapshot: documentSnapshotItem,
+});
+
+export const issueDocumentResponse = t.Object({
+  status: t.Literal("ISSUED"),
+  issuedAt: t.String(),
+  snapshotHash: t.String(),
+  chainVersion: t.Integer({ minimum: 1 }),
+  replacesDocumentId: t.Nullable(t.String()),
+});
+
+export const rectifyDocumentResponse = t.Object({
+  documentId: t.String(),
+  status: t.Literal("DRAFT"),
+  replacesDocumentId: t.String(),
+  chainVersion: t.Integer({ minimum: 2 }),
 });
 
 export type OrgSlugParams = typeof orgSlugParams.static;
