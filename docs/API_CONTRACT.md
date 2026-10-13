@@ -508,10 +508,55 @@ O fluxo obrigatório é:
 * **Body:** `{ "fullName": "João Carlos Souza", "cpf": "529.982.247-25", "birthDate": "1985-05-20", "phone": "(11) 98888-5555", "distinctPersonConfirmed": false, "version": 2 }` (ao menos um campo cadastral além de `version` é obrigatório).
 * **Respostas:** `200 OK` (`{ "patient": { "id", "fullName", "cpf", "birthDate", "phone", "version", "createdAt", "updatedAt" } }`), `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 MEMBERSHIP_INACTIVE`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`, `409 POSSIBLE_DUPLICATE`, `409 VERSION_CONFLICT`.
 
-#### `GET /organizations/:orgSlug/patients/:patientId/timeline`
-* **Descrição:** Retorna a linha do tempo cronológica com consultas, documentos emitidos e anexos do paciente.
-* **Permissão:** `patients:read_history`.
-* **Respostas:** `200 OK` (`{ "events": [ { "type": "CONSULTATION", "date": "...", "title": "Anamnese Cardiologia" } ] }`).
+#### `GET /organizations/:orgSlug/patients/:patientId/timeline` (alias: `GET /organizations/:orgSlug/patients/:patientId/records`)
+* **Descrição:** Retorna a linha do tempo cronológica unificada de prontuário do paciente (consultas, documentos clínicos, anexos e agendamentos) pertencentes à clínica ativa, ordenada estritamente de forma decrescente (`timestamp DESC`), com auditoria de acesso a dados clínicos sensíveis conforme a LGPD.
+* **Permissão:** `patients:read_history` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL`). Papéis exclusivamente administrativos ou de recepção (`ADMIN`, `RECEPTIONIST`) são rejeitados com `403 PERMISSION_DENIED`. Não autenticado retorna `401 UNAUTHENTICATED`.
+* **Isolamento multi-tenant:** Se `patientId` não pertencer à clínica resolvida por `:orgSlug`, responde `404 NOT_FOUND` sem revelar dados.
+* **Query Params:**
+  * `type` / `eventType`: `"all"` | `"consultation"` | `"document"` | `"attachment"` | `"appointment"` (padrão: `"all"`).
+  * `startDate` & `endDate`: datas de filtro no formato `YYYY-MM-DD` (opcional).
+  * `limit`: inteiro entre 1 e 100 (padrão: 20).
+  * `cursor`: identificador do evento para paginação por cursor.
+  * `page`: número da página (inteiro >= 1, padrão: 1).
+* **Trilha de Auditoria (LGPD):** Na mesma requisição, registra entrada em `AuditLog` (`action: "PATIENT_TIMELINE_ACCESSED"`, `targetType: "PATIENT"`, `targetId: patientId`, `actorUserId`, `organizationId`).
+* **Respostas:**
+  * `200 OK`:
+    ```json
+    {
+      "data": [
+        {
+          "id": "uuid",
+          "eventType": "CONSULTATION",
+          "timestamp": "2026-10-13T14:00:00.000Z",
+          "professional": {
+            "id": "uuid",
+            "name": "Dr. João",
+            "registrationNumber": "CRM 12345",
+            "professionalTitle": "Médico"
+          },
+          "summary": "Consulta de retorno",
+          "status": "COMPLETED",
+          "resourceId": "uuid-da-consulta",
+          "metadata": {
+            "appointmentId": null,
+            "anamnesisStatus": "APPROVED",
+            "startedAt": "2026-10-13T14:00:00.000Z",
+            "completedAt": "2026-10-13T14:30:00.000Z"
+          }
+        }
+      ],
+      "pageInfo": {
+        "limit": 20,
+        "hasNextPage": false,
+        "nextCursor": null
+      }
+    }
+    ```
+  * `400 VALIDATION_ERROR` (parâmetros de consulta inválidos, limites fora do intervalo ou datas invertidas).
+  * `401 UNAUTHENTICATED` (sessão ausente, expirada ou inválida).
+  * `403 MEMBERSHIP_INACTIVE` (vínculo do usuário inativo ou suspenso).
+  * `403 PERMISSION_DENIED` (usuário sem prerrogativa clínica `patients:read_history`).
+  * `404 NOT_FOUND` (clínica ou paciente não encontrado).
 
 #### `POST /organizations/:orgSlug/patients/:id/attachments`
 * **Descrição:** Envia exame ou arquivo clínico privado para o prontuário do paciente na clínica ativa. O servidor valida o tamanho (máx. **10 MiB**) e a assinatura binária real (magic bytes) do arquivo (`application/pdf`, `image/jpeg`, `image/png`, `image/webp`), rejeitando arquivos disfarçados, grava o objeto no armazenamento privado sob `organizations/{organizationId}/patients/{patientId}/attachments/` (sem expor a chave interna ou URL pública permanente) e registra `PATIENT_ATTACHMENT_UPLOADED` em `AuditLog`.

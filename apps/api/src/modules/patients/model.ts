@@ -310,6 +310,71 @@ export const archivePatientAttachmentResponse = t.Object(
   { additionalProperties: false },
 );
 
+export const timelineEventTypeEnum = t.Union([
+  t.Literal("CONSULTATION"),
+  t.Literal("DOCUMENT"),
+  t.Literal("ATTACHMENT"),
+  t.Literal("APPOINTMENT"),
+]);
+
+export const timelineEventFilterSchema = t.Union([
+  t.Literal("all"),
+  t.Literal("consultation"),
+  t.Literal("document"),
+  t.Literal("attachment"),
+  t.Literal("appointment"),
+  t.Literal("ALL"),
+  t.Literal("CONSULTATION"),
+  t.Literal("DOCUMENT"),
+  t.Literal("ATTACHMENT"),
+  t.Literal("APPOINTMENT"),
+]);
+
+export const patientTimelineQuery = t.Object({
+  type: t.Optional(timelineEventFilterSchema),
+  eventType: t.Optional(timelineEventFilterSchema),
+  startDate: t.Optional(t.String({ pattern: ISO_DATE_PATTERN })),
+  endDate: t.Optional(t.String({ pattern: ISO_DATE_PATTERN })),
+  limit: t.Optional(t.Integer({ minimum: 1, maximum: 100, default: 20 })),
+  cursor: t.Optional(t.String({ minLength: 1, maxLength: 256 })),
+  page: t.Optional(t.Integer({ minimum: 1, default: 1 })),
+});
+
+export const timelineProfessionalSummary = t.Object({
+  id: t.String(),
+  name: t.String(),
+  registrationNumber: t.Nullable(t.String()),
+  professionalTitle: t.Nullable(t.String()),
+});
+
+export const timelineEventItem = t.Object(
+  {
+    id: t.String(),
+    eventType: timelineEventTypeEnum,
+    timestamp: t.String(),
+    professional: t.Nullable(timelineProfessionalSummary),
+    summary: t.String(),
+    status: t.String(),
+    resourceId: t.String(),
+    metadata: t.Record(t.String(), t.Any()),
+  },
+  { additionalProperties: true },
+);
+
+export const patientTimelinePageInfo = t.Object({
+  limit: t.Integer(),
+  hasNextPage: t.Boolean(),
+  nextCursor: t.Nullable(t.String()),
+  page: t.Optional(t.Integer()),
+  totalCount: t.Optional(t.Integer()),
+});
+
+export const patientTimelineResponse = t.Object({
+  data: t.Array(timelineEventItem),
+  events: t.Optional(t.Array(timelineEventItem)),
+  pageInfo: patientTimelinePageInfo,
+});
+
 export type ListPatientsQuery = typeof listPatientsQuery.static;
 export type PatientParams = typeof patientParams.static;
 export type CreatePatientBody = typeof createPatientBody.static;
@@ -334,3 +399,11 @@ export type PatientAttachmentDownloadUrlResponse =
   typeof patientAttachmentDownloadUrlResponse.static;
 export type ArchivePatientAttachmentResponse =
   typeof archivePatientAttachmentResponse.static;
+export type TimelineEventType = typeof timelineEventTypeEnum.static;
+export type TimelineEventFilter = typeof timelineEventFilterSchema.static;
+export type PatientTimelineQuery = typeof patientTimelineQuery.static;
+export type TimelineProfessionalSummary =
+  typeof timelineProfessionalSummary.static;
+export type TimelineEventItem = typeof timelineEventItem.static;
+export type PatientTimelinePageInfo = typeof patientTimelinePageInfo.static;
+export type PatientTimelineResponse = typeof patientTimelineResponse.static;

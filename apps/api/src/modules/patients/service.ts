@@ -25,6 +25,10 @@ import {
   type PatientDetailResponse,
   type PatientOverviewResponse,
   type PatientResponse,
+  type PatientTimelinePageInfo,
+  type PatientTimelineQuery,
+  type PatientTimelineResponse,
+  type TimelineEventItem,
   type UpdatePatientBody,
   type UploadPatientAttachmentBody,
   type UploadPatientAttachmentResponse,
@@ -239,6 +243,17 @@ function parseBirthDate(value: string) {
       },
     );
   return date;
+}
+
+function parseTimelineDate(date: string, field: "startDate" | "endDate"): Date {
+  const parsed = new Date(`${date}T00:00:00Z`);
+  if (
+    Number.isNaN(parsed.getTime()) ||
+    parsed.toISOString().slice(0, 10) !== date
+  ) {
+    throw new ApiError("VALIDATION_ERROR", 400, "Data inválida.", { field });
+  }
+  return parsed;
 }
 
 export function normalizePatientName(value: string): string {
@@ -1132,5 +1147,411 @@ export class PatientsService {
         "A chave de idempotência já foi usada com outros dados.",
       );
     return request.patient;
+  }
+
+  async getTimeline(
+    organizationId: string,
+    patientId: string,
+    actorUserId: string,
+    query: PatientTimelineQuery = {},
+  ): Promise<PatientTimelineResponse> {
+    const patient = await this.prisma.patient.findFirst({
+      where: { id: patientId, organizationId },
+      select: { id: true },
+    });
+    if (!patient) {
+      throw new ApiError("NOT_FOUND", 404, "Paciente não encontrado.");
+    }
+
+    const limit = query.limit ?? 20;
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+      throw new ApiError(
+        "VALIDATION_ERROR",
+        400,
+        "Limite de página inválido.",
+        { field: "limit" },
+      );
+    }
+
+    const page = query.page ?? 1;
+    if (!Number.isInteger(page) || page < 1) {
+      throw new ApiError("VALIDATION_ERROR", 400, "Página inválida.", {
+        field: "page",
+      });
+    }
+
+    const rawType = (query.eventType ?? query.type ?? "all")
+      .toLowerCase()
+      .trim();
+    if (
+      ![
+        "all",
+        "consultation",
+        "document",
+        "attachment",
+        "appointment",
+      ].includes(rawType)
+    ) {
+      throw new ApiError("VALIDATION_ERROR", 400, "Tipo de evento inválido.", {
+        field: query.eventType ? "eventType" : "type",
+      });
+    }
+
+    const startParsed = query.startDate
+      ? parseTimelineDate(query.startDate, "startDate")
+      : null;
+    const endParsed = query.endDate
+      ? parseTimelineDate(query.endDate, "endDate")
+      : null;
+
+    if (
+      startParsed &&
+      endParsed &&
+      startParsed.getTime() > endParsed.getTime()
+    ) {
+      throw new ApiError(
+        "VALIDATION_ERROR",
+        400,
+        "A data inicial não pode ser posterior à data final.",
+        { field: "startDate" },
+      );
+    }
+
+    const startAt = startParsed
+      ? new Date(`${query.startDate}T00:00:00.000Z`)
+      : null;
+    const endAt = endParsed ? new Date(`${query.endDate}T23:59:59.999Z`) : null;
+
+    if (typeof this.prisma.auditLog?.create === "function") {
+      await this.prisma.auditLog.create({
+        data: {
+          organizationId,
+          actorUserId,
+          action: "PATIENT_TIMELINE_ACCESSED",
+          targetType: "PATIENT",
+          targetId: patientId,
+          metadata: {
+            eventType: rawType,
+            startDate: query.startDate ?? null,
+            endDate: query.endDate ?? null,
+          },
+        },
+      });
+    }
+
+    const events: TimelineEventItem[] = [];
+
+    // 1. Consultations
+    if (rawType === "all" || rawType === "consultation") {
+      if (typeof this.prisma.consultation?.findMany === "function") {
+        const consultations = await this.prisma.consultation.findMany({
+          where: {
+            organizationId,
+            patientId,
+            ...(startAt || endAt
+              ? {
+                  scheduledAt: {
+                    ...(startAt ? { gte: startAt } : {}),
+                    ...(endAt ? { lte: endAt } : {}),
+                  },
+                }
+              : {}),
+          },
+          select: {
+            id: true,
+            scheduledAt: true,
+            startedAt: true,
+            completedAt: true,
+            status: true,
+            anamnesisStatus: true,
+            appointmentId: true,
+            appointment: {
+              select: {
+                notes: true,
+              },
+            },
+            professional: {
+              select: {
+                id: true,
+                fullName: true,
+                registrationNumber: true,
+                professionalTitle: true,
+              },
+            },
+          },
+        });
+
+        for (const c of consultations) {
+          const timestamp = (c.startedAt ?? c.scheduledAt).toISOString();
+          events.push({
+            id: c.id,
+            eventType: "CONSULTATION",
+            timestamp,
+            professional: c.professional
+              ? {
+                  id: c.professional.id,
+                  name: c.professional.fullName,
+                  registrationNumber: c.professional.registrationNumber ?? null,
+                  professionalTitle: c.professional.professionalTitle ?? null,
+                }
+              : null,
+            summary: c.appointment?.notes || "Consulta médica",
+            status: c.status,
+            resourceId: c.id,
+            metadata: {
+              appointmentId: c.appointmentId ?? null,
+              anamnesisStatus: c.anamnesisStatus,
+              startedAt: c.startedAt ? c.startedAt.toISOString() : null,
+              completedAt: c.completedAt ? c.completedAt.toISOString() : null,
+            },
+          });
+        }
+      }
+    }
+
+    // 2. Clinical Documents
+    if (rawType === "all" || rawType === "document") {
+      if (typeof this.prisma.clinicalDocument?.findMany === "function") {
+        const documents = await this.prisma.clinicalDocument.findMany({
+          where: {
+            organizationId,
+            patientId,
+            ...(startAt || endAt
+              ? {
+                  createdAt: {
+                    ...(startAt ? { gte: startAt } : {}),
+                    ...(endAt ? { lte: endAt } : {}),
+                  },
+                }
+              : {}),
+          },
+          select: {
+            id: true,
+            title: true,
+            type: true,
+            status: true,
+            templateId: true,
+            issuedAt: true,
+            voidedAt: true,
+            createdAt: true,
+            author: {
+              select: {
+                id: true,
+                fullName: true,
+                registrationNumber: true,
+                professionalTitle: true,
+              },
+            },
+          },
+        });
+
+        for (const d of documents) {
+          const timestamp = (d.issuedAt ?? d.createdAt).toISOString();
+          events.push({
+            id: d.id,
+            eventType: "DOCUMENT",
+            timestamp,
+            professional: d.author
+              ? {
+                  id: d.author.id,
+                  name: d.author.fullName,
+                  registrationNumber: d.author.registrationNumber ?? null,
+                  professionalTitle: d.author.professionalTitle ?? null,
+                }
+              : null,
+            summary: d.title || `Documento (${d.type})`,
+            status: d.status,
+            resourceId: d.id,
+            metadata: {
+              documentType: d.type,
+              templateId: d.templateId ?? null,
+              issuedAt: d.issuedAt ? d.issuedAt.toISOString() : null,
+              voidedAt: d.voidedAt ? d.voidedAt.toISOString() : null,
+            },
+          });
+        }
+      }
+    }
+
+    // 3. Attachments
+    if (rawType === "all" || rawType === "attachment") {
+      if (typeof this.prisma.patientAttachment?.findMany === "function") {
+        const attachments = await this.prisma.patientAttachment.findMany({
+          where: {
+            organizationId,
+            patientId,
+            ...(startAt || endAt
+              ? {
+                  createdAt: {
+                    ...(startAt ? { gte: startAt } : {}),
+                    ...(endAt ? { lte: endAt } : {}),
+                  },
+                }
+              : {}),
+          },
+          select: {
+            id: true,
+            fileName: true,
+            contentType: true,
+            sizeBytes: true,
+            category: true,
+            description: true,
+            uploadedById: true,
+            archivedAt: true,
+            createdAt: true,
+            uploadedBy: {
+              select: {
+                id: true,
+                fullName: true,
+                registrationNumber: true,
+                professionalTitle: true,
+              },
+            },
+          },
+        });
+
+        for (const a of attachments) {
+          const timestamp = a.createdAt.toISOString();
+          events.push({
+            id: a.id,
+            eventType: "ATTACHMENT",
+            timestamp,
+            professional: a.uploadedBy
+              ? {
+                  id: a.uploadedBy.id,
+                  name: a.uploadedBy.fullName,
+                  registrationNumber: a.uploadedBy.registrationNumber ?? null,
+                  professionalTitle: a.uploadedBy.professionalTitle ?? null,
+                }
+              : null,
+            summary: a.description || a.category || a.fileName,
+            status: a.archivedAt ? "ARCHIVED" : "ACTIVE",
+            resourceId: a.id,
+            metadata: {
+              fileName: a.fileName,
+              contentType: a.contentType,
+              sizeBytes: a.sizeBytes,
+              category: a.category ?? null,
+              description: a.description ?? null,
+              archivedAt: a.archivedAt ? a.archivedAt.toISOString() : null,
+            },
+          });
+        }
+      }
+    }
+
+    // 4. Appointments
+    if (rawType === "all" || rawType === "appointment") {
+      if (typeof this.prisma.appointment?.findMany === "function") {
+        const appointments = await this.prisma.appointment.findMany({
+          where: {
+            organizationId,
+            patientId,
+            ...(startAt || endAt
+              ? {
+                  scheduledAt: {
+                    ...(startAt ? { gte: startAt } : {}),
+                    ...(endAt ? { lte: endAt } : {}),
+                  },
+                }
+              : {}),
+          },
+          select: {
+            id: true,
+            scheduledAt: true,
+            durationMinutes: true,
+            status: true,
+            queueStatus: true,
+            notes: true,
+            professional: {
+              select: {
+                id: true,
+                fullName: true,
+                registrationNumber: true,
+                professionalTitle: true,
+              },
+            },
+          },
+        });
+
+        for (const appt of appointments) {
+          const timestamp = appt.scheduledAt.toISOString();
+          events.push({
+            id: appt.id,
+            eventType: "APPOINTMENT",
+            timestamp,
+            professional: appt.professional
+              ? {
+                  id: appt.professional.id,
+                  name: appt.professional.fullName,
+                  registrationNumber:
+                    appt.professional.registrationNumber ?? null,
+                  professionalTitle:
+                    appt.professional.professionalTitle ?? null,
+                }
+              : null,
+            summary: appt.notes || "Agendamento de consulta",
+            status: appt.status,
+            resourceId: appt.id,
+            metadata: {
+              durationMinutes: appt.durationMinutes,
+              queueStatus: appt.queueStatus,
+              notes: appt.notes ?? null,
+            },
+          });
+        }
+      }
+    }
+
+    const filteredEvents = events.filter((item) => {
+      const itemTime = new Date(item.timestamp).getTime();
+      if (startAt && itemTime < startAt.getTime()) return false;
+      if (endAt && itemTime > endAt.getTime()) return false;
+      return true;
+    });
+
+    filteredEvents.sort((a, b) => {
+      const timeDiff =
+        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+      if (timeDiff !== 0) return timeDiff;
+      return b.id.localeCompare(a.id);
+    });
+
+    let startIndex = 0;
+    if (query.cursor) {
+      const cursorIndex = filteredEvents.findIndex(
+        (item) => item.id === query.cursor,
+      );
+      if (cursorIndex === -1) {
+        throw new ApiError(
+          "VALIDATION_ERROR",
+          400,
+          "Cursor de paginação inválido.",
+          { field: "cursor" },
+        );
+      }
+      startIndex = cursorIndex + 1;
+    } else if (page > 1) {
+      startIndex = (page - 1) * limit;
+    }
+
+    const pageItems =
+      startIndex >= filteredEvents.length
+        ? []
+        : filteredEvents.slice(startIndex, startIndex + limit);
+    const hasNextPage = startIndex + limit < filteredEvents.length;
+    const nextCursor = hasNextPage ? (pageItems.at(-1)?.id ?? null) : null;
+
+    return {
+      data: pageItems,
+      events: pageItems,
+      pageInfo: {
+        limit,
+        hasNextPage,
+        nextCursor,
+        totalCount: filteredEvents.length,
+        page,
+      },
+    };
   }
 }
