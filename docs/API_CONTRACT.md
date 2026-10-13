@@ -871,7 +871,7 @@ O identificador `revisionId` da versão vigente deve ser armazenado pela futura 
 * **Respostas:** `200 OK`, `400 VALIDATION_ERROR`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`, `409 VERSION_CONFLICT` (edição concorrente / versão obsoleta), `409 INVALID_STATE_TRANSITION` (modelo arquivado), `422 INVALID_TEMPLATE_STRUCTURE`, `422 INVALID_TEMPLATE_VARIABLE`.
 
 #### `POST /organizations/:orgSlug/document-templates/:templateId/archive`
-* **Descrição:** Arquiva um modelo sem afetar ou alterar os documentos emitidos no passado.
+* **Descrição:** Arquiva logicamente o modelo da clínica (`status: ARCHIVED`, `archivedAt`, `archivedById`) e grava `TEMPLATE_ARCHIVED` em `AuditLog` na mesma transação. Repetir o comando para um modelo já arquivado retorna sucesso sem nova auditoria. Modelos globais não podem ser arquivados pela clínica. Versões históricas e vínculos de documentos anteriores permanecem intactos; o modelo deixa de ser selecionável para novos documentos e não pode ser editado.
 * **Permissão:** `templates:write`.
 * **Respostas:** `200 OK` (`{ "archived": true }`).
 

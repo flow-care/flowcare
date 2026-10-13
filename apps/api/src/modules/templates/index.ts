@@ -273,6 +273,22 @@ export function templatesModule(deps: {
             organizationAccess: "templates:write",
             response: { 200: m.templateDetailResponse },
           },
+        )
+        .post(
+          "/document-templates/:templateId/archive",
+          ({ auth, organizationAccess, params }) => {
+            if (!auth) throw Unauthenticated();
+            return service.archive(
+              organizationAccess.organizationId,
+              auth.userId,
+              params.templateId,
+            );
+          },
+          {
+            params: m.templateParams,
+            organizationAccess: "templates:write",
+            response: { 200: m.archiveTemplateResponse },
+          },
         ),
     );
 }

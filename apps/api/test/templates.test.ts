@@ -293,12 +293,22 @@ function createFixture() {
         let count = 0;
         for (const item of seedTemplates) {
           if (matchesWhere(item, where)) {
+            if (data.status !== undefined) item.status = data.status;
+            if (data.archivedAt !== undefined)
+              item.archivedAt = data.archivedAt;
             if (data.title !== undefined) item.title = data.title;
             if (data.type !== undefined) item.type = data.type;
             if (data.bodyTemplate !== undefined)
               item.bodyTemplate = data.bodyTemplate;
             if (data.version !== undefined) item.version = data.version;
             if (data.updatedAt !== undefined) item.updatedAt = data.updatedAt;
+            if (
+              (data as { archivedById?: string }).archivedById !== undefined
+            ) {
+              (
+                item as StoredTemplate & { archivedById?: string }
+              ).archivedById = (data as { archivedById: string }).archivedById;
+            }
             count += 1;
           }
         }
@@ -443,6 +453,81 @@ function createFixture() {
 }
 
 describe("templates module (#287)", () => {
+  test("archives a clinic template, preserves historical versions, and audits once", async () => {
+    const f = createFixture();
+    const path = `/organizations/clinica-a/document-templates/${clinicAActiveTemplateId}/archive`;
+    const first = await f.post(path, {});
+    expect(first.status).toBe(200);
+    expect(await first.json()).toEqual({ archived: true });
+    const second = await f.post(path, {});
+    expect(second.status).toBe(200);
+    expect(
+      f.auditLogs.filter((log) => log.action === "TEMPLATE_ARCHIVED"),
+    ).toHaveLength(1);
+    expect(
+      f.auditLogs.find((log) => log.action === "TEMPLATE_ARCHIVED"),
+    ).toMatchObject({
+      actorUserId: "user-1",
+      targetId: clinicAActiveTemplateId,
+    });
+
+    const detail = await f.get(
+      `/organizations/clinica-a/templates/${clinicAActiveTemplateId}`,
+    );
+    expect(detail.status).toBe(200);
+    const archived = (await detail.json()) as TemplateDetailResponse;
+    expect(archived.status).toBe("ARCHIVED");
+    expect(archived.selectable).toBe(false);
+    expect(archived.archivedAt).not.toBeNull();
+
+    const versions = await f.get(
+      `/organizations/clinica-a/templates/${clinicAActiveTemplateId}/versions`,
+    );
+    expect(versions.status).toBe(200);
+    expect(
+      ((await versions.json()) as TemplateVersionsResponse).versions.map(
+        (item) => item.version,
+      ),
+    ).toEqual([1, 2]);
+
+    const selectable = await f.get(
+      "/organizations/clinica-a/templates?selectableOnly=true",
+    );
+    expect(
+      ((await selectable.json()) as ListTemplatesResponse).data.map(
+        (item) => item.id,
+      ),
+    ).not.toContain(clinicAActiveTemplateId);
+  });
+
+  test("rejects archive of a global, foreign, or unauthorized template", async () => {
+    const f = createFixture();
+    expect(
+      (
+        await f.post(
+          `/organizations/clinica-a/document-templates/${globalTemplateId}/archive`,
+          {},
+        )
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await f.post(
+          `/organizations/clinica-a/document-templates/${clinicBTemplateId}/archive`,
+          {},
+        )
+      ).status,
+    ).toBe(404);
+    f.setRole("RECEPTIONIST");
+    expect(
+      (
+        await f.post(
+          `/organizations/clinica-a/document-templates/${clinicAActiveTemplateId}/archive`,
+          {},
+        )
+      ).status,
+    ).toBe(403);
+  });
   test("lists only templates from the active clinic and authorized global templates, isolating other clinics", async () => {
     const f = createFixture();
 
