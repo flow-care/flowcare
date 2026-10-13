@@ -8,10 +8,15 @@ import { ApiError } from "../../lib/api-error";
 import type {
   CreateDocumentDraftBody,
   DocumentItem,
+  DocumentListItem,
   DocumentResponse,
   DocumentVariables,
+  DocumentVersionDetailResponse,
   DocumentVersionItem,
   DocumentVersionsResponse,
+  ListDocumentsQuery,
+  ListDocumentsResponse,
+  ListVersionsQuery,
   UpdateDocumentDraftBody,
 } from "./model";
 
@@ -26,6 +31,7 @@ type DocumentVersionRecord = {
   templateId: string | null;
   templateVersion: number | null;
   savedById: string;
+  savedBy?: { id: string; fullName: string } | null;
   createdAt: Date;
 };
 
@@ -47,6 +53,8 @@ type ClinicalDocumentRecord = {
   voidedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  patient?: { id: string; fullName: string } | null;
+  author?: { id: string; fullName: string } | null;
   versions: DocumentVersionRecord[];
 };
 
@@ -75,7 +83,34 @@ function normalizeVariables(raw: unknown): DocumentVariables {
   return normalized;
 }
 
-function toVersionItem(record: DocumentVersionRecord): DocumentVersionItem {
+function parseDateFilter(
+  value: string | undefined,
+  isEndOfDay: boolean,
+): Date | undefined {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    const timeSuffix = isEndOfDay ? "T23:59:59.999Z" : "T00:00:00.000Z";
+    return new Date(`${trimmed}${timeSuffix}`);
+  }
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new ApiError("VALIDATION_ERROR", 400, "Formato de data inválido.", {
+      value,
+    });
+  }
+  return parsed;
+}
+
+function toVersionItem(
+  record: DocumentVersionRecord,
+  activeDocumentVersion?: number,
+): DocumentVersionItem {
+  const savedBy = record.savedBy
+    ? { id: record.savedBy.id, fullName: record.savedBy.fullName }
+    : { id: record.savedById, fullName: "Profissional" };
+
   return {
     id: record.id,
     revisionId: record.id,
@@ -87,7 +122,44 @@ function toVersionItem(record: DocumentVersionRecord): DocumentVersionItem {
     templateId: record.templateId,
     templateVersion: record.templateVersion,
     savedById: record.savedById,
+    savedBy,
+    isActiveVersion:
+      activeDocumentVersion !== undefined
+        ? record.version === activeDocumentVersion
+        : false,
     createdAt: record.createdAt.toISOString(),
+  };
+}
+
+function toDocumentListItem(record: ClinicalDocumentRecord): DocumentListItem {
+  const patient = record.patient
+    ? { id: record.patient.id, fullName: record.patient.fullName }
+    : { id: record.patientId, fullName: "Paciente" };
+
+  const author = record.author
+    ? { id: record.author.id, fullName: record.author.fullName }
+    : { id: record.authorId, fullName: "Profissional" };
+
+  return {
+    id: record.id,
+    documentId: record.id,
+    organizationId: record.organizationId,
+    patientId: record.patientId,
+    authorId: record.authorId,
+    templateId: record.templateId,
+    templateVersion: record.templateVersion,
+    type: record.type,
+    title: record.title,
+    status: record.status,
+    version: record.version,
+    revisionId: record.currentRevisionId,
+    currentRevisionId: record.currentRevisionId,
+    patient,
+    author,
+    issuedAt: record.issuedAt ? record.issuedAt.toISOString() : null,
+    voidedAt: record.voidedAt ? record.voidedAt.toISOString() : null,
+    createdAt: record.createdAt.toISOString(),
+    updatedAt: record.updatedAt.toISOString(),
   };
 }
 
@@ -99,6 +171,14 @@ function toDocumentItem(record: ClinicalDocumentRecord): DocumentItem {
     record.currentRevisionId ??
     sortedVersions[sortedVersions.length - 1]?.id ??
     null;
+
+  const patient = record.patient
+    ? { id: record.patient.id, fullName: record.patient.fullName }
+    : { id: record.patientId, fullName: "Paciente" };
+
+  const author = record.author
+    ? { id: record.author.id, fullName: record.author.fullName }
+    : { id: record.authorId, fullName: "Profissional" };
 
   return {
     id: record.id,
@@ -116,11 +196,13 @@ function toDocumentItem(record: ClinicalDocumentRecord): DocumentItem {
     version: record.version,
     revisionId: latestRevisionId,
     currentRevisionId: latestRevisionId,
+    patient,
+    author,
     issuedAt: record.issuedAt ? record.issuedAt.toISOString() : null,
     voidedAt: record.voidedAt ? record.voidedAt.toISOString() : null,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
-    versions: sortedVersions.map(toVersionItem),
+    versions: sortedVersions.map((v) => toVersionItem(v, record.version)),
   };
 }
 
@@ -142,6 +224,106 @@ const versionConflictError = () =>
 export class DocumentsService {
   constructor(private readonly prisma: PrismaClient) {}
 
+  async list(
+    organizationId: string,
+    query: ListDocumentsQuery,
+  ): Promise<ListDocumentsResponse> {
+    const where: Prisma.ClinicalDocumentWhereInput = {
+      organizationId,
+    };
+
+    if (query.patientId) {
+      where.patientId = query.patientId;
+    }
+
+    if (query.authorId) {
+      where.authorId = query.authorId;
+    }
+
+    if (query.type) {
+      where.type = query.type;
+    }
+
+    if (query.status) {
+      where.status = query.status;
+    }
+
+    const searchTerm = (query.search ?? query.q)?.trim();
+    if (searchTerm) {
+      where.OR = [
+        { title: { contains: searchTerm, mode: "insensitive" } },
+        { content: { contains: searchTerm, mode: "insensitive" } },
+      ];
+    }
+
+    const startDate = parseDateFilter(query.startDate, false);
+    const endDate = parseDateFilter(query.endDate, true);
+    if (startDate || endDate) {
+      where.createdAt = {
+        ...(startDate ? { gte: startDate } : {}),
+        ...(endDate ? { lte: endDate } : {}),
+      };
+    }
+
+    const limit = Math.min(Math.max(query.limit ?? 20, 1), 100);
+    const page = Math.max(query.page ?? 1, 1);
+    const sortOrder: Prisma.SortOrder = query.order === "asc" ? "asc" : "desc";
+
+    const orderBy: Prisma.ClinicalDocumentOrderByWithRelationInput[] = [
+      { updatedAt: sortOrder },
+      { createdAt: sortOrder },
+      { id: sortOrder },
+    ];
+
+    const totalCount = await this.prisma.clinicalDocument.count({ where });
+
+    let findManyArgs: Prisma.ClinicalDocumentFindManyArgs = {
+      where,
+      orderBy,
+      take: limit + 1,
+      include: {
+        patient: { select: { id: true, fullName: true } },
+        author: { select: { id: true, fullName: true } },
+      },
+    };
+
+    if (query.cursor) {
+      findManyArgs = {
+        ...findManyArgs,
+        cursor: { id: query.cursor },
+        skip: 1,
+      };
+    } else if (page > 1) {
+      findManyArgs = {
+        ...findManyArgs,
+        skip: (page - 1) * limit,
+      };
+    }
+
+    const rawRecords = (await this.prisma.clinicalDocument.findMany(
+      findManyArgs,
+    )) as unknown as ClinicalDocumentRecord[];
+
+    const hasNextPage = rawRecords.length > limit;
+    const pageRecords = hasNextPage ? rawRecords.slice(0, limit) : rawRecords;
+    const lastRecord = pageRecords[pageRecords.length - 1];
+    const nextCursor = hasNextPage && lastRecord ? lastRecord.id : null;
+
+    const data = pageRecords.map(toDocumentListItem);
+
+    return {
+      data,
+      documents: data,
+      pageInfo: {
+        limit,
+        page,
+        totalCount,
+        hasNextPage,
+        nextCursor,
+      },
+    };
+  }
+
   async createDraft(
     organizationId: string,
     authorId: string,
@@ -161,11 +343,18 @@ export class DocumentsService {
         id: body.patientId,
         organizationId,
       },
-      select: { id: true },
+      select: { id: true, fullName: true },
     });
     if (!patient) {
       throw new ApiError("NOT_FOUND", 404, "Paciente não encontrado.");
     }
+
+    const author = this.prisma.user
+      ? await this.prisma.user.findFirst({
+          where: { id: authorId },
+          select: { id: true, fullName: true },
+        })
+      : null;
 
     let resolvedTemplateId: string | null = null;
     let resolvedTemplateVersion: number | null = null;
@@ -298,7 +487,18 @@ export class DocumentsService {
       return toDocumentResponse({
         ...created,
         currentRevisionId: revision.id,
-        versions: [revision],
+        patient: patient
+          ? { id: patient.id, fullName: patient.fullName }
+          : null,
+        author: author ? { id: author.id, fullName: author.fullName } : null,
+        versions: [
+          {
+            ...revision,
+            savedBy: author
+              ? { id: author.id, fullName: author.fullName }
+              : null,
+          },
+        ],
       });
     });
   }
@@ -306,49 +506,166 @@ export class DocumentsService {
   async getById(
     organizationId: string,
     documentId: string,
+    requestedVersion?: number,
   ): Promise<DocumentResponse> {
-    const doc = await this.prisma.clinicalDocument.findFirst({
+    const doc = (await this.prisma.clinicalDocument.findFirst({
       where: {
         id: documentId,
         organizationId,
       },
       include: {
+        patient: { select: { id: true, fullName: true } },
+        author: { select: { id: true, fullName: true } },
         versions: {
+          include: {
+            savedBy: { select: { id: true, fullName: true } },
+          },
           orderBy: { version: "asc" },
         },
       },
-    });
+    })) as unknown as ClinicalDocumentRecord | null;
+
     if (!doc) {
       throw new ApiError("NOT_FOUND", 404, "Documento não encontrado.");
     }
+
+    if (requestedVersion !== undefined) {
+      const historicalVersion = doc.versions.find(
+        (v) => v.version === requestedVersion,
+      );
+      if (!historicalVersion) {
+        throw new ApiError(
+          "NOT_FOUND",
+          404,
+          `Versão ${requestedVersion} do documento não encontrada.`,
+        );
+      }
+
+      return toDocumentResponse({
+        ...doc,
+        title: historicalVersion.title,
+        content: historicalVersion.content,
+        variables: historicalVersion.variables,
+        templateId: historicalVersion.templateId,
+        templateVersion: historicalVersion.templateVersion,
+        version: historicalVersion.version,
+        currentRevisionId: historicalVersion.id,
+      });
+    }
+
     return toDocumentResponse(doc);
   }
 
   async listVersions(
     organizationId: string,
     documentId: string,
+    query?: ListVersionsQuery,
   ): Promise<DocumentVersionsResponse> {
-    const doc = await this.prisma.clinicalDocument.findFirst({
+    const doc = (await this.prisma.clinicalDocument.findFirst({
       where: {
         id: documentId,
         organizationId,
       },
       include: {
         versions: {
+          include: {
+            savedBy: { select: { id: true, fullName: true } },
+          },
           orderBy: { version: "asc" },
         },
       },
-    });
+    })) as unknown as ClinicalDocumentRecord | null;
+
     if (!doc) {
       throw new ApiError("NOT_FOUND", 404, "Documento não encontrado.");
     }
-    const item = toDocumentItem(doc);
+
+    let versionsList = (doc.versions ?? []).map((v) =>
+      toVersionItem(v, doc.version),
+    );
+
+    if (query?.version !== undefined) {
+      versionsList = versionsList.filter((v) => v.version === query.version);
+    }
+
+    if (query?.order === "desc") {
+      versionsList.sort((a, b) => b.version - a.version);
+    } else {
+      versionsList.sort((a, b) => a.version - b.version);
+    }
+
     return {
-      documentId: item.id,
-      currentVersion: item.version,
-      currentRevisionId: item.currentRevisionId,
-      status: item.status,
-      versions: item.versions,
+      documentId: doc.id,
+      currentVersion: doc.version,
+      currentRevisionId: doc.currentRevisionId,
+      status: doc.status,
+      data: versionsList,
+      versions: versionsList,
+    };
+  }
+
+  async getVersion(
+    organizationId: string,
+    documentId: string,
+    versionIdOrNumber: string,
+  ): Promise<DocumentVersionDetailResponse> {
+    const doc = await this.prisma.clinicalDocument.findFirst({
+      where: {
+        id: documentId,
+        organizationId,
+      },
+      select: {
+        id: true,
+        version: true,
+      },
+    });
+
+    if (!doc) {
+      throw new ApiError("NOT_FOUND", 404, "Documento não encontrado.");
+    }
+
+    const isNumeric = /^\d+$/.test(versionIdOrNumber);
+    const versionRecord = (await this.prisma.documentVersion.findFirst({
+      where: isNumeric
+        ? {
+            documentId: doc.id,
+            organizationId,
+            version: Number.parseInt(versionIdOrNumber, 10),
+          }
+        : {
+            id: versionIdOrNumber,
+            documentId: doc.id,
+            organizationId,
+          },
+      include: {
+        savedBy: { select: { id: true, fullName: true } },
+      },
+    })) as unknown as DocumentVersionRecord | null;
+
+    if (!versionRecord) {
+      throw new ApiError(
+        "NOT_FOUND",
+        404,
+        "Versão do documento não encontrada.",
+      );
+    }
+
+    const versionItem = toVersionItem(versionRecord, doc.version);
+    const snapshot = {
+      version: versionItem.version,
+      title: versionItem.title,
+      content: versionItem.content,
+      variables: versionItem.variables,
+      templateId: versionItem.templateId,
+      templateVersion: versionItem.templateVersion,
+      savedBy: versionItem.savedBy,
+      createdAt: versionItem.createdAt,
+    };
+
+    return {
+      ...versionItem,
+      organizationId,
+      snapshot,
     };
   }
 
@@ -375,17 +692,22 @@ export class DocumentsService {
 
     try {
       return await this.prisma.$transaction(async (tx) => {
-        const current = await tx.clinicalDocument.findFirst({
+        const current = (await tx.clinicalDocument.findFirst({
           where: {
             id: documentId,
             organizationId,
           },
           include: {
+            patient: { select: { id: true, fullName: true } },
+            author: { select: { id: true, fullName: true } },
             versions: {
+              include: {
+                savedBy: { select: { id: true, fullName: true } },
+              },
               orderBy: { version: "asc" },
             },
           },
-        });
+        })) as unknown as ClinicalDocumentRecord | null;
 
         if (!current) {
           throw new ApiError("NOT_FOUND", 404, "Documento não encontrado.");
@@ -548,6 +870,18 @@ export class DocumentsService {
           },
         });
 
+        const actor = tx.user
+          ? await tx.user.findFirst({
+              where: { id: actorUserId },
+              select: { id: true, fullName: true },
+            })
+          : null;
+
+        const populatedRevision: DocumentVersionRecord = {
+          ...createdRevision,
+          savedBy: actor ? { id: actor.id, fullName: actor.fullName } : null,
+        };
+
         return toDocumentResponse({
           ...current,
           title: nextTitle,
@@ -558,7 +892,7 @@ export class DocumentsService {
           version: nextVersion,
           currentRevisionId: createdRevision.id,
           updatedAt: now,
-          versions: [...current.versions, createdRevision],
+          versions: [...current.versions, populatedRevision],
         });
       });
     } catch (error) {

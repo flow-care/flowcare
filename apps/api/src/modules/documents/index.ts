@@ -42,6 +42,17 @@ export function documentsModule(deps: {
     )
     .group("/organizations/:orgSlug", (group) =>
       group
+        .get(
+          "/documents",
+          ({ organizationAccess, query }) =>
+            service.list(organizationAccess.organizationId, query),
+          {
+            params: m.orgSlugParams,
+            query: m.listDocumentsQuery,
+            organizationAccess: "documents:read",
+            response: { 200: m.listDocumentsResponse },
+          },
+        )
         .post(
           "/documents",
           async ({ auth, organizationAccess, body, set }) => {
@@ -80,28 +91,46 @@ export function documentsModule(deps: {
         )
         .get(
           "/documents/:documentId",
-          ({ organizationAccess, params }) =>
+          ({ organizationAccess, params, query }) =>
             service.getById(
               organizationAccess.organizationId,
               params.documentId,
+              query?.version,
             ),
           {
             params: m.documentIdParams,
+            query: m.getDocumentQuery,
             organizationAccess: "documents:read",
             response: { 200: m.documentResponse },
           },
         )
         .get(
           "/documents/:documentId/versions",
-          ({ organizationAccess, params }) =>
+          ({ organizationAccess, params, query }) =>
             service.listVersions(
               organizationAccess.organizationId,
               params.documentId,
+              query,
             ),
           {
             params: m.documentIdParams,
+            query: m.listVersionsQuery,
             organizationAccess: "documents:read",
             response: { 200: m.documentVersionsResponse },
+          },
+        )
+        .get(
+          "/documents/:documentId/versions/:versionId",
+          ({ organizationAccess, params }) =>
+            service.getVersion(
+              organizationAccess.organizationId,
+              params.documentId,
+              params.versionId,
+            ),
+          {
+            params: m.documentVersionParams,
+            organizationAccess: "documents:read",
+            response: { 200: m.documentVersionDetailResponse },
           },
         )
         .patch(
