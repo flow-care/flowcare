@@ -1,208 +1,213 @@
 "use client";
 
-import { Check, ChevronsUpDown, LayoutDashboard, Plus } from "lucide-react";
+import {
+  Building2,
+  CalendarDays,
+  ChartNoAxesCombined,
+  ChevronLeft,
+  ClipboardList,
+  Clock3,
+  FileText,
+  LayoutDashboard,
+  MessageCircle,
+  ScrollText,
+  Settings,
+  ShieldCheck,
+  Stethoscope,
+  Users,
+} from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect, useState, useTransition } from "react";
-import { toast } from "sonner";
-import { chooseOrganization } from "@/app/select-organization/actions";
-import { NewClinicSheet } from "@/components/flowcare/app/new-clinic-sheet";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { usePathname } from "next/navigation";
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarRail,
+  SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar";
+import {
+  type AppSection,
+  appSections,
+  canOpenSection,
+  type SettingsSection,
+  settingsSections,
+} from "@/lib/app-navigation";
+import type { CurrentUserProfile } from "@/server/invites";
 import type { OrganizationSummary } from "@/server/organizations";
+import { useAppSheet } from "./app-sheet-host";
+import { OrganizationSwitcher } from "./organization-switcher";
+import { ProfileMenu } from "./profile-menu";
 
-const roleLabels: Record<OrganizationSummary["role"], string> = {
-  ADMIN: "Administrador",
-  ADMIN_PROFESSIONAL: "Administrador e profissional",
-  PROFESSIONAL: "Profissional",
-  RECEPTIONIST: "Recepção",
+const sectionIcons: Record<AppSection, typeof LayoutDashboard> = {
+  dashboard: LayoutDashboard,
+  appointments: CalendarDays,
+  patients: Users,
+  consultations: Stethoscope,
+  documents: FileText,
+  templates: ClipboardList,
+  whatsapp: MessageCircle,
+  settings: Settings,
+};
+
+const settingsIcons: Record<SettingsSection, typeof Settings> = {
+  clinic: Building2,
+  hours: Clock3,
+  team: Users,
+  roles: ShieldCheck,
+  usage: ChartNoAxesCombined,
+  audit: ScrollText,
 };
 
 export function AppSidebar({
   current,
   organizations,
+  user,
 }: {
   current: OrganizationSummary;
   organizations: OrganizationSummary[];
+  user: CurrentUserProfile | null;
 }) {
-  const router = useRouter();
-  const { isMobile, setOpenMobile } = useSidebar();
-  const [pending, startTransition] = useTransition();
-  const [newClinicOpen, setNewClinicOpen] = useState(false);
-
-  useEffect(() => {
-    const syncSheetFromUrl = () => {
-      setNewClinicOpen(
-        new URL(window.location.href).searchParams.get("sheet") === "new",
-      );
-    };
-    syncSheetFromUrl();
-    window.addEventListener("popstate", syncSheetFromUrl);
-    return () => window.removeEventListener("popstate", syncSheetFromUrl);
-  }, []);
-
-  function setNewClinicSheetOpen(open: boolean) {
-    const url = new URL(window.location.href);
-    if (open) url.searchParams.set("sheet", "new");
-    else url.searchParams.delete("sheet");
-    if (open) window.history.pushState(null, "", url);
-    else window.history.replaceState(null, "", url);
-    setNewClinicOpen(open);
-  }
-
-  function switchOrganization(organization: OrganizationSummary) {
-    if (organization.id === current.id || pending) return;
-    startTransition(async () => {
-      try {
-        if (!(await chooseOrganization(organization.slug))) {
-          toast.error("Não foi possível selecionar a clínica.");
-          return;
-        }
-        setOpenMobile(false);
-        router.replace(
-          `/app/${encodeURIComponent(organization.slug)}/dashboard`,
-        );
-      } catch {
-        toast.error("Não foi possível selecionar a clínica.");
-      }
-    });
-  }
+  const pathname = usePathname();
+  const { setOpenMobile } = useSidebar();
+  const setSheet = useAppSheet();
+  const basePath = `/app/${encodeURIComponent(current.slug)}`;
+  const settingsPath = `${basePath}/settings`;
+  const inSettings =
+    canOpenSection(current.role, "settings") &&
+    (pathname === settingsPath || pathname.startsWith(`${settingsPath}/`));
 
   return (
     <Sidebar collapsible="icon" className="border-0">
       <SidebarHeader>
-        <Link
-          href="/app"
-          aria-label="Flowcare — início"
-          className="flex h-12 items-center px-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
-        >
-          <Image
-            src="/logo-1.png"
-            alt="Flowcare"
-            width={1024}
-            height={409}
-            className="h-auto w-28 group-data-[collapsible=icon]:hidden"
-          />
+        <div className="flex h-12 items-center justify-between px-2 group-data-[collapsible=icon]:hidden">
+          <Link href="/app" aria-label="Flowcare — início">
+            <Image
+              src="/logo-1.png"
+              alt="Flowcare"
+              width={1024}
+              height={409}
+              className="h-auto w-28"
+            />
+          </Link>
+          <SidebarTrigger aria-label="Fechar ou recolher menu lateral" />
+        </div>
+        <div className="group/logo-toggle relative hidden size-8 self-center group-data-[collapsible=icon]:block">
           <Image
             src="/logo-2.png"
             alt=""
             width={638}
             height={582}
-            className="hidden size-8 object-contain group-data-[collapsible=icon]:block"
+            className="size-8 object-contain transition-opacity group-hover/logo-toggle:opacity-0 group-focus-within/logo-toggle:opacity-0"
           />
-        </Link>
+          <SidebarTrigger
+            aria-label="Expandir menu lateral"
+            className="absolute inset-0 opacity-0 transition-opacity group-hover/logo-toggle:opacity-100 focus-visible:opacity-100"
+          />
+        </div>
         <SidebarMenu>
           <SidebarMenuItem>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <SidebarMenuButton
-                  size="lg"
-                  aria-label={`Clínica atual: ${current.name}. Trocar clínica`}
-                  disabled={pending}
-                >
-                  <Avatar className="after:hidden">
-                    <AvatarImage
-                      src={`https://api.dicebear.com/10.x/initials/svg?seed=${encodeURIComponent(current.name.trim() || current.slug)}&lettersVariant=single`}
-                      alt=""
-                      referrerPolicy="no-referrer"
-                    />
-                    <AvatarFallback>
-                      {current.name.trim().charAt(0).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                  <span className="min-w-0 flex-1 text-left leading-tight">
-                    <span className="block truncate font-semibold">
-                      {current.name}
-                    </span>
-                    <span className="block truncate text-xs text-muted-foreground">
-                      {roleLabels[current.role]}
-                    </span>
-                  </span>
-                  <ChevronsUpDown className="ml-auto size-4" />
-                </SidebarMenuButton>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                side={isMobile ? "bottom" : "right"}
-                align="start"
-                className="min-w-56"
-              >
-                <DropdownMenuLabel>Suas clínicas</DropdownMenuLabel>
-                {organizations.map((organization) => (
-                  <DropdownMenuItem
-                    key={organization.id}
-                    disabled={pending}
-                    onSelect={() => switchOrganization(organization)}
-                  >
-                    <span className="flex min-w-0 flex-1 flex-col">
-                      <span className="truncate font-medium">
-                        {organization.name}
-                      </span>
-                      <span className="truncate text-xs text-muted-foreground">
-                        {roleLabels[organization.role]}
-                      </span>
-                    </span>
-                    {organization.id === current.id && (
-                      <Check aria-label="Selecionada" className="size-4" />
-                    )}
-                  </DropdownMenuItem>
-                ))}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onSelect={() => {
-                    setOpenMobile(false);
-                    setNewClinicSheetOpen(true);
-                  }}
-                >
-                  <Plus />
-                  Nova clínica
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <OrganizationSwitcher
+              current={current}
+              organizations={organizations}
+              onNavigate={() => setOpenMobile(false)}
+              onNewClinic={() => setSheet("new")}
+            />
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
           <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton asChild isActive tooltip="Dashboard">
-                <Link
-                  href={`/app/${encodeURIComponent(current.slug)}/dashboard`}
-                  onClick={() => setOpenMobile(false)}
+            {inSettings && (
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  tooltip="Voltar ao menu principal"
+                  className="relative justify-center"
                 >
-                  <LayoutDashboard />
-                  <span>Dashboard</span>
-                </Link>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
+                  <Link
+                    href={`${basePath}/dashboard`}
+                    aria-label="Voltar ao menu principal"
+                    onClick={() => setOpenMobile(false)}
+                  >
+                    <ChevronLeft className="absolute left-2" />
+                    <span className="group-data-[collapsible=icon]:hidden">
+                      Configurações
+                    </span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            )}
+            {inSettings
+              ? settingsSections.map((section) => {
+                  const href = `${settingsPath}/${section.segment}`;
+                  const Icon = settingsIcons[section.segment];
+                  return (
+                    <SidebarMenuItem key={section.segment}>
+                      <SidebarMenuButton
+                        asChild
+                        isActive={pathname === href}
+                        tooltip={section.label}
+                      >
+                        <Link href={href} onClick={() => setOpenMobile(false)}>
+                          <Icon />
+                          <span>{section.label}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                })
+              : appSections
+                  .filter(
+                    (section) =>
+                      section.segment !== "settings" &&
+                      canOpenSection(current.role, section.segment),
+                  )
+                  .map((section) => {
+                    const href = `${basePath}/${section.segment}`;
+                    const Icon = sectionIcons[section.segment];
+                    return (
+                      <SidebarMenuItem key={section.segment}>
+                        <SidebarMenuButton
+                          asChild
+                          isActive={
+                            pathname === href || pathname.startsWith(`${href}/`)
+                          }
+                          tooltip={section.label}
+                        >
+                          <Link
+                            href={href}
+                            onClick={() => setOpenMobile(false)}
+                          >
+                            <Icon />
+                            <span>{section.label}</span>
+                          </Link>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    );
+                  })}
           </SidebarMenu>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarRail />
-      <NewClinicSheet
-        open={newClinicOpen}
-        onOpenChange={setNewClinicSheetOpen}
-        onCreated={() => setOpenMobile(false)}
-      />
+      <SidebarFooter>
+        <SidebarMenu>
+          <ProfileMenu
+            user={user}
+            settingsHref={
+              canOpenSection(current.role, "settings")
+                ? `${settingsPath}/clinic`
+                : undefined
+            }
+            onNavigate={() => setOpenMobile(false)}
+          />
+        </SidebarMenu>
+      </SidebarFooter>
     </Sidebar>
   );
 }

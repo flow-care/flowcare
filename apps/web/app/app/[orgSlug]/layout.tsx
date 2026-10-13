@@ -1,10 +1,7 @@
-import { notFound } from "next/navigation";
-import { AppSidebar } from "@/components/flowcare/app/app-sidebar";
-import {
-  SidebarInset,
-  SidebarProvider,
-  SidebarTrigger,
-} from "@/components/ui/sidebar";
+import Link from "next/link";
+import { AppShell } from "@/components/flowcare/app/app-shell";
+import { Button } from "@/components/ui/button";
+import { getCurrentUser } from "@/server/invites";
 import { getAvailableOrganizations } from "@/server/organizations";
 
 export default async function OrganizationLayout({
@@ -15,7 +12,10 @@ export default async function OrganizationLayout({
   params: Promise<{ orgSlug: string }>;
 }) {
   const { orgSlug } = await params;
-  const organizations = await getAvailableOrganizations();
+  const [organizations, user] = await Promise.all([
+    getAvailableOrganizations(),
+    getCurrentUser(),
+  ]);
   if (!organizations) {
     return (
       <main className="mx-auto w-full max-w-4xl px-6 py-16">
@@ -31,17 +31,25 @@ export default async function OrganizationLayout({
   const current = organizations.find(
     (organization) => organization.slug === orgSlug,
   );
-  if (!current) notFound();
+  if (!current) {
+    return (
+      <main className="mx-auto flex min-h-svh w-full max-w-md flex-col items-center justify-center px-6 text-center">
+        <h1 className="text-2xl font-semibold">
+          Acesso à clínica indisponível
+        </h1>
+        <p className="mt-3 text-muted-foreground">
+          Esta clínica não existe ou sua conta não tem acesso a ela.
+        </p>
+        <Button asChild className="mt-6">
+          <Link href="/app">Ir para minhas clínicas</Link>
+        </Button>
+      </main>
+    );
+  }
 
   return (
-    <SidebarProvider>
-      <AppSidebar current={current} organizations={organizations} />
-      <SidebarInset>
-        <header className="flex h-16 shrink-0 items-center gap-3 px-5 md:px-8">
-          <SidebarTrigger aria-label="Alternar menu lateral" />
-        </header>
-        {children}
-      </SidebarInset>
-    </SidebarProvider>
+    <AppShell current={current} organizations={organizations} user={user}>
+      {children}
+    </AppShell>
   );
 }
