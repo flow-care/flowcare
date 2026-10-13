@@ -174,23 +174,37 @@ export class InviteService {
           include: { organization: true },
         });
       }
-      if (
-        !invite ||
-        invite.revokedAt ||
-        invite.acceptedAt ||
-        invite.expiresAt <= new Date()
-      )
+      if (!invite || invite.revokedAt) {
         throw new ApiError(
           "INVITE_EXPIRED",
           410,
           "Convite expirado ou inválido.",
         );
-      if (invite.email !== user.email.toLowerCase())
+      }
+      if (invite.acceptedAt) {
+        if (invite.email.toLowerCase() === user.email.toLowerCase()) {
+          return invite.organization.slug;
+        }
+        throw new ApiError(
+          "INVITE_EXPIRED",
+          410,
+          "Convite expirado ou inválido.",
+        );
+      }
+      if (invite.expiresAt <= new Date()) {
+        throw new ApiError(
+          "INVITE_EXPIRED",
+          410,
+          "Convite expirado ou inválido.",
+        );
+      }
+      if (invite.email.toLowerCase() !== user.email.toLowerCase()) {
         throw new ApiError(
           "FORBIDDEN",
           403,
           "Este convite pertence a outro e-mail.",
         );
+      }
       await tx.organizationInvite.update({
         where: { id: invite.id },
         data: { acceptedAt: new Date() },
@@ -269,7 +283,7 @@ export class InviteService {
         410,
         "Convite expirado ou inválido.",
       );
-    if (invite.email !== user.email.toLowerCase())
+    if (invite.email.toLowerCase() !== user.email.toLowerCase())
       throw new ApiError(
         "FORBIDDEN",
         403,

@@ -370,9 +370,9 @@ O fluxo obrigatório é:
 #### `POST /invites/:token/accept`
 * **Descrição:** Aceita um convite de equipe enviado por e-mail e cria o vínculo de Membership na clínica.
 * **Permissão:** Autenticado, e-mail verificado e igual ao destinatário do convite.
-* **Body:** `{ "token": "inv_token_999" }`
-* **Respostas:** `200 OK` (`{ "organizationSlug": "vida-e-saude" }`), `410 INVITE_EXPIRED`.
-* **Regras:** Convite válido por 7 dias, uso único e vinculado a e-mail, clínica e papel. Revogação ou reenvio invalidam o token anterior. Aceite repetido não cria outro vínculo.
+* **Body:** Sem corpo obrigatório; o token é enviado na URL (`:token`).
+* **Respostas:** `200 OK` (`{ "organizationSlug": "vida-e-saude" }`), `403 FORBIDDEN` (quando o e-mail autenticado não corresponde ao convite), `410 INVITE_EXPIRED` (para token inválido, expirado, revogado ou já utilizado por outro usuário).
+* **Regras:** Convite válido por 7 dias, uso único e vinculado a e-mail, clínica e papel. Revogação ou reenvio invalidam o token anterior. Aceite repetido pelo mesmo usuário é idempotente e retorna o slug da clínica (`200 OK`) sem duplicar vínculos ou registros de auditoria.
 
 #### `PATCH /organizations/:orgSlug/members/:memberId/role`
 * **Descrição:** Altera o papel de um membro. Valida obrigatoriamente a proteção do último administrador.

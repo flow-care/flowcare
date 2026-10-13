@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { createApp } from "../src/app";
+import type { Env } from "../src/config/env";
 import type { PrismaClient } from "../src/generated/prisma/client";
 import { hashToken } from "../src/lib/tokens";
 import { InviteService } from "../src/modules/invites/service";
+import { signSessionToken } from "../src/services/session-token";
 
 const token = "test_invite_token_123456789012345";
 const tokenHash = hashToken(token);
@@ -341,12 +344,12 @@ describe("Módulo de convites (Issue #213)", () => {
     }
   });
 
-  test("accept recusa aceite quando e-mail do usuário logado é diferente", async () => {
+  test("accept recusa aceite quando e-mail do usuário logado é diferente (403)", async () => {
     const prisma = {
       user: {
         findUnique: async () => ({ email: "outro@exemplo.com" }),
       },
-      $transaction: async (fn: any) =>
+      $transaction: async (fn: (tx: unknown) => Promise<string>) =>
         fn({
           organizationInvite: {
             findUnique: async () => ({
@@ -364,28 +367,37 @@ describe("Módulo de convites (Issue #213)", () => {
 
     const service = new InviteService({
       prisma,
-      mailer: {} as any,
+      mailer: {} as never,
       webAppUrl: "http://localhost:3000",
     });
 
     try {
       await service.accept("user-1", token);
       expect.unreachable();
-    } catch (err: any) {
-      expect(err.code).toBe("FORBIDDEN");
-      expect(err.httpStatus).toBe(403);
+    } catch (err: unknown) {
+      const error = err as {
+        code: string;
+        httpStatus: number;
+        message: string;
+      };
+      expect(error.code).toBe("FORBIDDEN");
+      expect(error.httpStatus).toBe(403);
+      expect(error.message).toBe("Este convite pertence a outro e-mail.");
     }
   });
 
-  test("accept vincula o usuário à clínica e aceitação repetida não duplica vínculo", async () => {
+  test("accept vincula o usuário à clínica com o papel exato e registra trilha de auditoria", async () => {
     let acceptedAtSet: Date | null = null;
-    let upsertedRole: any = null;
+    let upsertedRole = "";
+    let upsertedStatus = "";
+    let auditRecorded = false;
+    let onboardingUpdated = false;
 
     const prisma = {
       user: {
-        findUnique: async () => ({ email: "medico@exemplo.com" }),
+        findUnique: async () => ({ email: "Medico@Exemplo.com" }),
       },
-      $transaction: async (fn: any) =>
+      $transaction: async (fn: (tx: unknown) => Promise<string>) =>
         fn({
           organizationInvite: {
             findUnique: async () => ({
@@ -398,14 +410,51 @@ describe("Módulo de convites (Issue #213)", () => {
               acceptedAt: null,
               organization: { slug: "clinica-vida" },
             }),
-            update: async ({ data }: any) => {
+            update: async ({ data }: { data: { acceptedAt: Date } }) => {
               acceptedAtSet = data.acceptedAt;
             },
           },
           membership: {
-            upsert: async ({ create, update }: any) => {
-              upsertedRole = create.role || update.role;
+            upsert: async ({
+              create,
+            }: {
+              create: { role: string; status: string };
+              update: { role: string; status: string };
+            }) => {
+              upsertedRole = create.role;
+              upsertedStatus = create.status;
               return { id: "mem-1" };
+            },
+          },
+          onboardingProgress: {
+            updateMany: async () => {
+              onboardingUpdated = true;
+              return { count: 1 };
+            },
+          },
+          auditLog: {
+            create: async ({
+              data,
+            }: {
+              data: {
+                organizationId: string;
+                actorUserId: string;
+                action: string;
+                targetType: string;
+                targetId: string;
+                metadata: { email: string; role: string; status: string };
+              };
+            }) => {
+              auditRecorded = true;
+              expect(data.action).toBe("TEAM_INVITE_ACCEPTED");
+              expect(data.organizationId).toBe("org-1");
+              expect(data.actorUserId).toBe("user-1");
+              expect(data.targetType).toBe("ORGANIZATION_INVITE");
+              expect(data.targetId).toBe("inv-1");
+              expect(data.metadata.email).toBe("medico@exemplo.com");
+              expect(data.metadata.role).toBe("PROFESSIONAL");
+              expect(data.metadata.status).toBe("ACTIVE");
+              return { id: "audit-1" };
             },
           },
         }),
@@ -413,7 +462,7 @@ describe("Módulo de convites (Issue #213)", () => {
 
     const service = new InviteService({
       prisma,
-      mailer: {} as any,
+      mailer: {} as never,
       webAppUrl: "http://localhost:3000",
     });
 
@@ -421,5 +470,282 @@ describe("Módulo de convites (Issue #213)", () => {
     expect(res.organizationSlug).toBe("clinica-vida");
     expect(acceptedAtSet).toBeTruthy();
     expect(upsertedRole).toBe("PROFESSIONAL");
+    expect(upsertedStatus).toBe("ACTIVE");
+    expect(auditRecorded).toBe(true);
+    expect(onboardingUpdated).toBe(true);
+  });
+
+  test("accept repetido pelo mesmo usuário retorna organizationSlug de forma idempotente sem duplicar vínculo ou auditoria", async () => {
+    let upsertCalled = false;
+    let auditLogCalled = false;
+    let inviteUpdateCalled = false;
+
+    const prisma = {
+      user: {
+        findUnique: async () => ({ email: "Medico@Exemplo.com" }),
+      },
+      $transaction: async (fn: (tx: unknown) => Promise<string>) =>
+        fn({
+          organizationInvite: {
+            findUnique: async () => ({
+              id: "inv-1",
+              organizationId: "org-1",
+              email: "medico@exemplo.com",
+              role: "PROFESSIONAL",
+              expiresAt: past,
+              revokedAt: null,
+              acceptedAt: past,
+              organization: { slug: "clinica-vida" },
+            }),
+            update: async () => {
+              inviteUpdateCalled = true;
+            },
+          },
+          membership: {
+            upsert: async () => {
+              upsertCalled = true;
+              return { id: "mem-1" };
+            },
+          },
+          auditLog: {
+            create: async () => {
+              auditLogCalled = true;
+            },
+          },
+        }),
+    } as unknown as PrismaClient;
+
+    const service = new InviteService({
+      prisma,
+      mailer: {} as never,
+      webAppUrl: "http://localhost:3000",
+    });
+
+    const res = await service.accept("user-1", token);
+    expect(res.organizationSlug).toBe("clinica-vida");
+    expect(upsertCalled).toBe(false);
+    expect(auditLogCalled).toBe(false);
+    expect(inviteUpdateCalled).toBe(false);
+  });
+
+  test("accept recusa aceite com 410 quando token está expirado", async () => {
+    const prisma = {
+      user: {
+        findUnique: async () => ({ email: "medico@exemplo.com" }),
+      },
+      $transaction: async (fn: (tx: unknown) => Promise<string>) =>
+        fn({
+          organizationInvite: {
+            findUnique: async () => ({
+              id: "inv-1",
+              organizationId: "org-1",
+              email: "medico@exemplo.com",
+              role: "PROFESSIONAL",
+              expiresAt: past,
+              revokedAt: null,
+              acceptedAt: null,
+              organization: { slug: "clinica-vida" },
+            }),
+          },
+        }),
+    } as unknown as PrismaClient;
+
+    const service = new InviteService({
+      prisma,
+      mailer: {} as never,
+      webAppUrl: "http://localhost:3000",
+    });
+
+    await expect(service.accept("user-1", token)).rejects.toMatchObject({
+      code: "INVITE_EXPIRED",
+      httpStatus: 410,
+    });
+  });
+
+  test("accept recusa aceite com 410 quando token foi revogado", async () => {
+    const prisma = {
+      user: {
+        findUnique: async () => ({ email: "medico@exemplo.com" }),
+      },
+      $transaction: async (fn: (tx: unknown) => Promise<string>) =>
+        fn({
+          organizationInvite: {
+            findUnique: async () => ({
+              id: "inv-1",
+              organizationId: "org-1",
+              email: "medico@exemplo.com",
+              role: "PROFESSIONAL",
+              expiresAt: future,
+              revokedAt: new Date(),
+              acceptedAt: null,
+              organization: { slug: "clinica-vida" },
+            }),
+          },
+        }),
+    } as unknown as PrismaClient;
+
+    const service = new InviteService({
+      prisma,
+      mailer: {} as never,
+      webAppUrl: "http://localhost:3000",
+    });
+
+    await expect(service.accept("user-1", token)).rejects.toMatchObject({
+      code: "INVITE_EXPIRED",
+      httpStatus: 410,
+    });
+  });
+
+  test("accept recusa com 410 quando token já aceito é invocado por outro usuário", async () => {
+    const prisma = {
+      user: {
+        findUnique: async () => ({ email: "outro@exemplo.com" }),
+      },
+      $transaction: async (fn: (tx: unknown) => Promise<string>) =>
+        fn({
+          organizationInvite: {
+            findUnique: async () => ({
+              id: "inv-1",
+              organizationId: "org-1",
+              email: "medico@exemplo.com",
+              role: "PROFESSIONAL",
+              expiresAt: future,
+              revokedAt: null,
+              acceptedAt: new Date(),
+              organization: { slug: "clinica-vida" },
+            }),
+          },
+        }),
+    } as unknown as PrismaClient;
+
+    const service = new InviteService({
+      prisma,
+      mailer: {} as never,
+      webAppUrl: "http://localhost:3000",
+    });
+
+    await expect(service.accept("user-2", token)).rejects.toMatchObject({
+      code: "INVITE_EXPIRED",
+      httpStatus: 410,
+    });
+  });
+});
+
+describe("Rotas HTTP de aceite de convite (Elysia)", () => {
+  const secret = "test-jwt-secret-route-invites";
+  const env: Env = {
+    port: 0,
+    nodeEnv: "test",
+    version: "test",
+    jwtSecret: secret,
+    databaseUrl: "postgresql://unused",
+    corsOrigin: "http://localhost:3000",
+    trustProxy: false,
+    wahaBaseUrl: "http://127.0.0.1:1",
+    wahaApiKey: null,
+    webAppUrl: "http://localhost:3000",
+    sesRegion: null,
+    mailProvider: "disabled",
+    mailFrom: null,
+  };
+
+  test("POST /api/invites/:token/accept aceita convite com sucesso via HTTP", async () => {
+    const sessionToken = signSessionToken(
+      { sid: "sess-1", sub: "user-1" },
+      secret,
+      3600,
+    );
+    const prisma = {
+      session: {
+        findFirst: async () => ({ id: "sess-1", lastActiveAt: new Date() }),
+      },
+      user: {
+        findUnique: async () => ({ email: "medico@exemplo.com" }),
+      },
+      $transaction: async (fn: (tx: unknown) => Promise<string>) =>
+        fn({
+          organizationInvite: {
+            findUnique: async () => ({
+              id: "inv-1",
+              organizationId: "org-1",
+              email: "medico@exemplo.com",
+              role: "PROFESSIONAL",
+              expiresAt: future,
+              revokedAt: null,
+              acceptedAt: null,
+              organization: { slug: "clinica-vida" },
+            }),
+            update: async () => {},
+          },
+          membership: {
+            upsert: async () => ({ id: "mem-1" }),
+          },
+          onboardingProgress: {
+            updateMany: async () => ({ count: 1 }),
+          },
+          auditLog: {
+            create: async () => ({ id: "audit-1" }),
+          },
+        }),
+    } as unknown as PrismaClient;
+
+    const app = createApp(env, {
+      prisma,
+      mailer: { send: async () => {} } as never,
+    });
+    const res = await app.handle(
+      new Request(`http://localhost/api/invites/${token}/accept`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${sessionToken}`,
+        },
+      }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { organizationSlug: string };
+    expect(body.organizationSlug).toBe("clinica-vida");
+  });
+
+  test("POST /api/invites/:token/accept recusa token curto via validação de schema", async () => {
+    const sessionToken = signSessionToken(
+      { sid: "sess-1", sub: "user-1" },
+      secret,
+      3600,
+    );
+    const prisma = {
+      session: {
+        findFirst: async () => ({ id: "sess-1", lastActiveAt: new Date() }),
+      },
+    } as unknown as PrismaClient;
+
+    const app = createApp(env, {
+      prisma,
+      mailer: { send: async () => {} } as never,
+    });
+    const res = await app.handle(
+      new Request("http://localhost/api/invites/curto/accept", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${sessionToken}`,
+        },
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  test("POST /api/invites/:token/accept recusa requisição não autenticada com 401", async () => {
+    const prisma = {} as unknown as PrismaClient;
+    const app = createApp(env, {
+      prisma,
+      mailer: { send: async () => {} } as never,
+    });
+    const res = await app.handle(
+      new Request(`http://localhost/api/invites/${token}/accept`, {
+        method: "POST",
+      }),
+    );
+    expect(res.status).toBe(401);
   });
 });
