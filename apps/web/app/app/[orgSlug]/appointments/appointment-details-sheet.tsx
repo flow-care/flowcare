@@ -6,6 +6,7 @@ import {
   ClockIcon,
   FileTextIcon,
   MailIcon,
+  PencilIcon,
   PhoneIcon,
   PlayIcon,
   StethoscopeIcon,
@@ -13,6 +14,7 @@ import {
   UserIcon,
 } from "lucide-react";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   AlertDialog,
@@ -34,6 +36,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   canCancelAppointment,
+  canEditAppointment,
   canStartAppointment,
   formatAppointmentTime,
   formatDateLabel,
@@ -55,6 +58,7 @@ export interface AppointmentDetailsSheetProps {
   appointmentId?: string | null;
   appointment?: AppointmentItem | null;
   onAppointmentCancelled?: (appointmentId: string) => void;
+  onEdit?: (appointmentId: string) => void;
 }
 
 export function AppointmentDetailsSheet({
@@ -65,7 +69,24 @@ export function AppointmentDetailsSheet({
   appointmentId,
   appointment,
   onAppointmentCancelled,
+  onEdit,
 }: AppointmentDetailsSheetProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  const handleOpenEdit = () => {
+    if (!details?.id) return;
+    if (onEdit) {
+      onEdit(details.id);
+    } else {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("sheet", "edit");
+      params.set("appointmentId", details.id);
+      router.push(`${pathname}?${params.toString()}`, { scroll: false });
+    }
+  };
+
   const [details, setDetails] = useState<AppointmentDetails | null>(() => {
     if (!appointment) return null;
     return {
@@ -328,6 +349,7 @@ export function AppointmentDetailsSheet({
 
   const canStart = canStartAppointment(userRole, details.status);
   const canCancel = canCancelAppointment(details.status);
+  const canEdit = canEditAppointment(details.status);
 
   const patientName =
     details.patient?.fullName ?? details.patientName ?? "Paciente";
@@ -525,6 +547,19 @@ export function AppointmentDetailsSheet({
                   <PlayIcon className="size-4 mr-2" />
                   Iniciar atendimento
                 </Link>
+              </Button>
+            )}
+
+            {/* Editar agendamento */}
+            {canEdit && (
+              <Button
+                variant="outline"
+                type="button"
+                onClick={handleOpenEdit}
+                className="w-full"
+              >
+                <PencilIcon className="size-4 mr-2" />
+                Editar agendamento
               </Button>
             )}
 

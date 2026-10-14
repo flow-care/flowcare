@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import {
+  AppointmentsApiError,
   type AvailabilityResponse,
   type CreateAppointmentInput,
   type CreateAppointmentResponse,
@@ -11,6 +12,9 @@ import {
   type PatientSearchResultItem,
   type ProfessionalItem,
   searchPatients as searchPatientsServer,
+  type UpdateAppointmentInput,
+  type UpdateAppointmentResponse,
+  updateAppointment as updateAppointmentServer,
 } from "@/server/appointments";
 import {
   type ConfirmationDecisionOrigin,
@@ -73,6 +77,40 @@ export async function createAppointment(
   input: CreateAppointmentInput,
 ): Promise<CreateAppointmentResponse> {
   return createAppointmentServer(orgSlug, input);
+}
+
+export async function updateAppointmentAction(
+  orgSlug: string,
+  appointmentId: string,
+  input: UpdateAppointmentInput,
+): Promise<
+  | { success: true; data: UpdateAppointmentResponse }
+  | { success: false; error: string; code?: string }
+> {
+  try {
+    const result = await updateAppointmentServer(orgSlug, appointmentId, input);
+    revalidatePath(`/app/${orgSlug}/appointments`);
+    return { success: true, data: result };
+  } catch (error) {
+    if (error instanceof AppointmentsApiError) {
+      return { success: false, error: error.message, code: error.code };
+    }
+    return {
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Não foi possível atualizar o agendamento.",
+    };
+  }
+}
+
+export async function updateAppointment(
+  orgSlug: string,
+  appointmentId: string,
+  input: UpdateAppointmentInput,
+): Promise<UpdateAppointmentResponse> {
+  return updateAppointmentServer(orgSlug, appointmentId, input);
 }
 
 export async function checkAvailability(

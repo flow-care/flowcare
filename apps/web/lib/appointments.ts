@@ -296,6 +296,15 @@ export function canCancelAppointment(appointmentStatus?: string): boolean {
   );
 }
 
+export function canEditAppointment(appointmentStatus?: string): boolean {
+  if (!appointmentStatus) return false;
+  return (
+    appointmentStatus !== "CANCELLED" &&
+    appointmentStatus !== "COMPLETED" &&
+    appointmentStatus !== "NO_SHOW"
+  );
+}
+
 function dateParts(date: Date, timeZone: string): Record<string, string> {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone,
