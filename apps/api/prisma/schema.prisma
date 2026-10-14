@@ -568,6 +568,11 @@ model Consultation {
   status                   ConsultationStatus @default(SCHEDULED)
   anamnesisStatus          AnamnesisStatus    @default(PENDING)
   anamnesisTopicRevisionId String?            @db.Uuid
+  chiefComplaint           String?
+  clinicalNotes            String?
+  anamnesisDraft           Json?              @default("{}")
+  draftSavedAt             DateTime?
+  draftSavedById           String?            @db.Uuid
   version                  Int                @default(0)
   createdAt                DateTime           @default(now())
   updatedAt                DateTime           @updatedAt

@@ -98,6 +98,23 @@ export const startConsultationBody = t.Object({
   professionalId: t.Optional(uuid),
 });
 
+export const anamnesisTopicsInput = t.Union([
+  t.Record(t.String(), t.Nullable(t.String())),
+  t.Array(
+    t.Object({
+      key: t.String(),
+      value: t.Nullable(t.String()),
+    }),
+  ),
+]);
+
+export const saveConsultationDraftBody = t.Object({
+  version: t.Integer({ minimum: 0 }),
+  chiefComplaint: t.Optional(t.Nullable(t.String({ maxLength: 5000 }))),
+  clinicalNotes: t.Optional(t.Nullable(t.String({ maxLength: 20000 }))),
+  topics: t.Optional(anamnesisTopicsInput),
+});
+
 export const consultationDetailResponse = t.Object({
   id: t.String(),
   consultationId: t.String(),
@@ -112,6 +129,11 @@ export const consultationDetailResponse = t.Object({
   status: consultationStatus,
   anamnesisStatus: anamnesisStatus,
   anamnesisTopicRevisionId: t.Optional(t.Nullable(t.String())),
+  chiefComplaint: t.Optional(t.Nullable(t.String())),
+  clinicalNotes: t.Optional(t.Nullable(t.String())),
+  anamnesisDraft: t.Optional(t.Nullable(t.Any())),
+  draftSavedAt: t.Optional(t.Nullable(t.String())),
+  draftSavedById: t.Optional(t.Nullable(t.String())),
   version: t.Integer({ minimum: 0 }),
   createdAt: t.String(),
   updatedAt: t.String(),
@@ -200,3 +222,5 @@ export type PrepareAudioBody = typeof prepareAudioBody.static;
 export type IdempotencyHeaders = typeof idempotencyHeaders.static;
 export type TranscriptionJobStatus = typeof transcriptionJobStatus.static;
 export type TranscriptionResponse = typeof transcriptionResponse.static;
+export type AnamnesisTopicsInput = typeof anamnesisTopicsInput.static;
+export type SaveConsultationDraftBody = typeof saveConsultationDraftBody.static;
