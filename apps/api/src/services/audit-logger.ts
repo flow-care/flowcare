@@ -59,7 +59,19 @@ const FORBIDDEN_NORMALIZED_KEYS = new Set([
   "invitetoken",
   "authtoken",
   "bearertoken",
-  " rawtoken",
+  "rawtoken",
+  // Financial, card & payment secrets
+  "creditcard",
+  "creditcardnumber",
+  "cardnumber",
+  "card",
+  "pan",
+  "cvv",
+  "cvc",
+  "securitycode",
+  // Full tax IDs & sensitive identifiers
+  "fulltaxid",
+  "taxidfull",
   // Keys, secrets & headers
   "secret",
   "clientsecret",
@@ -157,10 +169,28 @@ const FORBIDDEN_KEY_SUBSTRINGS = [
   "documentcontent",
   "bodytemplate",
   "prescriptionbody",
+  "creditcard",
+  "cardnumber",
+  "cvv",
+  "fulltaxid",
 ] as const;
 
 function normalizeKey(key: string): string {
   return key.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+}
+
+export function maskTaxId(value: string): string {
+  const digits = value.replace(/\D/g, "");
+  if (digits.length === 11) {
+    return `***.***.${digits.slice(6, 9)}-**`;
+  }
+  if (digits.length === 14) {
+    return `**.***.***/${digits.slice(8, 12)}-**`;
+  }
+  if (digits.length > 4) {
+    return "*".repeat(digits.length - 4) + digits.slice(-4);
+  }
+  return "*".repeat(value.length);
 }
 
 export function isForbiddenAuditMetadataKey(key: string): boolean {
@@ -193,6 +223,16 @@ function isSensitiveStringValue(value: string): boolean {
     trimmed.startsWith("ey" + "J") &&
     trimmed.split(".").length === 3 &&
     /^[A-Za-z0-9_.-]+$/.test(trimmed)
+  ) {
+    return true;
+  }
+  const digitsOnly = trimmed.replace(/\D/g, "");
+  if (
+    digitsOnly.length >= 13 &&
+    digitsOnly.length <= 19 &&
+    /^(?:4[0-9]{12}(?:[0-9]{3,6})?|5[1-5][0-9]{14}|2(?:2[2-9][0-9]{12}|[3-6][0-9]{13}|7[0-1][0-9]{12}|720[0-9]{12})|3[47][0-9]{13}|3(?:0[0-5]|[68][0-9])[0-9]{11}|6(?:011|5[0-9]{2})[0-9]{12})$/.test(
+      digitsOnly,
+    )
   ) {
     return true;
   }
@@ -241,6 +281,17 @@ function sanitizeValue(value: unknown, depth = 0): unknown {
     )) {
       if (isForbiddenAuditMetadataKey(key)) {
         continue;
+      }
+      const normKey = normalizeKey(key);
+      if (normKey === "cpf" || normKey === "taxid" || normKey === "cnpj") {
+        if (typeof entryValue === "string") {
+          output[key] = maskTaxId(entryValue);
+          continue;
+        }
+        if (typeof entryValue === "number") {
+          output[key] = maskTaxId(String(entryValue));
+          continue;
+        }
       }
       const sanitizedEntry = sanitizeValue(entryValue, depth + 1);
       if (sanitizedEntry !== undefined) {
