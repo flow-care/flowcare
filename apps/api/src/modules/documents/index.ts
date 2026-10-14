@@ -14,7 +14,9 @@ async function defaultClinicalEligibility(
   capability: OrganizationCapability,
 ): Promise<boolean> {
   return (
-    (capability === "documents:read" || capability === "documents:write") &&
+    (capability === "documents:read" ||
+      capability === "documents:write" ||
+      capability === "documents:issue") &&
     (context.role === "ADMIN_PROFESSIONAL" || context.role === "PROFESSIONAL")
   );
 }
@@ -22,12 +24,13 @@ async function defaultClinicalEligibility(
 export function documentsModule(deps: {
   prisma: PrismaClient;
   jwtSecret: string;
+  pdf?: ConstructorParameters<typeof DocumentsService>[1];
   clinicalEligibility?: (
     context: OrganizationAccess,
     capability: OrganizationCapability,
   ) => Promise<boolean>;
 }) {
-  const service = new DocumentsService(deps.prisma);
+  const service = new DocumentsService(deps.prisma, deps.pdf);
   const clinicalEligibility =
     deps.clinicalEligibility ?? defaultClinicalEligibility;
 
@@ -227,6 +230,37 @@ export function documentsModule(deps: {
             body: m.prepareDocumentSnapshotBody,
             organizationAccess: "documents:write",
             response: { 200: m.prepareDocumentSnapshotResponse },
+          },
+        )
+        .post(
+          "/documents/:documentId/issue",
+          ({ auth, organizationAccess, params }) =>
+            service.issue(
+              organizationAccess.organizationId,
+              auth.userId,
+              params.documentId,
+            ),
+          {
+            params: m.documentIdParams,
+            organizationAccess: "documents:issue",
+            response: { 200: m.issueDocumentResponse },
+          },
+        )
+        .post(
+          "/documents/:documentId/rectify",
+          async ({ auth, organizationAccess, params, set }) => {
+            const result = await service.rectify(
+              organizationAccess.organizationId,
+              auth.userId,
+              params.documentId,
+            );
+            set.status = 201;
+            return result;
+          },
+          {
+            params: m.documentIdParams,
+            organizationAccess: "documents:write",
+            response: { 201: m.rectifyDocumentResponse },
           },
         ),
     );

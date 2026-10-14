@@ -746,6 +746,12 @@ model ClinicalDocument {
   status            DocumentStatus @default(DRAFT)
   version           Int            @default(1)
   currentRevisionId String?        @db.Uuid
+  preparedRevisionId String?        @db.Uuid
+  replacesDocumentId String?        @unique @db.Uuid
+  chainVersion      Int            @default(1)
+  snapshotHash      String?
+  pdfObjectKey      String?
+  issuedById        String?        @db.Uuid
   issuedAt          DateTime?
   voidedAt          DateTime?
   createdAt         DateTime       @default(now())
@@ -756,6 +762,8 @@ model ClinicalDocument {
   author       User              @relation("ClinicalDocumentAuthor", fields: [authorId], references: [id], onDelete: Restrict)
   template     DocumentTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
   versions     DocumentVersion[]
+  replaces     ClinicalDocument? @relation("DocumentReplacement", fields: [replacesDocumentId], references: [id], onDelete: Restrict)
+  replacement  ClinicalDocument? @relation("DocumentReplacement")
 
   @@index([organizationId, patientId, createdAt])
   @@index([organizationId, authorId, createdAt])
