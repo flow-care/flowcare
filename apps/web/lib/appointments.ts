@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 export type AppointmentStatusKey =
   | "SCHEDULED"
   | "WAITING"
@@ -357,3 +359,37 @@ export const APPOINTMENT_DURATION_OPTIONS = [
   { value: 45, label: "45 minutos" },
   { value: 60, label: "60 minutos" },
 ] as const;
+
+export const cancellationReasonTypeSchema = z.enum([
+  "PATIENT_REQUEST",
+  "PROFESSIONAL_UNAVAILABLE",
+  "NO_SHOW",
+  "SCHEDULING_ERROR",
+  "OTHER",
+]);
+
+export type CancellationReasonType = z.infer<
+  typeof cancellationReasonTypeSchema
+>;
+
+export const CANCELLATION_REASONS = [
+  { value: "PATIENT_REQUEST", label: "Desistência do paciente" },
+  {
+    value: "PROFESSIONAL_UNAVAILABLE",
+    label: "Imprevisto do profissional médico",
+  },
+  { value: "NO_SHOW", label: "Paciente não compareceu" },
+  { value: "SCHEDULING_ERROR", label: "Erro no agendamento" },
+  { value: "OTHER", label: "Outros motivos" },
+] as const;
+
+export const CANCELLATION_REASON_LABELS: Record<
+  CancellationReasonType,
+  string
+> = {
+  PATIENT_REQUEST: "Desistência do paciente",
+  PROFESSIONAL_UNAVAILABLE: "Imprevisto do profissional médico",
+  NO_SHOW: "Paciente não compareceu",
+  SCHEDULING_ERROR: "Erro no agendamento",
+  OTHER: "Outros motivos",
+};

@@ -4,8 +4,11 @@ import { revalidatePath } from "next/cache";
 import {
   AppointmentsApiError,
   type AvailabilityResponse,
+  type CancelAppointmentInput,
+  type CancelAppointmentResponse,
   type CreateAppointmentInput,
   type CreateAppointmentResponse,
+  cancelAppointment as cancelAppointmentServer,
   checkAvailability as checkAvailabilityServer,
   createAppointment as createAppointmentServer,
   getProfessionals as getProfessionalsServer,
@@ -27,6 +30,36 @@ import {
   type ReceptionQueueTargetStatus,
   updateReceptionQueueStatus,
 } from "@/server/reception";
+
+export interface CancelAppointmentActionResult {
+  success: boolean;
+  data?: CancelAppointmentResponse;
+  error?: string;
+  code?: string;
+}
+
+export async function cancelAppointmentAction(
+  orgSlug: string,
+  appointmentId: string,
+  input: CancelAppointmentInput,
+): Promise<CancelAppointmentActionResult> {
+  try {
+    const result = await cancelAppointmentServer(orgSlug, appointmentId, input);
+    revalidatePath(`/app/${orgSlug}/appointments`);
+    return { success: true, data: result };
+  } catch (error) {
+    if (error instanceof AppointmentsApiError) {
+      return { success: false, error: error.message, code: error.code };
+    }
+    return {
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Não foi possível cancelar o agendamento.",
+    };
+  }
+}
 
 export interface RecordConfirmationActionResult {
   success: boolean;
