@@ -22,11 +22,14 @@ export async function POST(
       const status =
         error.code === "NOT_FOUND"
           ? 404
-          : error.code === "INVALID_STATE_TRANSITION"
+          : error.code === "INVALID_STATE_TRANSITION" ||
+              error.code === "VERSION_CONFLICT"
             ? 409
-            : error.code === "VALIDATION_ERROR"
-              ? 400
-              : 500;
+            : error.code === "FORBIDDEN"
+              ? 403
+              : error.code === "VALIDATION_ERROR"
+                ? 400
+                : 500;
       return Response.json(
         { message: error.message, code: error.code },
         { status },
