@@ -776,6 +776,58 @@ export class TemplatesService {
     return fn(this.prisma as unknown as Prisma.TransactionClient);
   }
 
+  async archive(
+    organizationId: string,
+    actorUserId: string,
+    templateId: string,
+  ): Promise<{ archived: true }> {
+    await this.runInTransaction(async (tx) => {
+      const template = await tx.documentTemplate.findFirst({
+        where: {
+          id: templateId,
+          OR: [{ organizationId }, { organizationId: null }],
+        },
+      });
+      if (!template) {
+        throw new ApiError(
+          "NOT_FOUND",
+          404,
+          "Modelo de documento não encontrado.",
+        );
+      }
+      if (template.organizationId === null) {
+        throw new ApiError(
+          "PERMISSION_DENIED",
+          403,
+          "Modelos globais não podem ser arquivados pela clínica.",
+        );
+      }
+      if (template.status === "ARCHIVED") return;
+
+      const archivedAt = new Date();
+      const result = await tx.documentTemplate.updateMany({
+        where: { id: templateId, organizationId, status: "ACTIVE" },
+        data: { status: "ARCHIVED", archivedAt, archivedById: actorUserId },
+      });
+      if (result.count !== 1) return;
+
+      await tx.auditLog.create({
+        data: {
+          organizationId,
+          actorUserId,
+          action: "TEMPLATE_ARCHIVED",
+          targetType: "DOCUMENT_TEMPLATE",
+          targetId: templateId,
+          metadata: {
+            version: template.version,
+            archivedAt: archivedAt.toISOString(),
+          },
+        },
+      });
+    });
+    return { archived: true };
+  }
+
   async create(
     organizationId: string,
     actorUserId: string,

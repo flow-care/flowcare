@@ -133,6 +133,8 @@ export const templateVersionsResponse = t.Object({
   versions: t.Array(templateVersionItem),
 });
 
+export const archiveTemplateResponse = t.Object({ archived: t.Literal(true) });
+
 export const pageInfo = t.Object({
   nextCursor: t.Nullable(t.String()),
   hasNextPage: t.Boolean(),
