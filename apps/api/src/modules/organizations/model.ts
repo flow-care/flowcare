@@ -302,6 +302,37 @@ export const clinicLogoUrlResponse = t.Object(
   { additionalProperties: false },
 );
 
+export const clinicUsageQuery = t.Object({
+  month: t.Optional(t.String()),
+});
+
+export const usageByProfessionalItem = t.Object(
+  {
+    professionalId: t.String(),
+    professionalName: t.String(),
+    processedSeconds: t.Integer({ minimum: 0 }),
+    processedMinutes: t.Number({ minimum: 0 }),
+    successfulAudioCount: t.Integer({ minimum: 0 }),
+  },
+  { additionalProperties: false },
+);
+
+export const clinicUsageResponse = t.Object(
+  {
+    month: t.String({ pattern: "^\\d{4}-\\d{2}$" }),
+    timeZone: t.String(),
+    periodStart: t.String(),
+    periodEnd: t.String(),
+    processedSeconds: t.Integer({ minimum: 0 }),
+    processedMinutes: t.Number({ minimum: 0 }),
+    successfulAudioCount: t.Integer({ minimum: 0 }),
+    transcribedConsultations: t.Integer({ minimum: 0 }),
+    failedAudioCount: t.Integer({ minimum: 0 }),
+    byProfessional: t.Array(usageByProfessionalItem),
+  },
+  { additionalProperties: false },
+);
+
 export type OrgSlugParams = typeof orgSlugParams.static;
 export type OrganizationItem = typeof organizationItem.static;
 export type OrganizationsResponse = typeof organizationsResponse.static;
@@ -317,3 +348,6 @@ export type ClinicDetailsResponse = typeof clinicDetailsResponse.static;
 export type ClinicSettingsResponse = typeof clinicSettingsResponse.static;
 export type ClinicLogoBody = typeof clinicLogoBody.static;
 export type ClinicLogoUrlResponse = typeof clinicLogoUrlResponse.static;
+export type ClinicUsageQuery = typeof clinicUsageQuery.static;
+export type UsageByProfessionalItem = typeof usageByProfessionalItem.static;
+export type ClinicUsageResponse = typeof clinicUsageResponse.static;

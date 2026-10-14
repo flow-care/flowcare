@@ -651,6 +651,8 @@ model TranscriptionJob {
   status         TranscriptionJobStatus @default(PROCESSING)
   errorReason    String?
   retryCount     Int                    @default(0)
+  durationSeconds Int                   @default(0)
+  finishedAt     DateTime?
   provider       String?
   providerJobId  String?
   createdAt      DateTime               @default(now())
@@ -663,6 +665,7 @@ model TranscriptionJob {
   @@unique([organizationId, idempotencyKey])
   @@index([organizationId, consultationId, createdAt])
   @@index([organizationId, status])
+  @@index([organizationId, finishedAt])
 }
 
 // Progresso do onboarding guiado (issue #215) — sobrevive a recarregar a página.

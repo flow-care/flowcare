@@ -940,7 +940,7 @@ O identificador `revisionId` da versão vigente deve ser armazenado pela futura 
 ### Módulo 11: Painel & Indicadores da Clínica
 *(Ref: Issues [#197](https://github.com/Flowcare-team/flowcare-monorepo/issues/197), [#229](https://github.com/Flowcare-team/flowcare-monorepo/issues/229), [#230](https://github.com/Flowcare-team/flowcare-monorepo/issues/230))*
 
-**Decisão do MVP:** ver [dicionário de métricas](METRICS_MVP.md). O painel mostra contagens de agenda e taxa de faltas; consumo de transcrição mostra volume, sem custo estimado em R$ ou cota inventada. A rota de indicadores está implementada; a rota de consumo ainda é planejada.
+**Decisão do MVP:** ver [dicionário de métricas](METRICS_MVP.md). O painel mostra contagens de agenda e taxa de faltas; consumo de transcrição mostra volume, sem custo estimado em R$ ou cota inventada. As rotas de indicadores e consumo de transcrição estão implementadas.
 
 #### `GET /organizations/:orgSlug/dashboard/metrics`
 * **Descrição:** Retorna indicadores operacionais da clínica no período e fuso configurados, sem cruzar organizações.
@@ -948,11 +948,11 @@ O identificador `revisionId` da versão vigente deve ser armazenado pela futura 
 * **Query Params:** `?period=today|week|month` ou `?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD`. Padrão: `today`. Datas do intervalo explícito são limites locais, com início inclusivo e fim exclusivo; os dois filtros são mutuamente exclusivos. O intervalo explícito pode ter no máximo 366 dias. Semana começa na segunda-feira.
 * **Respostas:** `200 OK` (`{ "periodStart": "...", "periodEnd": "...", "timeZone": "America/Fortaleza", "totalAppointments": 10, "scheduledAppointments": 2, "completedAppointments": 5, "cancelledAppointments": 2, "noShowAppointments": 1, "noShowRate": 0.1667 }`). `periodStart` e `periodEnd` são instantes UTC no formato ISO. `noShowRate` é fração entre 0 e 1 ou `null` sem atendimentos concluídos ou faltas. Períodos inválidos retornam `400 VALIDATION_ERROR`.
 
-#### `GET /organizations/:orgSlug/settings/usage`
+#### `GET /organizations/:orgSlug/settings/usage` (alias `GET /organizations/:orgSlug/usage`)
 * **Descrição:** Consulta o consumo mensal de transcrição da clínica, com detalhamento por profissional e falhas sem consumo.
-* **Permissão:** `usage:read`.
-* **Query Params:** `?month=YYYY-MM`.
-* **Respostas:** `200 OK` (`{ "month": "2026-10", "timeZone": "America/Fortaleza", "processedSeconds": 120, "processedMinutes": 2, "successfulAudioCount": 2, "transcribedConsultations": 2, "failedAudioCount": 1, "byProfessional": [] }`). Sem campo de custo em R$ ou cota até aprovação da regra comercial.
+* **Permissão:** `usage:read` (ou `settings:read`).
+* **Query Params:** `?month=YYYY-MM`. Padrão: mês corrente no fuso da clínica.
+* **Respostas:** `200 OK` (`{ "month": "2026-10", "timeZone": "America/Fortaleza", "periodStart": "2026-10-01T03:00:00.000Z", "periodEnd": "2026-11-01T03:00:00.000Z", "processedSeconds": 120, "processedMinutes": 2, "successfulAudioCount": 2, "transcribedConsultations": 2, "failedAudioCount": 1, "byProfessional": [] }`). Sem campo de custo em R$ ou cota até aprovação da regra comercial.
 
 ---
 
