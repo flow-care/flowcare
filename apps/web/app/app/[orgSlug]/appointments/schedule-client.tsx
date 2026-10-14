@@ -9,7 +9,7 @@ import {
   PlusIcon,
 } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -33,6 +33,7 @@ import type { AppointmentItem, ProfessionalItem } from "@/server/appointments";
 import type { PendingConfirmationItem } from "@/server/confirmations";
 import type { ReceptionQueueItem } from "@/server/reception";
 import { AppointmentDetailsSheet } from "./appointment-details-sheet";
+import { EditAppointmentSheet } from "./edit-appointment-sheet";
 import { NewAppointmentSheet } from "./new-appointment-sheet";
 import { PendingConfirmationsView } from "./pending-confirmations-view";
 import { ReceptionQueueView } from "./reception-queue-view";
@@ -117,6 +118,34 @@ export function AppointmentsSchedule({
   const handleCloseDetails = () => {
     updateUrl({ sheet: undefined, appointmentId: undefined });
   };
+
+  // Edit Appointment Sheet Handlers
+  const [highlightedAppointmentId, setHighlightedAppointmentId] = useState<
+    string | null
+  >(null);
+
+  const handleOpenEdit = (id: string) => {
+    updateUrl({ sheet: "edit", appointmentId: id });
+  };
+
+  const handleCloseEdit = () => {
+    updateUrl({ sheet: undefined, appointmentId: undefined });
+  };
+
+  const handleSuccessEdit = (newDate?: string, updatedId?: string) => {
+    if (updatedId) {
+      setHighlightedAppointmentId(updatedId);
+      setTimeout(() => setHighlightedAppointmentId(null), 5000);
+    }
+    updateUrl({
+      sheet: undefined,
+      appointmentId: undefined,
+      date: newDate ?? date,
+    });
+    router.refresh();
+  };
+
+  const isEditOpen = sheet === "edit" && Boolean(appointmentId);
 
   // New Appointment Sheet Handlers
   const handleOpenNew = (slotDate?: string, targetTime?: string) => {
@@ -321,7 +350,11 @@ export function AppointmentsSchedule({
                 key={appointment.id}
                 type="button"
                 onClick={() => handleOpenDetails(appointment.id)}
-                className="group w-full text-left flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-xl border border-border bg-card text-card-foreground shadow-2xs hover:border-primary/50 hover:bg-accent/5 transition-all cursor-pointer"
+                className={cn(
+                  "group w-full text-left flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-xl border border-border bg-card text-card-foreground shadow-2xs hover:border-primary/50 hover:bg-accent/5 transition-all cursor-pointer",
+                  appointment.id === highlightedAppointmentId &&
+                    "ring-2 ring-primary ring-offset-2 ring-offset-background border-primary/60",
+                )}
               >
                 <div className="flex items-start sm:items-center gap-4">
                   <div className="flex flex-col items-center justify-center min-w-[5.5rem] px-2.5 py-1.5 rounded-lg bg-muted text-muted-foreground text-xs font-medium">
@@ -439,7 +472,11 @@ export function AppointmentsSchedule({
                             key={appt.id}
                             type="button"
                             onClick={() => handleOpenDetails(appt.id)}
-                            className="group w-full p-2.5 rounded-lg border border-border bg-card hover:border-primary/50 hover:bg-accent/10 transition-all cursor-pointer flex flex-col gap-1 shadow-2xs text-left"
+                            className={cn(
+                              "group w-full p-2.5 rounded-lg border border-border bg-card hover:border-primary/50 hover:bg-accent/10 transition-all cursor-pointer flex flex-col gap-1 shadow-2xs text-left",
+                              appt.id === highlightedAppointmentId &&
+                                "ring-2 ring-primary ring-offset-1 ring-offset-background border-primary/60",
+                            )}
                           >
                             <div className="flex items-center justify-between gap-1 text-xs">
                               <span className="font-semibold text-foreground">
@@ -493,9 +530,25 @@ export function AppointmentsSchedule({
         userRole={userRole}
         appointmentId={appointmentId}
         appointment={selectedAppointment}
+        onEdit={(id) => {
+          handleCloseDetails();
+          handleOpenEdit(id);
+        }}
         onAppointmentCancelled={() => {
           router.refresh();
         }}
+      />
+
+      {/* Edit Appointment Sheet */}
+      <EditAppointmentSheet
+        isOpen={isEditOpen}
+        onClose={handleCloseEdit}
+        orgSlug={orgSlug}
+        appointmentId={appointmentId}
+        initialAppointment={selectedAppointment}
+        professionals={professionals}
+        timeZone={timeZone}
+        onSuccess={handleSuccessEdit}
       />
 
       {/* New Appointment Sheet */}

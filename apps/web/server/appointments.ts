@@ -1013,3 +1013,138 @@ export async function checkAvailability(
 
   return parsed.data;
 }
+
+export const updateAppointmentInputSchema = z.object({
+  version: z.number().int().min(0),
+  patientId: z.string().optional(),
+  professionalId: z.string().optional(),
+  scheduledAt: z.string().optional(),
+  durationMinutes: z.number().int().min(1).max(1440).optional(),
+  notes: z.string().max(2000).nullable().optional(),
+});
+
+export type UpdateAppointmentInput = z.infer<
+  typeof updateAppointmentInputSchema
+>;
+
+export const updateAppointmentResponseSchema = z.object({
+  appointment: z.object({
+    id: z.string(),
+    patientId: z.string(),
+    professionalId: z.string(),
+    scheduledAt: z.string(),
+    durationMinutes: z.number().int(),
+    status: appointmentStatusSchema,
+    notes: z.string().nullable().optional(),
+    version: z.number().int(),
+    updatedAt: z.string(),
+  }),
+});
+
+export type UpdateAppointmentResponse = z.infer<
+  typeof updateAppointmentResponseSchema
+>;
+
+export async function updateAppointment(
+  orgSlug: string,
+  appointmentId: string,
+  input: UpdateAppointmentInput,
+): Promise<UpdateAppointmentResponse> {
+  const token = await getSessionToken();
+  if (!token) {
+    throw new AppointmentsApiError(
+      "UNAUTHENTICATED",
+      "Sessão expirada. Entre novamente para continuar.",
+    );
+  }
+
+  const { apiBaseUrl } = getServerConfig();
+
+  let response: Response;
+  try {
+    response = await fetch(
+      `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/appointments/${encodeURIComponent(appointmentId)}`,
+      {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(input),
+        cache: "no-store",
+        redirect: "error",
+        signal: AbortSignal.timeout(10_000),
+      },
+    );
+  } catch {
+    throw new AppointmentsApiError(
+      "UPSTREAM_UNAVAILABLE",
+      "Não foi possível conectar ao servidor para atualizar o agendamento.",
+    );
+  }
+
+  const json = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    if (response.status === 409) {
+      const code = json?.error?.code || json?.code || "CONFLICT";
+      const message =
+        json?.error?.message ||
+        json?.message ||
+        (code === "VERSION_CONFLICT"
+          ? "O agendamento foi atualizado em outra sessão."
+          : "O horário selecionado conflita com outro agendamento do profissional.");
+      throw new AppointmentsApiError(code, message);
+    }
+
+    if (response.status === 400) {
+      throw new AppointmentsApiError(
+        json?.error?.code || json?.code || "VALIDATION_ERROR",
+        json?.error?.message ||
+          json?.message ||
+          "Dados de agendamento inválidos.",
+      );
+    }
+
+    if (response.status === 401) {
+      throw new AppointmentsApiError(
+        "UNAUTHENTICATED",
+        "Sessão expirada. Entre novamente para continuar.",
+      );
+    }
+
+    if (response.status === 403) {
+      throw new AppointmentsApiError(
+        "FORBIDDEN",
+        json?.error?.message ||
+          json?.message ||
+          "Você não tem permissão para alterar agendamentos.",
+      );
+    }
+
+    if (response.status === 404) {
+      throw new AppointmentsApiError(
+        "NOT_FOUND",
+        json?.error?.message || "Agendamento não encontrado.",
+      );
+    }
+
+    throw new AppointmentsApiError(
+      json?.error?.code || json?.code || "UPSTREAM_ERROR",
+      json?.error?.message ||
+        json?.message ||
+        "Não foi possível atualizar o agendamento.",
+    );
+  }
+
+  const parsed = updateAppointmentResponseSchema.safeParse(json);
+  if (!parsed.success) {
+    throw new AppointmentsApiError(
+      "INVALID_RESPONSE",
+      "Resposta inválida recebida ao atualizar agendamento.",
+    );
+  }
+
+  return parsed.data;
+}
