@@ -286,6 +286,17 @@ export async function getPatientDetails(
   }
 }
 
+export {
+  type ConfirmationDecisionOrigin,
+  type ConfirmationDecisionStatus,
+  ConfirmationsApiError,
+  getPendingConfirmations,
+  type ManualConfirmationDecision,
+  type PendingConfirmationItem,
+  type PendingConfirmationsResult,
+  recordManualConfirmation,
+} from "./confirmations";
+
 export interface AppointmentDetails {
   id: string;
   patientId: string;
@@ -556,4 +567,356 @@ export async function getAppointmentDetails(
     queueStatus,
     arrivedAt,
   };
+}
+
+export const patientSearchResultSchema = z.object({
+  id: z.string(),
+  fullName: z.string(),
+  cpf: z.string().nullable().optional(),
+  phone: z.string().nullable().optional(),
+  email: z.string().nullable().optional(),
+  birthDate: z.string().nullable().optional(),
+});
+
+export type PatientSearchResultItem = z.infer<typeof patientSearchResultSchema>;
+
+export async function searchPatients(
+  orgSlug: string,
+  term = "",
+): Promise<PatientSearchResultItem[]> {
+  const token = await getSessionToken();
+  if (!token) {
+    throw new AppointmentsApiError(
+      "UNAUTHENTICATED",
+      "Sessão expirada. Entre novamente para continuar.",
+    );
+  }
+
+  const { apiBaseUrl } = getServerConfig();
+  const searchParams = new URLSearchParams();
+  if (term.trim()) {
+    searchParams.set("search", term.trim());
+  }
+
+  const queryString = searchParams.toString();
+  const url = `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/patients${
+    queryString ? `?${queryString}` : ""
+  }`;
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
+      },
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    throw new AppointmentsApiError(
+      "UPSTREAM_UNAVAILABLE",
+      "Não foi possível conectar ao servidor de pacientes.",
+    );
+  }
+
+  if (!response.ok) {
+    throw new AppointmentsApiError(
+      "UPSTREAM_UNAVAILABLE",
+      "Não foi possível carregar a lista de pacientes.",
+    );
+  }
+
+  const json = await response.json();
+  const parsed = z
+    .object({ data: z.array(patientSearchResultSchema) })
+    .safeParse(json);
+  if (!parsed.success) {
+    throw new AppointmentsApiError(
+      "INVALID_RESPONSE",
+      "Resposta inválida recebida do servidor de pacientes.",
+    );
+  }
+
+  return parsed.data.data;
+}
+
+export const professionalItemSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  role: z.string().optional(),
+});
+
+export type ProfessionalItem = z.infer<typeof professionalItemSchema>;
+
+const membersListFullSchema = z.object({
+  data: z.array(
+    z.object({
+      id: z.string().optional(),
+      userId: z.string(),
+      userName: z.string(),
+      role: z.string(),
+      status: z.string().optional(),
+    }),
+  ),
+});
+
+export async function getProfessionals(
+  orgSlug: string,
+): Promise<ProfessionalItem[]> {
+  const token = await getSessionToken();
+  if (!token) {
+    throw new AppointmentsApiError(
+      "UNAUTHENTICATED",
+      "Sessão expirada. Entre novamente para continuar.",
+    );
+  }
+
+  const { apiBaseUrl } = getServerConfig();
+  let response: Response;
+  try {
+    response = await fetch(
+      `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/members`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json",
+        },
+        cache: "no-store",
+        redirect: "error",
+        signal: AbortSignal.timeout(5000),
+      },
+    );
+  } catch {
+    throw new AppointmentsApiError(
+      "UPSTREAM_UNAVAILABLE",
+      "Não foi possível buscar a lista de profissionais.",
+    );
+  }
+
+  if (!response.ok) {
+    throw new AppointmentsApiError(
+      "UPSTREAM_UNAVAILABLE",
+      "Não foi possível carregar os profissionais da clínica.",
+    );
+  }
+
+  const json = await response.json();
+  const parsed = membersListFullSchema.safeParse(json);
+  if (!parsed.success) {
+    return [];
+  }
+
+  return parsed.data.data
+    .filter(
+      (m) =>
+        (m.status === undefined || m.status === "ACTIVE") &&
+        (m.role === "PROFESSIONAL" || m.role === "ADMIN_PROFESSIONAL"),
+    )
+    .map((m) => ({
+      id: m.userId,
+      name: m.userName,
+      role: m.role,
+    }));
+}
+
+export interface CreateAppointmentInput {
+  patientId: string;
+  professionalId: string;
+  scheduledAt: string;
+  durationMinutes: number;
+  notes?: string | null;
+  idempotencyKey?: string;
+}
+
+export const createAppointmentResponseSchema = z.object({
+  timeZone: z.string(),
+  appointment: z.object({
+    id: z.string(),
+    patientId: z.string(),
+    professionalId: z.string(),
+    scheduledAt: z.string(),
+    durationMinutes: z.number(),
+    status: appointmentStatusSchema,
+    notes: z.string().nullable().optional(),
+    createdAt: z.string().optional(),
+  }),
+});
+
+export type CreateAppointmentResponse = z.infer<
+  typeof createAppointmentResponseSchema
+>;
+
+export async function createAppointment(
+  orgSlug: string,
+  input: CreateAppointmentInput,
+): Promise<CreateAppointmentResponse> {
+  const token = await getSessionToken();
+  if (!token) {
+    throw new AppointmentsApiError(
+      "UNAUTHENTICATED",
+      "Sessão expirada. Entre novamente para continuar.",
+    );
+  }
+
+  const { apiBaseUrl } = getServerConfig();
+  const idempotencyKey = input.idempotencyKey || crypto.randomUUID();
+
+  let response: Response;
+  try {
+    response = await fetch(
+      `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/appointments`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          "Idempotency-Key": idempotencyKey,
+        },
+        body: JSON.stringify({
+          patientId: input.patientId,
+          professionalId: input.professionalId,
+          scheduledAt: input.scheduledAt,
+          durationMinutes: input.durationMinutes,
+          notes: input.notes || null,
+        }),
+        cache: "no-store",
+        redirect: "error",
+        signal: AbortSignal.timeout(10_000),
+      },
+    );
+  } catch {
+    throw new AppointmentsApiError(
+      "UPSTREAM_UNAVAILABLE",
+      "Não foi possível conectar ao servidor de agendamentos.",
+    );
+  }
+
+  const json = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    if (response.status === 409) {
+      const code = json?.error?.code || "SLOT_CONFLICT";
+      const message =
+        json?.error?.message ||
+        "O horário selecionado conflita com outro agendamento do profissional.";
+      throw new AppointmentsApiError(code, message);
+    }
+
+    if (response.status === 400) {
+      throw new AppointmentsApiError(
+        json?.error?.code || "VALIDATION_ERROR",
+        json?.error?.message || "Dados de agendamento inválidos.",
+      );
+    }
+
+    if (response.status === 401) {
+      throw new AppointmentsApiError(
+        "UNAUTHENTICATED",
+        "Sessão expirada. Entre novamente para continuar.",
+      );
+    }
+
+    if (response.status === 403) {
+      throw new AppointmentsApiError(
+        "FORBIDDEN",
+        json?.error?.message ||
+          "Você não tem permissão para criar agendamentos.",
+      );
+    }
+
+    throw new AppointmentsApiError(
+      json?.error?.code || "UPSTREAM_UNAVAILABLE",
+      json?.error?.message || "Não foi possível criar o agendamento.",
+    );
+  }
+
+  const parsed = createAppointmentResponseSchema.safeParse(json);
+  if (!parsed.success) {
+    throw new AppointmentsApiError(
+      "INVALID_RESPONSE",
+      "Resposta inválida do servidor ao criar agendamento.",
+    );
+  }
+
+  return parsed.data;
+}
+
+export const availabilityResponseSchema = z.object({
+  date: z.string(),
+  professionalId: z.string(),
+  timeZone: z.string(),
+  slots: z.array(
+    z.object({
+      startsAt: z.string(),
+      endsAt: z.string(),
+      localStartsAt: z.string(),
+      localEndsAt: z.string(),
+    }),
+  ),
+});
+
+export type AvailabilityResponse = z.infer<typeof availabilityResponseSchema>;
+
+export async function checkAvailability(
+  orgSlug: string,
+  query: { date: string; professionalId: string },
+): Promise<AvailabilityResponse> {
+  const token = await getSessionToken();
+  if (!token) {
+    throw new AppointmentsApiError(
+      "UNAUTHENTICATED",
+      "Sessão expirada. Entre novamente para continuar.",
+    );
+  }
+
+  const { apiBaseUrl } = getServerConfig();
+  const searchParams = new URLSearchParams({
+    date: query.date,
+    professionalId: query.professionalId,
+  });
+
+  let response: Response;
+  try {
+    response = await fetch(
+      `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/appointments/availability?${searchParams.toString()}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json",
+        },
+        cache: "no-store",
+        redirect: "error",
+        signal: AbortSignal.timeout(10_000),
+      },
+    );
+  } catch {
+    throw new AppointmentsApiError(
+      "UPSTREAM_UNAVAILABLE",
+      "Não foi possível verificar a disponibilidade do profissional.",
+    );
+  }
+
+  if (!response.ok) {
+    throw new AppointmentsApiError(
+      "UPSTREAM_UNAVAILABLE",
+      "Não foi possível carregar a disponibilidade.",
+    );
+  }
+
+  const json = await response.json();
+  const parsed = availabilityResponseSchema.safeParse(json);
+  if (!parsed.success) {
+    throw new AppointmentsApiError(
+      "INVALID_RESPONSE",
+      "Resposta inválida recebida ao verificar disponibilidade.",
+    );
+  }
+
+  return parsed.data;
 }
