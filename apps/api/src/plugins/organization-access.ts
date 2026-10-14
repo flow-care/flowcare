@@ -313,12 +313,15 @@ export async function resolveOrganizationAccess(
   prisma: PrismaClient,
   userId: string,
   slug: string,
-  capability: OrganizationCapability,
+  capability: OrganizationCapability | readonly OrganizationCapability[],
   clinicalEligibility?: (
     context: OrganizationAccess,
     capability: OrganizationCapability,
   ) => Promise<boolean>,
 ): Promise<OrganizationAccess> {
+  const caps = (
+    Array.isArray(capability) ? capability : [capability]
+  ) as readonly OrganizationCapability[];
   const membership = await prisma.membership.findFirst({
     where: { userId, organization: { slug } },
     select: { id: true, organizationId: true, role: true, status: true },
@@ -327,12 +330,15 @@ export async function resolveOrganizationAccess(
     throw new ApiError("NOT_FOUND", 404, "Clínica não encontrada.");
   if (membership.status !== "ACTIVE")
     throw new ApiError("MEMBERSHIP_INACTIVE", 403, "Vínculo inativo.");
-  if (!hasOrganizationCapability(membership.role, capability))
+  const hasAccess = caps.some((c) =>
+    hasOrganizationCapability(membership.role, c),
+  );
+  if (!hasAccess)
     throw new ApiError(
       "PERMISSION_DENIED",
       403,
       "Você não possui permissão para realizar esta ação.",
-      { requiredPermission: capability },
+      { requiredPermission: caps[0] },
     );
 
   const context: OrganizationAccess = {
@@ -341,16 +347,18 @@ export async function resolveOrganizationAccess(
     role: membership.role,
     capabilities: capabilities[membership.role],
   };
-  if (
-    qualifiedClinicalActions.has(capability) &&
-    !(await clinicalEligibility?.(context, capability))
-  )
-    throw new ApiError(
-      "PERMISSION_DENIED",
-      403,
-      "Habilitação profissional necessária.",
-      { requiredPermission: capability },
-    );
+  for (const cap of caps) {
+    if (
+      qualifiedClinicalActions.has(cap) &&
+      !(await clinicalEligibility?.(context, cap))
+    )
+      throw new ApiError(
+        "PERMISSION_DENIED",
+        403,
+        "Habilitação profissional necessária.",
+        { requiredPermission: cap },
+      );
+  }
   return context;
 }
 
@@ -366,7 +374,9 @@ export function organizationAccessPlugin(deps: {
   return new Elysia({ name: "organization-access" })
     .use(authPlugin(deps))
     .macro({
-      organizationAccess: (capability: OrganizationCapability) => ({
+      organizationAccess: (
+        capability: OrganizationCapability | readonly OrganizationCapability[],
+      ) => ({
         resolve: async ({ auth, params }) => {
           if (!auth) throw Unauthenticated();
           return {

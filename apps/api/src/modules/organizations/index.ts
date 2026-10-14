@@ -10,6 +10,8 @@ import {
   clinicLogoBody,
   clinicLogoUrlResponse,
   clinicSettingsResponse,
+  clinicUsageQuery,
+  clinicUsageResponse,
   createAdditionalOrganizationBody,
   createAdditionalOrganizationResponse,
   organizationsResponse,
@@ -61,6 +63,34 @@ export function organizationsModule(deps: {
             params: orgSlugParams,
             organizationAccess: "settings:read",
             response: { 200: clinicSettingsResponse },
+          },
+        )
+        .get(
+          "/:orgSlug/settings/usage",
+          ({ organizationAccess, query }) =>
+            service.getTranscriptionUsage(
+              organizationAccess.organizationId,
+              query,
+            ),
+          {
+            params: orgSlugParams,
+            query: clinicUsageQuery,
+            organizationAccess: ["usage:read", "settings:read"] as const,
+            response: { 200: clinicUsageResponse },
+          },
+        )
+        .get(
+          "/:orgSlug/usage",
+          ({ organizationAccess, query }) =>
+            service.getTranscriptionUsage(
+              organizationAccess.organizationId,
+              query,
+            ),
+          {
+            params: orgSlugParams,
+            query: clinicUsageQuery,
+            organizationAccess: ["usage:read", "settings:read"] as const,
+            response: { 200: clinicUsageResponse },
           },
         )
         .patch(

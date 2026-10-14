@@ -13,6 +13,8 @@ import type {
   ClinicDetailsResponse,
   ClinicLogoUrlResponse,
   ClinicSettingsResponse,
+  ClinicUsageQuery,
+  ClinicUsageResponse,
   CreateAdditionalOrganizationBody,
   OrganizationsResponse,
   PatchClinicSettingsBody,
@@ -614,4 +616,250 @@ export class OrganizationsService {
     });
     return this.getClinicDetails(userId, slug);
   }
+
+  async getTranscriptionUsage(
+    organizationId: string,
+    query?: ClinicUsageQuery,
+  ): Promise<ClinicUsageResponse> {
+    const org = await this.prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { timezone: true },
+    });
+    if (!org) {
+      throw new ApiError("NOT_FOUND", 404, "Clínica não encontrada.");
+    }
+
+    let timeZone = org.timezone || "America/Sao_Paulo";
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone });
+    } catch {
+      timeZone = "America/Sao_Paulo";
+    }
+
+    let targetMonth: string;
+    if (query?.month) {
+      const trimmed = query.month.trim();
+      if (!/^\d{4}-\d{2}$/.test(trimmed)) {
+        throw new ApiError("VALIDATION_ERROR", 400, "Mês inválido.");
+      }
+      const [yearStr, monthStr] = trimmed.split("-");
+      const year = Number(yearStr);
+      const monthNum = Number(monthStr);
+      if (year < 1970 || year > 2100 || monthNum < 1 || monthNum > 12) {
+        throw new ApiError("VALIDATION_ERROR", 400, "Mês inválido.");
+      }
+      targetMonth = trimmed;
+    } else {
+      targetMonth = getLocalDateString(new Date(), timeZone).slice(0, 7);
+    }
+
+    const [yearStr, monthStr] = targetMonth.split("-");
+    const year = Number(yearStr);
+    const monthNum = Number(monthStr);
+    const startDay = `${targetMonth}-01`;
+    const nextMonthYear = monthNum === 12 ? year + 1 : year;
+    const nextMonthNum = monthNum === 12 ? 1 : monthNum + 1;
+    const endDay = `${nextMonthYear}-${String(nextMonthNum).padStart(2, "0")}-01`;
+
+    const periodStart = getLocalMidnightUtc(startDay, timeZone);
+    const periodEnd = getLocalMidnightUtc(endDay, timeZone);
+
+    const jobs = await this.prisma.transcriptionJob.findMany({
+      where: {
+        organizationId,
+        finishedAt: {
+          gte: periodStart,
+          lt: periodEnd,
+        },
+        status: {
+          in: ["COMPLETED", "FAILED"],
+        },
+      },
+      select: {
+        id: true,
+        audioId: true,
+        consultationId: true,
+        status: true,
+        durationSeconds: true,
+        finishedAt: true,
+        consultation: {
+          select: {
+            id: true,
+            professionalId: true,
+            professional: {
+              select: {
+                id: true,
+                fullName: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        finishedAt: "asc",
+      },
+    });
+
+    const audioMap = new Map<
+      string,
+      {
+        audioKey: string;
+        jobs: typeof jobs;
+        consultationId: string;
+        professionalId: string;
+        professionalName: string;
+      }
+    >();
+
+    for (const job of jobs) {
+      const audioKey = job.audioId ?? `job_${job.id}`;
+      let entry = audioMap.get(audioKey);
+      if (!entry) {
+        const prof = job.consultation?.professional;
+        const professionalId =
+          prof?.id ?? (job.consultation?.professionalId || "unassigned");
+        const professionalName = prof?.fullName ?? "Não atribuído";
+
+        entry = {
+          audioKey,
+          jobs: [],
+          consultationId: job.consultationId,
+          professionalId: prof ? professionalId : "unassigned",
+          professionalName: prof ? professionalName : "Não atribuído",
+        };
+        audioMap.set(audioKey, entry);
+      }
+      entry.jobs.push(job);
+    }
+
+    let processedSeconds = 0;
+    let successfulAudioCount = 0;
+    let failedAudioCount = 0;
+    const successfulConsultationIds = new Set<string>();
+
+    interface ProfessionalAgg {
+      professionalId: string;
+      professionalName: string;
+      processedSeconds: number;
+      successfulAudioIds: Set<string>;
+    }
+
+    const profMap = new Map<string, ProfessionalAgg>();
+
+    for (const entry of audioMap.values()) {
+      const completedJobs = entry.jobs.filter((j) => j.status === "COMPLETED");
+
+      if (completedJobs.length > 0) {
+        successfulAudioCount += 1;
+        successfulConsultationIds.add(entry.consultationId);
+
+        // Duration is counted once per distinct audio completed
+        const duration = completedJobs[0]?.durationSeconds ?? 0;
+        processedSeconds += duration;
+
+        let prof = profMap.get(entry.professionalId);
+        if (!prof) {
+          prof = {
+            professionalId: entry.professionalId,
+            professionalName: entry.professionalName,
+            processedSeconds: 0,
+            successfulAudioIds: new Set<string>(),
+          };
+          profMap.set(entry.professionalId, prof);
+        }
+        prof.processedSeconds += duration;
+        prof.successfulAudioIds.add(entry.audioKey);
+      } else {
+        failedAudioCount += 1;
+      }
+    }
+
+    const processedMinutes = Math.round((processedSeconds / 60) * 100) / 100;
+
+    const byProfessional = Array.from(profMap.values())
+      .map((p) => ({
+        professionalId: p.professionalId,
+        professionalName: p.professionalName,
+        processedSeconds: p.processedSeconds,
+        processedMinutes: Math.round((p.processedSeconds / 60) * 100) / 100,
+        successfulAudioCount: p.successfulAudioIds.size,
+      }))
+      .sort((a, b) => {
+        if (b.processedSeconds !== a.processedSeconds) {
+          return b.processedSeconds - a.processedSeconds;
+        }
+        return a.professionalName.localeCompare(b.professionalName);
+      });
+
+    return {
+      month: targetMonth,
+      timeZone,
+      periodStart: periodStart.toISOString(),
+      periodEnd: periodEnd.toISOString(),
+      processedSeconds,
+      processedMinutes,
+      successfulAudioCount,
+      transcribedConsultations: successfulConsultationIds.size,
+      failedAudioCount,
+      byProfessional,
+    };
+  }
+}
+
+function parseIsoDateOnly(value: string): Date {
+  const date = new Date(`${value}T00:00:00.000Z`);
+  if (
+    !Number.isFinite(date.getTime()) ||
+    date.toISOString().slice(0, 10) !== value
+  ) {
+    throw new ApiError("VALIDATION_ERROR", 400, "Período inválido.");
+  }
+  return date;
+}
+
+function getLocalDateString(date: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const value = Object.fromEntries(
+    parts.map((part) => [part.type, part.value]),
+  );
+  return `${value.year}-${value.month}-${value.day}`;
+}
+
+function getLocalMidnightUtc(value: string, timeZone: string): Date {
+  const target = parseIsoDateOnly(value).getTime();
+  let instant = target;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const represented = parseIsoDateOnly(
+      getLocalDateString(new Date(instant), timeZone),
+    ).getTime();
+    const hourParts = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(new Date(instant));
+    const clock = Object.fromEntries(
+      hourParts.map((part) => [part.type, part.value]),
+    );
+    const localTime =
+      represented +
+      Number(clock.hour) * 3_600_000 +
+      Number(clock.minute) * 60_000 +
+      Number(clock.second) * 1_000;
+    instant += target - localTime;
+  }
+  if (getLocalDateString(new Date(instant), timeZone) !== value) {
+    throw new ApiError(
+      "VALIDATION_ERROR",
+      400,
+      "Data inválida para o fuso horário.",
+    );
+  }
+  return new Date(instant);
 }

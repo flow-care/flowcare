@@ -241,6 +241,8 @@ export class ConsultationTranscriptionService {
           data: {
             status: "COMPLETED",
             providerJobId: result.providerJobId ?? null,
+            durationSeconds: result.durationSeconds ?? 0,
+            finishedAt: new Date(),
           },
         });
 
@@ -261,6 +263,8 @@ export class ConsultationTranscriptionService {
               status: "FAILED",
               errorReason: message,
               retryCount: { increment: 1 },
+              durationSeconds: 0,
+              finishedAt: new Date(),
             },
           });
 
