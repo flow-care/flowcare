@@ -955,12 +955,17 @@ export async function getPatientTimeline(
 export const patientAttachmentItemSchema = z.object({
   id: z.string(),
   attachmentId: z.string().optional(),
+  patientId: z.string().optional(),
   fileName: z.string(),
   contentType: z.string(),
   sizeBytes: z.number().int(),
   category: z.string().nullable().optional(),
   description: z.string().nullable().optional(),
+  uploadedById: z.string().optional(),
   status: z.string().optional(),
+  archivedAt: z.string().nullable().optional(),
+  archivedById: z.string().nullable().optional(),
+  archiveReason: z.string().nullable().optional(),
   createdAt: z.string(),
 });
 
@@ -971,9 +976,65 @@ export interface PatientAttachmentsResult {
   isRestricted?: boolean;
 }
 
+export interface GetPatientAttachmentsQuery {
+  category?: string;
+  includeArchived?: boolean;
+}
+
+export const PATIENT_ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024; // 25MB
+export const ALLOWED_ATTACHMENT_EXTENSIONS = [
+  ".pdf",
+  ".jpg",
+  ".jpeg",
+  ".png",
+] as const;
+
+export function validateAttachmentFile(file: {
+  name: string;
+  size: number;
+  type?: string;
+}): { valid: boolean; error?: string } {
+  const dotIndex = file.name.lastIndexOf(".");
+  if (dotIndex === -1) {
+    return {
+      valid: false,
+      error:
+        "Extensão de arquivo não permitida. Apenas arquivos PDF, JPG e PNG são permitidos.",
+    };
+  }
+
+  const extension = file.name.slice(dotIndex).toLowerCase();
+  const isValidExt = ALLOWED_ATTACHMENT_EXTENSIONS.includes(
+    extension as (typeof ALLOWED_ATTACHMENT_EXTENSIONS)[number],
+  );
+  if (!isValidExt) {
+    return {
+      valid: false,
+      error: `Formato de arquivo (${extension}) não permitido. Apenas arquivos PDF, JPG e PNG são aceitos.`,
+    };
+  }
+
+  if (file.size <= 0) {
+    return {
+      valid: false,
+      error: "O arquivo selecionado está vazio.",
+    };
+  }
+
+  if (file.size > PATIENT_ATTACHMENT_MAX_BYTES) {
+    return {
+      valid: false,
+      error: "O arquivo excede o tamanho máximo permitido de 25MB.",
+    };
+  }
+
+  return { valid: true };
+}
+
 export async function getPatientAttachments(
   orgSlug: string,
   patientId: string,
+  query?: GetPatientAttachmentsQuery,
 ): Promise<PatientAttachmentsResult> {
   const token = await getSessionToken();
   if (!token) {
@@ -984,7 +1045,15 @@ export async function getPatientAttachments(
   }
 
   const { apiBaseUrl } = getServerConfig();
-  const url = `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/patients/${encodeURIComponent(patientId)}/attachments`;
+  const searchParams = new URLSearchParams();
+  if (query?.category) {
+    searchParams.set("category", query.category);
+  }
+  if (query?.includeArchived) {
+    searchParams.set("includeArchived", "true");
+  }
+  const queryString = searchParams.toString();
+  const url = `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/patients/${encodeURIComponent(patientId)}/attachments${queryString ? `?${queryString}` : ""}`;
 
   let response: Response;
   try {
@@ -1018,5 +1087,259 @@ export async function getPatientAttachments(
   return {
     data: Array.isArray(items) ? items : [],
     isRestricted: false,
+  };
+}
+
+export interface AttachmentDownloadUrlResult {
+  attachmentId: string;
+  downloadUrl: string;
+  expiresInSeconds?: number;
+  expiresAt?: string;
+}
+
+export async function getAttachmentDownloadUrl(
+  orgSlug: string,
+  patientId: string,
+  attachmentId: string,
+): Promise<AttachmentDownloadUrlResult> {
+  const token = await getSessionToken();
+  if (!token) {
+    throw new PatientsApiError(
+      "UNAUTHENTICATED",
+      "Entre novamente para continuar.",
+    );
+  }
+
+  const { apiBaseUrl } = getServerConfig();
+  const url = `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/patients/${encodeURIComponent(patientId)}/attachments/${encodeURIComponent(attachmentId)}/download-url`;
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
+      },
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    throw new PatientsApiError(
+      "SERVICE_UNAVAILABLE",
+      "Erro de conexão ao obter link para download.",
+    );
+  }
+
+  if (response.status === 401) {
+    throw new PatientsApiError(
+      "UNAUTHENTICATED",
+      "Entre novamente para continuar.",
+    );
+  }
+  if (response.status === 403) {
+    throw new PatientsApiError(
+      "FORBIDDEN",
+      "Você não tem permissão para baixar este anexo.",
+    );
+  }
+  if (response.status === 404) {
+    throw new PatientsApiError("NOT_FOUND", "Anexo não encontrado.");
+  }
+  if (response.status === 503) {
+    throw new PatientsApiError(
+      "STORAGE_UNAVAILABLE",
+      "Armazenamento indisponível.",
+    );
+  }
+  if (!response.ok) {
+    throw new PatientsApiError(
+      "API_ERROR",
+      "Falha ao obter URL de download do anexo.",
+    );
+  }
+
+  const data = (await response.json()) as {
+    attachmentId?: string;
+    downloadUrl: string;
+    expiresInSeconds?: number;
+    expiresAt?: string;
+  };
+  return {
+    attachmentId: data.attachmentId ?? attachmentId,
+    downloadUrl: data.downloadUrl,
+    expiresInSeconds: data.expiresInSeconds,
+    expiresAt: data.expiresAt,
+  };
+}
+
+export interface ArchivePatientAttachmentResult {
+  archived: boolean;
+  attachment: PatientAttachmentItem;
+}
+
+export async function archivePatientAttachment(
+  orgSlug: string,
+  patientId: string,
+  attachmentId: string,
+  reason?: string,
+): Promise<ArchivePatientAttachmentResult> {
+  const token = await getSessionToken();
+  if (!token) {
+    throw new PatientsApiError(
+      "UNAUTHENTICATED",
+      "Entre novamente para continuar.",
+    );
+  }
+
+  const { apiBaseUrl } = getServerConfig();
+  const url = `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/patients/${encodeURIComponent(patientId)}/attachments/${encodeURIComponent(attachmentId)}`;
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(reason ? { reason } : {}),
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    throw new PatientsApiError(
+      "SERVICE_UNAVAILABLE",
+      "Erro de conexão ao arquivar o anexo.",
+    );
+  }
+
+  if (response.status === 401) {
+    throw new PatientsApiError(
+      "UNAUTHENTICATED",
+      "Entre novamente para continuar.",
+    );
+  }
+  if (response.status === 403) {
+    throw new PatientsApiError(
+      "FORBIDDEN",
+      "Você não tem permissão para arquivar este anexo.",
+    );
+  }
+  if (response.status === 404) {
+    throw new PatientsApiError("NOT_FOUND", "Anexo não encontrado.");
+  }
+  if (!response.ok) {
+    throw new PatientsApiError("API_ERROR", "Falha ao arquivar anexo.");
+  }
+
+  const data = (await response.json()) as {
+    archived?: boolean;
+    attachment: PatientAttachmentItem;
+  };
+  return {
+    archived: Boolean(data.archived ?? true),
+    attachment: data.attachment,
+  };
+}
+
+export interface UploadPatientAttachmentResult {
+  success: boolean;
+  attachment?: PatientAttachmentItem;
+}
+
+export async function uploadPatientAttachment(
+  orgSlug: string,
+  patientId: string,
+  formData: FormData,
+): Promise<UploadPatientAttachmentResult> {
+  const token = await getSessionToken();
+  if (!token) {
+    throw new PatientsApiError(
+      "UNAUTHENTICATED",
+      "Entre novamente para continuar.",
+    );
+  }
+
+  const file = formData.get("file");
+  if (!file || typeof file === "string") {
+    throw new PatientsApiError("VALIDATION_ERROR", "Nenhum arquivo fornecido.");
+  }
+
+  const validation = validateAttachmentFile(file as File);
+  if (!validation.valid) {
+    throw new PatientsApiError(
+      "VALIDATION_ERROR",
+      validation.error ?? "Arquivo inválido.",
+    );
+  }
+
+  const { apiBaseUrl } = getServerConfig();
+  const url = `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/patients/${encodeURIComponent(patientId)}/attachments`;
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
+      },
+      body: formData,
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(60_000),
+    });
+  } catch {
+    throw new PatientsApiError(
+      "SERVICE_UNAVAILABLE",
+      "Erro de conexão ao enviar o anexo.",
+    );
+  }
+
+  if (response.status === 401) {
+    throw new PatientsApiError(
+      "UNAUTHENTICATED",
+      "Entre novamente para continuar.",
+    );
+  }
+  if (response.status === 403) {
+    throw new PatientsApiError(
+      "FORBIDDEN",
+      "Você não tem permissão para anexar arquivos a este paciente.",
+    );
+  }
+  if (response.status === 404) {
+    throw new PatientsApiError("NOT_FOUND", "Paciente não encontrado.");
+  }
+  if (response.status === 413) {
+    throw new PatientsApiError(
+      "PAYLOAD_TOO_LARGE",
+      "O arquivo excede o tamanho máximo permitido.",
+    );
+  }
+  if (response.status === 503) {
+    throw new PatientsApiError(
+      "STORAGE_UNAVAILABLE",
+      "Armazenamento indisponível.",
+    );
+  }
+  if (!response.ok) {
+    const errorJson = await response.json().catch(() => null);
+    const message =
+      errorJson?.error?.message ??
+      errorJson?.message ??
+      "Falha ao enviar anexo.";
+    throw new PatientsApiError("API_ERROR", message);
+  }
+
+  const data = await response.json();
+  const attachment = (data.attachment ?? data) as PatientAttachmentItem;
+  return {
+    success: true,
+    attachment,
   };
 }
