@@ -18,10 +18,11 @@ export default async function PatientsPage({
     search?: string;
     cursor?: string;
     page?: string;
+    sheet?: string;
   }>;
 }) {
   const { orgSlug } = await params;
-  const { search = "", cursor, page } = await searchParams;
+  const { search = "", cursor, page, sheet } = await searchParams;
 
   const organizations = await getAvailableOrganizations();
   const current = organizations?.find((org) => org.slug === orgSlug);
@@ -58,6 +59,7 @@ export default async function PatientsPage({
       patientsResponse={patientsResponse}
       hasError={hasError}
       errorMessage={errorMessage}
+      sheet={sheet}
     />
   );
 }

@@ -49,6 +49,7 @@ import { formatBirthDateAndAge, maskCpf } from "@/lib/patient-formatters";
 import { formatPhoneWithAreaCode } from "@/lib/phone";
 import { cn } from "@/lib/utils";
 import type { ListPatientsResponse } from "@/server/patients";
+import { NewPatientSheet } from "./new-patient-sheet";
 
 interface PatientsViewProps {
   orgSlug: string;
@@ -57,6 +58,7 @@ interface PatientsViewProps {
   patientsResponse: ListPatientsResponse | null;
   hasError: boolean;
   errorMessage: string | null;
+  sheet?: string;
 }
 
 export function PatientsView({
@@ -66,12 +68,32 @@ export function PatientsView({
   patientsResponse,
   hasError,
   errorMessage,
+  sheet,
 }: PatientsViewProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [searchTerm, setSearchTerm] = useState(initialSearch);
   const [isPending, startTransition] = useTransition();
+
+  const isNewPatientSheetOpen = (searchParams.get("sheet") ?? sheet) === "new";
+
+  const handleCloseNewPatientSheet = () => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("sheet");
+    const query = params.toString();
+    router.push(query ? `${pathname}?${query}` : pathname);
+  };
+
+  const handleNewPatientSuccess = (patientId: string) => {
+    router.push(`/app/${orgSlug}/patients/${patientId}`);
+  };
+
+  const newPatientHref = (() => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("sheet", "new");
+    return `${pathname}?${params.toString()}`;
+  })();
 
   // Track cursor history across pages for going backwards
   const [cursorHistory, setCursorHistory] = useState<
@@ -192,7 +214,7 @@ export function PatientsView({
           </p>
         </div>
         <Button asChild>
-          <Link href="?sheet=new">
+          <Link href={newPatientHref}>
             <PlusIcon className="mr-2 size-4" />
             Novo paciente
           </Link>
@@ -297,7 +319,7 @@ export function PatientsView({
             </EmptyHeader>
             <EmptyContent>
               <Button asChild>
-                <Link href="?sheet=new">
+                <Link href={newPatientHref}>
                   <UserPlusIcon className="mr-2 size-4" />
                   Novo paciente
                 </Link>
@@ -462,6 +484,14 @@ export function PatientsView({
           </div>
         </div>
       )}
+
+      {/* New Patient Registration Sheet */}
+      <NewPatientSheet
+        isOpen={isNewPatientSheetOpen}
+        onClose={handleCloseNewPatientSheet}
+        orgSlug={orgSlug}
+        onSuccess={handleNewPatientSuccess}
+      />
     </div>
   );
 }
