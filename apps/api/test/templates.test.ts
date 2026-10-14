@@ -436,6 +436,7 @@ function createFixture() {
     put: (path: string, body: unknown, authenticated = true) =>
       send("PUT", path, body, authenticated),
     auditLogs,
+    templateCount: () => seedTemplates.length,
     templateVersions,
     setRole: (value: MembershipRole) => {
       role = value;
@@ -528,6 +529,82 @@ describe("templates module (#287)", () => {
       ).status,
     ).toBe(403);
   });
+
+  test("previews fictitious values without persisting templates or clinical documents (#289)", async () => {
+    const f = createFixture();
+    const before = f.templateCount();
+    const response = await f.post(
+      "/organizations/clinica-a/templates/preview",
+      {
+        title: "Atestado de {paciente_nome}",
+        type: "CERTIFICATE",
+        bodyTemplate:
+          "Paciente {paciente_nome} atendida em {data_atual} na {clinica_nome}.",
+      },
+    );
+    expect(response.status).toBe(200);
+    const preview = (await response.json()) as {
+      content: string;
+      [key: string]: unknown;
+    };
+    expect(preview).toMatchObject({
+      isExample: true,
+      watermark: "EXEMPLO — SEM VALIDADE CLÍNICA",
+      title: "Atestado de Maria da Silva",
+      missingPlaceholders: [],
+      variables: { paciente_nome: "Maria da Silva" },
+    });
+    expect(preview.content).toContain("Clínica Vida & Saúde");
+    expect(preview.content).not.toContain("{paciente_nome}");
+    expect(f.templateCount()).toBe(before);
+    expect(f.templateVersions).toHaveLength(2);
+    expect(f.auditLogs).toHaveLength(0);
+  });
+
+  test("reports invalid or malformed placeholders without creating a preview (#289)", async () => {
+    const f = createFixture();
+    const invalid = await f.post(
+      "/organizations/clinica-a/document-templates/preview",
+      {
+        title: "Modelo de exemplo",
+        type: "REPORT",
+        bodyTemplate: "Paciente: {paciente_desconhecido}",
+      },
+    );
+    expect(invalid.status).toBe(422);
+    expect(await invalid.json()).toMatchObject({
+      error: {
+        code: "INVALID_TEMPLATE_VARIABLE",
+        details: { invalidVariables: ["paciente_desconhecido"] },
+      },
+    });
+    const malformed = await f.post(
+      "/organizations/clinica-a/templates/preview",
+      {
+        title: "Modelo de exemplo",
+        type: "REPORT",
+        bodyTemplate: "Paciente: {paciente_nome",
+      },
+    );
+    expect(malformed.status).toBe(422);
+    expect(f.auditLogs).toHaveLength(0);
+  });
+
+  test("requires template editing permission for previews (#289)", async () => {
+    const f = createFixture();
+    f.setRole("RECEPTIONIST");
+    const response = await f.post(
+      "/organizations/clinica-a/templates/preview",
+      {
+        title: "Modelo de exemplo",
+        type: "REPORT",
+        bodyTemplate: "Paciente: {paciente_nome}",
+      },
+    );
+    expect(response.status).toBe(403);
+    expect(f.auditLogs).toHaveLength(0);
+  });
+
   test("lists only templates from the active clinic and authorized global templates, isolating other clinics", async () => {
     const f = createFixture();
 

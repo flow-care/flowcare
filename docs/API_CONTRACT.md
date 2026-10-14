@@ -710,10 +710,19 @@ O identificador `revisionId` da versão vigente deve ser armazenado pela futura 
 * **Respostas:** `200 OK` (`{ "id": "...", "consultationId": "...", "organizationId": "...", "appointmentId": "...", "patientId": "...", "professionalId": "...", "scheduledAt": "...", "localScheduledAt": "...", "startedAt": "...", "completedAt": null, "status": "IN_PROGRESS", "anamnesisStatus": "PENDING", "version": 0, "patient": { "id": "...", "fullName": "..." }, "professional": { "id": "...", "fullName": "...", "professionalTitle": "...", "registrationNumber": "..." }, "createdAt": "...", "updatedAt": "..." }`), `401 UNAUTHENTICATED`, `403 MEMBERSHIP_INACTIVE`, `403 PERMISSION_DENIED`, `404 NOT_FOUND` (atendimento inexistente ou de outra clínica).
 
 #### `POST /organizations/:orgSlug/consultations/:consultationId/audio`
-* **Descrição:** Envia o arquivo de áudio gravado da consulta após obtenção explícita do consentimento do paciente.
-* **Permissão:** `consultations:write`.
-* **Body:** `multipart/form-data` (`audioFile`, `consentConfirmed=true`).
-* **Respostas:** `200 OK` (`{ "audioId": "aud_77", "status": "UPLOADED" }`), `422 BUSINESS_RULE_VIOLATION`.
+* **Descrição:** Registra o consentimento explícito e envia o áudio para armazenamento privado. Cria o processamento em estado `QUEUED` somente após o armazenamento concluir. O profissional deve ser o responsável pelo atendimento em andamento; paciente e atendimento pertencem à clínica ativa.
+* **Permissão:** `consultations:write` e vínculo como profissional do atendimento.
+* **Body:** `multipart/form-data` (`audioFile`, `consentConfirmed=true`). Aceita WebM, MPEG e MP4 até 50 MiB; assinatura real do arquivo e tipo declarado devem coincidir.
+* **Respostas:** `200 OK` (`{ "audioId": "<uuid>", "status": "UPLOADED" }`), `400 VALIDATION_ERROR`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`, `413 FILE_TOO_LARGE`, `422 BUSINESS_RULE_VIOLATION`, `503 STORAGE_UNAVAILABLE`.
+
+#### `POST /organizations/:orgSlug/consultations/:consultationId/audio/upload-url`
+* **Descrição:** Alternativa de envio direto ao armazenamento privado. Registra o consentimento e retorna URL PUT assinada por 600 segundos. Ainda não cria processamento. O cliente deve enviar o `Content-Type` e o tamanho declarados. A URL é sensível e não deve ser registrada em logs.
+* **Body:** JSON `{ "contentType": "audio/webm", "sizeBytes": 1024, "consentConfirmed": true }`.
+* **Respostas:** `200 OK` (`{ "audioId": "<uuid>", "uploadUrl": "<signed URL>", "expiresInSeconds": 600, "status": "PENDING_UPLOAD" }`).
+
+#### `POST /organizations/:orgSlug/consultations/:consultationId/audio/:audioId/complete`
+* **Descrição:** Confirma o envio privado. O servidor lê o objeto, confere tamanho, tipo declarado e assinatura real e o copia para uma chave privada distinta antes de marcar `UPLOADED` e criar um único processamento `QUEUED`. A URL PUT antiga não permite alterar o áudio confirmado. Sem objeto, arquivo inválido ou URL expirada não há processamento. Repetição após sucesso é idempotente.
+* **Respostas:** `200 OK` (`{ "audioId": "<uuid>", "status": "UPLOADED" }`), `400 VALIDATION_ERROR`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`, `422 BUSINESS_RULE_VIOLATION`.
 
 #### `POST /organizations/:orgSlug/consultations/:consultationId/transcribe`
 * **Descrição:** Dispara o processamento da transcrição e geração automática da minuta de anamnese por IA.
@@ -738,16 +747,16 @@ O identificador `revisionId` da versão vigente deve ser armazenado pela futura 
 ### Módulo 8: Documentos Clínicos, Versionamento & Anulação
 *(Ref: Issues [#195](https://github.com/Flowcare-team/flowcare-monorepo/issues/195), [#273](https://github.com/Flowcare-team/flowcare-monorepo/issues/273)–[#278](https://github.com/Flowcare-team/flowcare-monorepo/issues/278))*
 
-**Decisão do MVP:** ver [ciclo de vida e snapshot](DOCUMENTS_MVP.md). Receitas controladas e assinatura eletrônica não fazem parte do MVP. `ISSUED` indica PDF final para impressão e assinatura manuscrita, não documento eletrônico assinado. As rotas de criação, leitura, edição de rascunho, histórico de revisões (`#273`) e preparação de snapshot de emissão (`#274`) estão implementadas; emissão definitiva (#275), PDF (#276), retificação (#277) e anulação (#278) seguem planejadas.
+**Decisão do MVP:** ver [ciclo de vida e snapshot](DOCUMENTS_MVP.md). Receitas controladas e assinatura eletrônica não fazem parte do MVP. `ISSUED` indica PDF final para impressão e assinatura manuscrita, não documento eletrônico assinado. As rotas de criação, leitura, edição de rascunho, histórico de revisões (`#273`) e preparação de snapshot de emissão (`#274`) estão implementadas. A transição de emissão e o início de retificação (`#275`) exigem a integração do renderizador e armazenamento privado de PDF (`#276`) para concluir uma emissão; sem essa integração a emissão retorna `503 STORAGE_UNAVAILABLE` e o documento continua `DRAFT`.
 
 #### `GET /organizations/:orgSlug/documents`
-* **Descrição:** Lista documentos clínicos da clínica ativa com paginação e filtros combináveis, sem expor o conteúdo clínico completo na listagem. Documentos de outras clínicas nunca são retornados.
+* **Descrição:** Lista documentos clínicos da clínica ativa com paginação e filtros combináveis, sem expor o conteúdo clínico completo na listagem. Documentos de outras clínicas nunca são retornados. Quando disponíveis, `chainVersion` e `replacesDocumentId` identificam a versão formal e o documento anterior da cadeia de retificação.
 * **Permissão:** `documents:read` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL`).
 * **Query Params:** `?patientId=<uuid>&type=PRESCRIPTION|CERTIFICATE|REPORT|EXAM_REQUEST&status=DRAFT|ISSUED|VOIDED&authorId=<uuid>&search=amoxicilina&q=amoxicilina&startDate=2026-10-01&endDate=2026-10-31&limit=20&page=1&cursor=<uuid>&order=desc|asc` (`limit` de 1 a 100, padrão 20; ordenação decrescente por `updatedAt` / `createdAt` por padrão).
 * **Respostas:** `200 OK` (`{ "data": [ { "id": "...", "documentId": "...", "organizationId": "...", "patientId": "...", "authorId": "...", "templateId": "...", "templateVersion": 1, "type": "PRESCRIPTION", "title": "Receita Simples", "status": "DRAFT", "version": 1, "revisionId": "...", "currentRevisionId": "...", "patient": { "id": "...", "fullName": "..." }, "author": { "id": "...", "fullName": "..." }, "issuedAt": null, "voidedAt": null, "createdAt": "...", "updatedAt": "..." } ], "documents": [...], "pageInfo": { "limit": 20, "page": 1, "totalCount": 10, "hasNextPage": false, "nextCursor": null } }`), `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 MEMBERSHIP_INACTIVE`, `403 PERMISSION_DENIED`.
 
 #### `GET /organizations/:orgSlug/documents/:documentId`
-* **Descrição:** Consulta detalhes completos, estado, metadados do modelo utilizado (`templateId`, `templateVersion`), versão atual (`version`, `revisionId`), resumo de paciente e autor (`patient`, `author`) e histórico de revisões (`versions`) de um documento clínico da clínica ativa. Quando o parâmetro opcional `?version=<number>` é informado, retorna o snapshot e conteúdo daquela versão histórica específica.
+* **Descrição:** Consulta detalhes completos, estado, metadados do modelo utilizado (`templateId`, `templateVersion`), versão atual (`version`, `revisionId`), versão formal (`chainVersion`) e documento anterior da cadeia (`replacesDocumentId`), resumo de paciente e autor (`patient`, `author`) e histórico de revisões (`versions`) de um documento clínico da clínica ativa. Quando o parâmetro opcional `?version=<number>` é informado, retorna o snapshot e conteúdo daquela versão histórica específica.
 * **Permissão:** `documents:read` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL`).
 * **Query Params:** `?version=1` (opcional, para consultar snapshot da versão histórica).
 * **Respostas:** `200 OK` (`{ "id", "documentId", "organizationId", "patientId", "authorId", "templateId", "templateVersion", "type", "title", "content", "variables", "status", "version", "revisionId", "currentRevisionId", "patient": { "id", "fullName" }, "author": { "id", "fullName" }, "issuedAt", "voidedAt", "createdAt", "updatedAt", "versions": [...], "document": { ... } }`), `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 MEMBERSHIP_INACTIVE`, `403 PERMISSION_DENIED`, `404 NOT_FOUND` (documento inexistente ou pertencente a outra clínica).
@@ -771,15 +780,15 @@ O identificador `revisionId` da versão vigente deve ser armazenado pela futura 
 * **Respostas:** `200 OK` (DTO do documento contendo o bloco `snapshot: { documentId, version, revisionId, type, title, content, variables, preparedAt }`, lista `versions` atualizada e `version` incrementado), `400 VALIDATION_ERROR`, `403 PERMISSION_DENIED`, `404 NOT_FOUND` (documento ou paciente inexistente ou pertencente a outra clínica), `409 DOCUMENT_NOT_EDITABLE` (quando `status !== "DRAFT"`), `409 VERSION_CONFLICT` (quando `version` enviada diverge da versão atual), `422 VALIDATION_ERROR` (campos obrigatórios ausentes com `details.missingFields`), `422 INVALID_VARIABLES` (variáveis fora do catálogo homologado com `details.invalidVariables`), `422 BUSINESS_RULE_VIOLATION` (tipo de documento não suportado no MVP de emissão com `details.reason: "UNSUPPORTED_DOCUMENT_TYPE"`).
 
 #### `POST /organizations/:orgSlug/documents/:documentId/issue`
-* **Descrição:** Finaliza o documento com snapshot imutável e PDF para impressão e assinatura manuscrita; não assina eletronicamente.
+* **Descrição:** Finaliza o documento preparado com snapshot imutável e PDF confirmado para impressão e assinatura manuscrita; não assina eletronicamente. A repetição de uma emissão já concluída devolve a mesma emissão, sem nova versão ou auditoria. Exige que a revisão atual seja a revisão preparada; qualquer edição posterior exige nova preparação. `chainVersion` identifica a versão formal da cadeia documental e não a revisão intermediária do rascunho.
 * **Permissão:** `documents:issue`.
 * **Body:** `{ "version": 2 }`
-* **Respostas:** `200 OK` (`{ "status": "ISSUED", "issuedAt": "...", "snapshotHash": "sha256_..." }`), `409 DOCUMENT_STATE_CONFLICT`, `422 BUSINESS_RULE_VIOLATION` (campos obrigatórios ausentes). Uma falha de PDF não conclui a emissão.
+* **Respostas:** `200 OK` (`{ "status": "ISSUED", "issuedAt": "...", "snapshotHash": "sha256_...", "chainVersion": 1, "replacesDocumentId": null }`), `409 DOCUMENT_STATE_CONFLICT`, `422 BUSINESS_RULE_VIOLATION` (snapshot obrigatório ausente), `503 STORAGE_UNAVAILABLE` (PDF indisponível). Uma falha de PDF não conclui a emissão.
 
 #### `POST /organizations/:orgSlug/documents/:documentId/rectify`
-* **Descrição:** Cria novo rascunho vinculado a um documento `ISSUED`, preservando o original. A emissão do novo rascunho recebe a próxima versão da cadeia.
+* **Descrição:** Cria novo rascunho vinculado a um documento `ISSUED`, clonando o snapshot preparado e preservando o original. A emissão do novo rascunho recebe a próxima versão da cadeia. O rascunho retificador deve passar pela preparação de snapshot antes da emissão. Só uma retificação direta por documento é permitida.
 * **Permissão:** `documents:write`.
-* **Respostas:** `201 Created` (`{ "documentId": "doc_100", "status": "DRAFT", "replacesDocumentId": "doc_99" }`), `409 DOCUMENT_STATE_CONFLICT`.
+* **Respostas:** `201 Created` (`{ "documentId": "...", "status": "DRAFT", "replacesDocumentId": "...", "chainVersion": 2 }`), `409 DOCUMENT_STATE_CONFLICT`.
 
 #### `GET /organizations/:orgSlug/documents/:documentId/pdf`
 * **Descrição:** Após autorização, transmite o PDF privado gerado a partir do snapshot imutável, identificado como arquivo para impressão e assinatura manuscrita.
@@ -857,6 +866,12 @@ O identificador `revisionId` da versão vigente deve ser armazenado pela futura 
 * **Descrição:** Lista todas as versões históricas imutáveis (`DocumentTemplateVersion`) de um modelo de documento em ordem crescente de `version`.
 * **Permissão:** `templates:read` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL`).
 * **Respostas:** `200 OK` (`{ "data": [...], "versions": [ { "id": "...", "templateId": "...", "organizationId": "...", "version": 1, "title": "...", "type": "CERTIFICATE", "bodyTemplate": "...", "variables": ["paciente_nome"], "createdById": "...", "createdAt": "..." } ] }`), `404 NOT_FOUND`.
+
+#### `POST /organizations/:orgSlug/templates/preview` (alias: `POST /organizations/:orgSlug/document-templates/preview`)
+* **Descrição:** Valida um modelo ainda não salvo e renderiza título e conteúdo apenas com os exemplos fictícios do catálogo de variáveis. A resposta traz `isExample: true`, marca `EXEMPLO — SEM VALIDADE CLÍNICA`, `variables` e `missingPlaceholders`. Não consulta pacientes, não gera PDF, não cria documento clínico ou evento de emissão e não persiste o modelo.
+* **Permissão:** `templates:write` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL`).
+* **Body:** `{ "title": "Atestado para {paciente_nome}", "type": "CERTIFICATE", "bodyTemplate": "Atesto que {paciente_nome} foi atendida." }`.
+* **Respostas:** `200 OK` (`{ "isExample": true, "watermark": "EXEMPLO — SEM VALIDADE CLÍNICA", "type": "CERTIFICATE", "title": "Atestado para Maria da Silva", "content": "Atesto que Maria da Silva foi atendida.", "variables": { "paciente_nome": "Maria da Silva" }, "missingPlaceholders": [] }`), `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 PERMISSION_DENIED`, `422 INVALID_TEMPLATE_STRUCTURE`, `422 INVALID_TEMPLATE_VARIABLE` (com `details.invalidVariables`).
 
 #### `POST /organizations/:orgSlug/templates` (alias: `POST /organizations/:orgSlug/document-templates`)
 * **Descrição:** Valida a estrutura e as variáveis dinâmicas (`{variavel}`) contra o catálogo homologado (`APPROVED_TEMPLATE_VARIABLES`), cria um novo modelo da clínica na versão `1` (`status: ACTIVE`), grava o snapshot inicial em `DocumentTemplateVersion` e registra `TEMPLATE_CREATED` em `AuditLog` na mesma transação.

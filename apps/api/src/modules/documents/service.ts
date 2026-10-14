@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type {
   DocumentStatus,
   DocumentType,
@@ -57,6 +58,8 @@ type ClinicalDocumentRecord = {
   status: DocumentStatus;
   version: number;
   currentRevisionId: string | null;
+  chainVersion?: number;
+  replacesDocumentId?: string | null;
   issuedAt: Date | null;
   voidedAt: Date | null;
   createdAt: Date;
@@ -205,6 +208,10 @@ function toDocumentListItem(record: ClinicalDocumentRecord): DocumentListItem {
   return {
     id: record.id,
     documentId: record.id,
+    ...(record.chainVersion ? { chainVersion: record.chainVersion } : {}),
+    ...(record.replacesDocumentId !== undefined
+      ? { replacesDocumentId: record.replacesDocumentId }
+      : {}),
     organizationId: record.organizationId,
     patientId: record.patientId,
     authorId: record.authorId,
@@ -245,6 +252,10 @@ function toDocumentItem(record: ClinicalDocumentRecord): DocumentItem {
   return {
     id: record.id,
     documentId: record.id,
+    ...(record.chainVersion ? { chainVersion: record.chainVersion } : {}),
+    ...(record.replacesDocumentId !== undefined
+      ? { replacesDocumentId: record.replacesDocumentId }
+      : {}),
     organizationId: record.organizationId,
     patientId: record.patientId,
     authorId: record.authorId,
@@ -284,7 +295,300 @@ const versionConflictError = () =>
   );
 
 export class DocumentsService {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly pdf?: {
+      renderAndStore(input: {
+        organizationId: string;
+        documentId: string;
+        title: string;
+        content: string;
+        snapshotHash: string;
+      }): Promise<string>;
+    },
+  ) {}
+
+  async issue(organizationId: string, actorUserId: string, documentId: string) {
+    const current = await this.prisma.clinicalDocument.findFirst({
+      where: { id: documentId, organizationId },
+    });
+    if (!current)
+      throw new ApiError("NOT_FOUND", 404, "Documento não encontrado.");
+    if (current.status === "ISSUED") {
+      if (!current.snapshotHash || !current.issuedAt || !current.pdfObjectKey) {
+        throw new ApiError(
+          "DOCUMENT_STATE_CONFLICT",
+          409,
+          "Emissão incompleta.",
+        );
+      }
+      return {
+        status: "ISSUED" as const,
+        issuedAt: current.issuedAt.toISOString(),
+        snapshotHash: current.snapshotHash,
+        chainVersion: current.chainVersion,
+        replacesDocumentId: current.replacesDocumentId,
+      };
+    }
+    if (current.status !== "DRAFT") {
+      throw new ApiError(
+        "DOCUMENT_STATE_CONFLICT",
+        409,
+        "Documento fora do estado de rascunho.",
+      );
+    }
+    if (
+      !current.currentRevisionId ||
+      current.preparedRevisionId !== current.currentRevisionId
+    ) {
+      throw new ApiError(
+        "BUSINESS_RULE_VIOLATION",
+        422,
+        "Prepare um snapshot válido antes de emitir.",
+      );
+    }
+    const snapshot = await this.prisma.documentVersion.findFirst({
+      where: { id: current.preparedRevisionId, documentId, organizationId },
+    });
+    if (!snapshot || !snapshot.title.trim() || !snapshot.content.trim()) {
+      throw new ApiError(
+        "BUSINESS_RULE_VIOLATION",
+        422,
+        "Snapshot obrigatório ausente.",
+      );
+    }
+    const snapshotHash = `sha256_${createHash("sha256")
+      .update(
+        JSON.stringify({
+          documentId,
+          revisionId: snapshot.id,
+          type: current.type,
+          title: snapshot.title,
+          content: snapshot.content,
+          variables: snapshot.variables,
+          templateId: snapshot.templateId,
+          templateVersion: snapshot.templateVersion,
+          chainVersion: current.chainVersion,
+        }),
+      )
+      .digest("hex")}`;
+    if (!this.pdf) {
+      throw new ApiError(
+        "STORAGE_UNAVAILABLE",
+        503,
+        "Geração do PDF indisponível.",
+      );
+    }
+    const pdfObjectKey = await this.pdf.renderAndStore({
+      organizationId,
+      documentId,
+      title: snapshot.title,
+      content: snapshot.content,
+      snapshotHash,
+    });
+    if (!pdfObjectKey.startsWith(`organizations/${organizationId}/pdf/`)) {
+      throw new ApiError(
+        "STORAGE_UNAVAILABLE",
+        503,
+        "PDF final não confirmado.",
+      );
+    }
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const now = new Date();
+        const updated = await tx.clinicalDocument.updateMany({
+          where: {
+            id: documentId,
+            organizationId,
+            status: "DRAFT",
+            version: current.version,
+            currentRevisionId: snapshot.id,
+          },
+          data: {
+            status: "ISSUED",
+            issuedAt: now,
+            issuedById: actorUserId,
+            snapshotHash,
+            pdfObjectKey,
+          },
+        });
+        if (updated.count !== 1) {
+          const latest = await tx.clinicalDocument.findFirst({
+            where: { id: documentId, organizationId },
+          });
+          if (
+            latest?.status === "ISSUED" &&
+            latest.snapshotHash &&
+            latest.issuedAt &&
+            latest.pdfObjectKey
+          ) {
+            return {
+              status: "ISSUED" as const,
+              issuedAt: latest.issuedAt.toISOString(),
+              snapshotHash: latest.snapshotHash,
+              chainVersion: latest.chainVersion,
+              replacesDocumentId: latest.replacesDocumentId,
+            };
+          }
+          throw versionConflictError();
+        }
+        await tx.auditLog.create({
+          data: {
+            organizationId,
+            actorUserId,
+            action: "DOCUMENT_ISSUED",
+            targetType: "DOCUMENT",
+            targetId: documentId,
+            metadata: {
+              revisionId: snapshot.id,
+              chainVersion: current.chainVersion,
+              replacesDocumentId: current.replacesDocumentId,
+              snapshotHash,
+              pdfObjectKey,
+            },
+          },
+        });
+        return {
+          status: "ISSUED" as const,
+          issuedAt: now.toISOString(),
+          snapshotHash,
+          chainVersion: current.chainVersion,
+          replacesDocumentId: current.replacesDocumentId,
+        };
+      });
+    } catch (error) {
+      if (error instanceof ApiError) throw error;
+      if (
+        typeof error === "object" &&
+        error &&
+        "code" in error &&
+        String(error.code) === "P2034"
+      )
+        throw versionConflictError();
+      throw error;
+    }
+  }
+
+  async rectify(
+    organizationId: string,
+    actorUserId: string,
+    documentId: string,
+  ) {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const original = await tx.clinicalDocument.findFirst({
+          where: { id: documentId, organizationId },
+        });
+        if (!original)
+          throw new ApiError("NOT_FOUND", 404, "Documento não encontrado.");
+        if (
+          original.status !== "ISSUED" ||
+          !original.preparedRevisionId ||
+          !original.pdfObjectKey
+        ) {
+          throw new ApiError(
+            "DOCUMENT_STATE_CONFLICT",
+            409,
+            "Apenas documento emitido pode ser retificado.",
+          );
+        }
+        const existing = await tx.clinicalDocument.findFirst({
+          where: { replacesDocumentId: documentId, organizationId },
+        });
+        if (existing)
+          throw new ApiError(
+            "DOCUMENT_STATE_CONFLICT",
+            409,
+            "Documento já possui retificação.",
+          );
+        const snapshot = await tx.documentVersion.findFirst({
+          where: {
+            id: original.preparedRevisionId,
+            documentId,
+            organizationId,
+          },
+        });
+        if (!snapshot)
+          throw new ApiError(
+            "DOCUMENT_STATE_CONFLICT",
+            409,
+            "Snapshot original indisponível.",
+          );
+        const now = new Date();
+        const revisionId = crypto.randomUUID();
+        const draft = await tx.clinicalDocument.create({
+          data: {
+            organizationId,
+            patientId: original.patientId,
+            authorId: actorUserId,
+            templateId: snapshot.templateId,
+            templateVersion: snapshot.templateVersion,
+            type: original.type,
+            title: snapshot.title,
+            content: snapshot.content,
+            variables: snapshot.variables ?? {},
+            status: "DRAFT",
+            version: 1,
+            chainVersion: original.chainVersion + 1,
+            replacesDocumentId: original.id,
+            currentRevisionId: revisionId,
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
+        await tx.documentVersion.create({
+          data: {
+            id: revisionId,
+            documentId: draft.id,
+            organizationId,
+            version: 1,
+            title: snapshot.title,
+            content: snapshot.content,
+            variables: snapshot.variables ?? {},
+            templateId: snapshot.templateId,
+            templateVersion: snapshot.templateVersion,
+            savedById: actorUserId,
+            createdAt: now,
+          },
+        });
+        await tx.auditLog.create({
+          data: {
+            organizationId,
+            actorUserId,
+            action: "DOCUMENT_RECTIFICATION_STARTED",
+            targetType: "DOCUMENT",
+            targetId: draft.id,
+            metadata: {
+              replacesDocumentId: original.id,
+              chainVersion: draft.chainVersion,
+              sourceRevisionId: snapshot.id,
+            },
+          },
+        });
+        return {
+          documentId: draft.id,
+          status: "DRAFT" as const,
+          replacesDocumentId: original.id,
+          chainVersion: draft.chainVersion,
+        };
+      });
+    } catch (error) {
+      if (error instanceof ApiError) throw error;
+      if (
+        typeof error === "object" &&
+        error &&
+        "code" in error &&
+        ["P2002", "P2034"].includes(String(error.code))
+      ) {
+        throw new ApiError(
+          "DOCUMENT_STATE_CONFLICT",
+          409,
+          "Documento já possui retificação.",
+        );
+      }
+      throw error;
+    }
+  }
 
   async list(
     organizationId: string,
@@ -891,6 +1195,7 @@ export class DocumentsService {
             templateVersion: nextTemplateVersion,
             version: nextVersion,
             currentRevisionId: nextRevisionId,
+            preparedRevisionId: null,
             updatedAt: now,
           },
         });
@@ -1216,6 +1521,7 @@ export class DocumentsService {
             variables: frozenVariables,
             version: nextVersion,
             currentRevisionId: nextRevisionId,
+            preparedRevisionId: nextRevisionId,
             updatedAt: now,
           },
         });

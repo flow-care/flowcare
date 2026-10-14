@@ -9,6 +9,7 @@ import type {
   CreateTemplateBody,
   ListTemplatesQuery,
   ListTemplatesResponse,
+  PreviewTemplateResponse,
   TemplateDetailResponse,
   TemplateItem,
   TemplateVariableItem,
@@ -462,6 +463,37 @@ interface TemplateRow {
 
 export class TemplatesService {
   constructor(private readonly prisma: PrismaClient) {}
+
+  preview(body: CreateTemplateBody): PreviewTemplateResponse {
+    const validated = validateTemplateContent(body);
+    const examples = new Map(
+      APPROVED_TEMPLATE_VARIABLES.map((item) => [item.key, item.example]),
+    );
+    const missingPlaceholders = validated.variables.filter(
+      (key) => !examples.get(key)?.trim(),
+    );
+    const variables = Object.fromEntries(
+      validated.variables.flatMap((key) => {
+        const example = examples.get(key);
+        return example?.trim() ? [[key, example]] : [];
+      }),
+    );
+    const render = (text: string) =>
+      text.replace(
+        /\{([a-z0-9_]+)\}/g,
+        (placeholder, key: string) => variables[key] ?? placeholder,
+      );
+
+    return {
+      isExample: true,
+      watermark: "EXEMPLO — SEM VALIDADE CLÍNICA",
+      type: body.type,
+      title: render(validated.normalizedTitle),
+      content: render(validated.normalizedBody),
+      variables,
+      missingPlaceholders,
+    };
+  }
 
   listVariables(): TemplateVariablesResponse {
     return {

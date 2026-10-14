@@ -58,6 +58,22 @@ export function templatesModule(deps: {
           organizationAccess: "templates:read",
           response: { 200: m.templateVariablesResponse },
         })
+        .post("/templates/preview", ({ body }) => service.preview(body), {
+          params: m.orgSlugParams,
+          body: m.createTemplateBody,
+          organizationAccess: "templates:write",
+          response: { 200: m.previewTemplateResponse },
+        })
+        .post(
+          "/document-templates/preview",
+          ({ body }) => service.preview(body),
+          {
+            params: m.orgSlugParams,
+            body: m.createTemplateBody,
+            organizationAccess: "templates:write",
+            response: { 200: m.previewTemplateResponse },
+          },
+        )
         .get(
           "/templates",
           ({ organizationAccess, query }) =>
