@@ -108,6 +108,29 @@ export function documentsModule(deps: {
           },
         )
         .get(
+          "/documents/:documentId/pdf",
+          async ({ organizationAccess, params, set }) => {
+            const pdfBytes = await service.getPdf(
+              organizationAccess.organizationId,
+              params.documentId,
+            );
+            set.headers["content-type"] = "application/pdf";
+            set.headers["content-disposition"] =
+              `inline; filename="documento-${params.documentId}.pdf"`;
+            return new Response(pdfBytes, {
+              status: 200,
+              headers: {
+                "content-type": "application/pdf",
+                "content-disposition": `inline; filename="documento-${params.documentId}.pdf"`,
+              },
+            });
+          },
+          {
+            params: m.documentIdParams,
+            organizationAccess: "documents:read",
+          },
+        )
+        .get(
           "/documents/:documentId/versions",
           ({ organizationAccess, params, query }) =>
             service.listVersions(
