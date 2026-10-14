@@ -573,6 +573,11 @@ model Consultation {
   anamnesisDraft           Json?              @default("{}")
   draftSavedAt             DateTime?
   draftSavedById           String?            @db.Uuid
+  approvedAt               DateTime?
+  approvedById             String?            @db.Uuid
+  signedBy                 String?
+  anamnesisSnapshot        Json?
+  snapshotHash             String?
   version                  Int                @default(0)
   createdAt                DateTime           @default(now())
   updatedAt                DateTime           @updatedAt
@@ -590,6 +595,7 @@ model Consultation {
   @@index([organizationId, patientId, scheduledAt])
   @@index([organizationId, status, scheduledAt])
   @@index([organizationId, anamnesisStatus, scheduledAt])
+  @@index([organizationId, approvedAt])
 }
 
 enum ConsultationAudioStatus {
