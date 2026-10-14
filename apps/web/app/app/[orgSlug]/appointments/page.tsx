@@ -6,6 +6,10 @@ import {
   isValidDateString,
 } from "@/lib/appointments";
 import { type AppointmentItem, getAppointments } from "@/server/appointments";
+import {
+  getPendingConfirmations,
+  type PendingConfirmationItem,
+} from "@/server/confirmations";
 import { getAvailableOrganizations } from "@/server/organizations";
 import { AppointmentsErrorState } from "./error-state";
 import { AppointmentsSchedule } from "./schedule-client";
@@ -33,7 +37,13 @@ export default async function AppointmentsPage({
     notFound();
   }
 
-  const view: "day" | "week" = query.view === "week" ? "week" : "day";
+  const view: "day" | "week" | "confirmations" =
+    query.view === "confirmations"
+      ? "confirmations"
+      : query.view === "week"
+        ? "week"
+        : "day";
+
   const date = isValidDateString(query.date)
     ? query.date
     : getTodayDateString();
@@ -42,14 +52,20 @@ export default async function AppointmentsPage({
     view === "week" ? getWeekRange(date) : { startDate: date, endDate: date };
 
   let appointments: AppointmentItem[] = [];
+  let pendingConfirmations: PendingConfirmationItem[] = [];
   let hasError = false;
 
   try {
-    const result = await getAppointments(orgSlug, {
-      startDate,
-      endDate,
-    });
-    appointments = result.appointments ?? result;
+    if (view === "confirmations") {
+      const result = await getPendingConfirmations(orgSlug);
+      pendingConfirmations = result.data;
+    } else {
+      const result = await getAppointments(orgSlug, {
+        startDate,
+        endDate,
+      });
+      appointments = result.appointments ?? result;
+    }
   } catch {
     hasError = true;
   }
@@ -64,6 +80,7 @@ export default async function AppointmentsPage({
       view={view}
       date={date}
       appointments={appointments}
+      pendingConfirmations={pendingConfirmations}
       sheet={query.sheet}
       appointmentId={query.appointmentId}
     />

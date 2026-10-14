@@ -29,22 +29,26 @@ import {
   SHORT_WEEKDAY_NAMES,
 } from "@/lib/appointments";
 import type { AppointmentItem } from "@/server/appointments";
+import type { PendingConfirmationItem } from "@/server/confirmations";
 import { AppointmentDetailsSheet } from "./appointment-details-sheet";
+import { PendingConfirmationsView } from "./pending-confirmations-view";
 
 interface AppointmentsScheduleProps {
   orgSlug: string;
-  view: "day" | "week";
+  view: "day" | "week" | "confirmations";
   date: string;
   appointments: AppointmentItem[];
+  pendingConfirmations?: PendingConfirmationItem[];
   sheet?: string;
   appointmentId?: string;
 }
 
 export function AppointmentsSchedule({
-  orgSlug: _orgSlug,
+  orgSlug,
   view,
   date,
   appointments,
+  pendingConfirmations = [],
   sheet,
   appointmentId,
 }: AppointmentsScheduleProps) {
@@ -82,7 +86,7 @@ export function AppointmentsSchedule({
   };
 
   // View Switch Handlers (Preserves Active Date!)
-  const handleViewChange = (newView: "day" | "week") => {
+  const handleViewChange = (newView: "day" | "week" | "confirmations") => {
     if (newView === view) return;
     updateUrl({ view: newView });
   };
@@ -123,6 +127,9 @@ export function AppointmentsSchedule({
 
   // Formatted Date Indicator
   const dateIndicatorText = useMemo(() => {
+    if (view === "confirmations") {
+      return "Pendências de confirmação que exigem contato da recepção";
+    }
     if (view === "day") {
       return formatDateLabel(date);
     }
@@ -135,7 +142,7 @@ export function AppointmentsSchedule({
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between border-b border-border pb-5">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground">
-            Agenda
+            {view === "confirmations" ? "Confirmações" : "Agenda"}
           </h1>
           <p className="text-sm font-medium text-muted-foreground mt-0.5">
             {dateIndicatorText}
@@ -143,38 +150,40 @@ export function AppointmentsSchedule({
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          {/* Navigation Controls: Hoje, Anterior, Próximo */}
-          <div className="flex items-center gap-1.5 rounded-lg border border-border bg-card p-1 shadow-2xs">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleToday}
-              className="h-8 px-2.5 text-xs font-medium"
-            >
-              Hoje
-            </Button>
-            <div className="h-4 w-px bg-border" />
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={handlePrevious}
-              aria-label="Período anterior"
-              className="h-8 w-8"
-            >
-              <ChevronLeftIcon className="size-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={handleNext}
-              aria-label="Próximo período"
-              className="h-8 w-8"
-            >
-              <ChevronRightIcon className="size-4" />
-            </Button>
-          </div>
+          {/* Navigation Controls: Hoje, Anterior, Próximo (shown in day and week views) */}
+          {view !== "confirmations" && (
+            <div className="flex items-center gap-1.5 rounded-lg border border-border bg-card p-1 shadow-2xs">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleToday}
+                className="h-8 px-2.5 text-xs font-medium"
+              >
+                Hoje
+              </Button>
+              <div className="h-4 w-px bg-border" />
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={handlePrevious}
+                aria-label="Período anterior"
+                className="h-8 w-8"
+              >
+                <ChevronLeftIcon className="size-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={handleNext}
+                aria-label="Próximo período"
+                className="h-8 w-8"
+              >
+                <ChevronRightIcon className="size-4" />
+              </Button>
+            </div>
+          )}
 
-          {/* View Switcher: Dia / Semana (Preserves Date!) */}
+          {/* View Switcher: Dia / Semana / Confirmações */}
           <div className="flex items-center rounded-lg border border-border bg-card p-1 shadow-2xs">
             <Button
               variant={view === "day" ? "default" : "ghost"}
@@ -192,12 +201,25 @@ export function AppointmentsSchedule({
             >
               Semana
             </Button>
+            <Button
+              variant={view === "confirmations" ? "default" : "ghost"}
+              size="sm"
+              onClick={() => handleViewChange("confirmations")}
+              className="h-8 px-3 text-xs font-medium"
+            >
+              Confirmações
+            </Button>
           </div>
         </div>
       </div>
 
       {/* Main Content Area */}
-      {appointments.length === 0 ? (
+      {view === "confirmations" ? (
+        <PendingConfirmationsView
+          orgSlug={orgSlug}
+          initialData={pendingConfirmations}
+        />
+      ) : appointments.length === 0 ? (
         <Empty className="border border-dashed border-border bg-card/40 py-16">
           <EmptyHeader>
             <EmptyMedia variant="icon">

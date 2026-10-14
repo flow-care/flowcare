@@ -275,3 +275,14 @@ export async function getPatientDetails(
     return null;
   }
 }
+
+export {
+  type ConfirmationDecisionOrigin,
+  type ConfirmationDecisionStatus,
+  ConfirmationsApiError,
+  getPendingConfirmations,
+  type ManualConfirmationDecision,
+  type PendingConfirmationItem,
+  type PendingConfirmationsResult,
+  recordManualConfirmation,
+} from "./confirmations";
