@@ -6,7 +6,10 @@ import {
   type CreatePatientResponse,
   checkPatientDuplicates as checkPatientDuplicatesServer,
   createPatient as createPatientServer,
+  getPatientTimeline as getPatientTimelineServer,
   PatientsApiError,
+  type PatientTimelineFilters,
+  type PatientTimelineResult,
 } from "@/server/patients";
 
 export interface CreatePatientActionResult {
@@ -80,6 +83,45 @@ export async function checkPatientDuplicatesAction(
         error instanceof Error
           ? error.message
           : "Erro ao verificar duplicidade.",
+    };
+  }
+}
+
+export interface PatientTimelineActionResult extends PatientTimelineResult {
+  success: boolean;
+  error?: string;
+}
+
+export async function getPatientTimelineAction(
+  orgSlug: string,
+  patientId: string,
+  filters?: PatientTimelineFilters,
+): Promise<PatientTimelineActionResult> {
+  try {
+    const result = await getPatientTimelineServer(orgSlug, patientId, filters);
+    return {
+      success: true,
+      data: result.data,
+      pageInfo: result.pageInfo,
+      isRestricted: result.isRestricted,
+    };
+  } catch (error) {
+    if (error instanceof PatientsApiError) {
+      return {
+        success: false,
+        error: error.message,
+        data: [],
+        pageInfo: { limit: 0, hasNextPage: false, nextCursor: null },
+      };
+    }
+    return {
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Não foi possível carregar o prontuário do paciente.",
+      data: [],
+      pageInfo: { limit: 0, hasNextPage: false, nextCursor: null },
     };
   }
 }
