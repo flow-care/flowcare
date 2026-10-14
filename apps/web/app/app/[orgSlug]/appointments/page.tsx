@@ -11,6 +11,10 @@ import {
   getProfessionals,
   type ProfessionalItem,
 } from "@/server/appointments";
+import {
+  getPendingConfirmations,
+  type PendingConfirmationItem,
+} from "@/server/confirmations";
 import { getAvailableOrganizations } from "@/server/organizations";
 import { getReceptionQueue, type ReceptionQueueItem } from "@/server/reception";
 import { AppointmentsErrorState } from "./error-state";
@@ -41,12 +45,15 @@ export default async function AppointmentsPage({
     notFound();
   }
 
-  const view: "day" | "week" | "reception" =
-    query.view === "reception"
-      ? "reception"
-      : query.view === "week"
-        ? "week"
-        : "day";
+  const view: "day" | "week" | "reception" | "confirmations" =
+    query.view === "confirmations"
+      ? "confirmations"
+      : query.view === "reception"
+        ? "reception"
+        : query.view === "week"
+          ? "week"
+          : "day";
+
   const date = isValidDateString(query.date)
     ? query.date
     : getTodayDateString();
@@ -54,11 +61,23 @@ export default async function AppointmentsPage({
   let appointments: AppointmentItem[] = [];
   let receptionQueue: ReceptionQueueItem[] = [];
   let receptionError: string | null = null;
+  let pendingConfirmations: PendingConfirmationItem[] = [];
   let professionals: ProfessionalItem[] = [];
   let timeZone = "America/Sao_Paulo";
   let hasError = false;
 
-  if (view === "reception") {
+  if (view === "confirmations") {
+    try {
+      const [confirmationsResult, profs] = await Promise.all([
+        getPendingConfirmations(orgSlug),
+        getProfessionals(orgSlug).catch(() => []),
+      ]);
+      pendingConfirmations = confirmationsResult.data;
+      professionals = profs;
+    } catch {
+      hasError = true;
+    }
+  } else if (view === "reception") {
     try {
       const [queueResult, profs] = await Promise.all([
         getReceptionQueue(orgSlug, date),
@@ -104,6 +123,7 @@ export default async function AppointmentsPage({
       view={view}
       date={date}
       appointments={appointments}
+      pendingConfirmations={pendingConfirmations}
       receptionQueue={receptionQueue}
       receptionError={receptionError}
       sheet={query.sheet}

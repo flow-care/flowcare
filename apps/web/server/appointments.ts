@@ -276,6 +276,17 @@ export async function getPatientDetails(
   }
 }
 
+export {
+  type ConfirmationDecisionOrigin,
+  type ConfirmationDecisionStatus,
+  ConfirmationsApiError,
+  getPendingConfirmations,
+  type ManualConfirmationDecision,
+  type PendingConfirmationItem,
+  type PendingConfirmationsResult,
+  recordManualConfirmation,
+} from "./confirmations";
+
 export const patientSearchResultSchema = z.object({
   id: z.string(),
   fullName: z.string(),
