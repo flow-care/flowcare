@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type {
   DocumentStatus,
   DocumentType,
+  MembershipRole,
   Prisma,
   PrismaClient,
 } from "../../generated/prisma/client";
@@ -27,7 +28,11 @@ import type {
   PrepareDocumentSnapshotBody,
   PrepareDocumentSnapshotResponse,
   UpdateDocumentDraftBody,
+  VoidDocumentBody,
+  VoidDocumentResponse,
 } from "./model";
+
+type Role = MembershipRole;
 
 type DocumentVersionRecord = {
   id: string;
@@ -62,6 +67,8 @@ type ClinicalDocumentRecord = {
   replacesDocumentId?: string | null;
   issuedAt: Date | null;
   voidedAt: Date | null;
+  voidReason?: string | null;
+  voidedById?: string | null;
   createdAt: Date;
   updatedAt: Date;
   patient?: { id: string; fullName: string } | null;
@@ -227,6 +234,8 @@ function toDocumentListItem(record: ClinicalDocumentRecord): DocumentListItem {
     author,
     issuedAt: record.issuedAt ? record.issuedAt.toISOString() : null,
     voidedAt: record.voidedAt ? record.voidedAt.toISOString() : null,
+    voidReason: record.voidReason ?? null,
+    voidedById: record.voidedById ?? null,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
   };
@@ -273,6 +282,8 @@ function toDocumentItem(record: ClinicalDocumentRecord): DocumentItem {
     author,
     issuedAt: record.issuedAt ? record.issuedAt.toISOString() : null,
     voidedAt: record.voidedAt ? record.voidedAt.toISOString() : null,
+    voidReason: record.voidReason ?? null,
+    voidedById: record.voidedById ?? null,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
     versions: sortedVersions.map((v) => toVersionItem(v, record.version)),
@@ -585,6 +596,141 @@ export class DocumentsService {
           409,
           "Documento já possui retificação.",
         );
+      }
+      throw error;
+    }
+  }
+
+  async void(
+    organizationId: string,
+    actorUserId: string,
+    actorRole: Role | undefined,
+    documentId: string,
+    body: VoidDocumentBody,
+  ): Promise<VoidDocumentResponse> {
+    const reason = typeof body?.reason === "string" ? body.reason.trim() : "";
+    if (reason.length < 10) {
+      throw new ApiError(
+        "VALIDATION_ERROR",
+        400,
+        "A justificativa de anulação deve ter no mínimo 10 caracteres.",
+        { field: "reason" },
+      );
+    }
+
+    if (actorRole === "RECEPTIONIST") {
+      throw new ApiError(
+        "PERMISSION_DENIED",
+        403,
+        "Você não possui permissão para realizar esta ação.",
+        { requiredPermission: "documents:void" },
+      );
+    }
+
+    if (actorRole === "ADMIN") {
+      throw new ApiError(
+        "PERMISSION_DENIED",
+        403,
+        "Habilitação profissional necessária para anular documentos clínicos.",
+        { requiredPermission: "documents:void" },
+      );
+    }
+
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const doc = await tx.clinicalDocument.findFirst({
+          where: { id: documentId, organizationId },
+        });
+
+        if (!doc) {
+          throw new ApiError("NOT_FOUND", 404, "Documento não encontrado.");
+        }
+
+        if (doc.status !== "ISSUED") {
+          throw new ApiError(
+            "DOCUMENT_STATE_CONFLICT",
+            409,
+            doc.status === "VOIDED"
+              ? "Documento já se encontra anulado."
+              : "Apenas documentos emitidos podem ser formalmente anulados.",
+            { currentStatus: doc.status },
+          );
+        }
+
+        if (actorRole === "PROFESSIONAL" && doc.authorId !== actorUserId) {
+          throw new ApiError(
+            "PERMISSION_DENIED",
+            403,
+            "Apenas o profissional autor do documento ou um administrador pode anulá-lo.",
+            { requiredPermission: "documents:void" },
+          );
+        }
+
+        if (body?.version !== undefined && doc.version !== body.version) {
+          throw versionConflictError();
+        }
+
+        const now = new Date();
+        const updated = await tx.clinicalDocument.updateMany({
+          where: {
+            id: documentId,
+            organizationId,
+            status: "ISSUED",
+            version: doc.version,
+          },
+          data: {
+            status: "VOIDED",
+            voidedAt: now,
+            voidReason: reason,
+            voidedById: actorUserId,
+          },
+        });
+
+        if (updated.count !== 1) {
+          const latest = await tx.clinicalDocument.findFirst({
+            where: { id: documentId, organizationId },
+          });
+          if (latest?.status === "VOIDED") {
+            throw new ApiError(
+              "DOCUMENT_STATE_CONFLICT",
+              409,
+              "Documento já se encontra anulado.",
+              { currentStatus: latest.status },
+            );
+          }
+          throw versionConflictError();
+        }
+
+        await tx.auditLog.create({
+          data: {
+            organizationId,
+            actorUserId,
+            action: "DOCUMENT_VOIDED",
+            targetType: "DOCUMENT",
+            targetId: doc.id,
+            metadata: {
+              reason,
+              previousStatus: "ISSUED",
+            },
+          },
+        });
+
+        return {
+          documentId: doc.id,
+          status: "VOIDED" as const,
+          voidedAt: now.toISOString(),
+          voidReason: reason,
+        };
+      });
+    } catch (error) {
+      if (error instanceof ApiError) throw error;
+      if (
+        typeof error === "object" &&
+        error &&
+        "code" in error &&
+        ["P2002", "P2034"].includes(String(error.code))
+      ) {
+        throw versionConflictError();
       }
       throw error;
     }
@@ -965,6 +1111,8 @@ export class DocumentsService {
       currentVersion: doc.version,
       currentRevisionId: doc.currentRevisionId,
       status: doc.status,
+      voidedAt: doc.voidedAt ? doc.voidedAt.toISOString() : null,
+      voidReason: doc.voidReason ?? null,
       data: versionsList,
       versions: versionsList,
     };
@@ -983,6 +1131,8 @@ export class DocumentsService {
       select: {
         id: true,
         version: true,
+        voidedAt: true,
+        voidReason: true,
       },
     });
 
@@ -1031,6 +1181,8 @@ export class DocumentsService {
     return {
       ...versionItem,
       organizationId,
+      voidedAt: doc.voidedAt ? doc.voidedAt.toISOString() : null,
+      voidReason: doc.voidReason ?? null,
       snapshot,
     };
   }
