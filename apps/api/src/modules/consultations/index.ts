@@ -7,9 +7,11 @@ import {
   organizationAccessPlugin,
 } from "../../plugins/organization-access";
 import type { ConsultationAudioStore } from "../../services/consultation-audio-store";
+import type { TranscriptionProvider } from "../../services/transcription-provider";
 import { ConsultationAudioService } from "./audio-service";
 import * as m from "./model";
 import { ConsultationsService } from "./service";
+import { ConsultationTranscriptionService } from "./transcription-service";
 
 async function defaultClinicalEligibility(
   context: OrganizationAccess,
@@ -27,6 +29,7 @@ export function consultationsModule(deps: {
   prisma: PrismaClient;
   jwtSecret: string;
   audioStore?: ConsultationAudioStore | null;
+  transcriptionProvider?: TranscriptionProvider | null;
   clinicalEligibility?: (
     context: OrganizationAccess,
     capability: OrganizationCapability,
@@ -36,6 +39,10 @@ export function consultationsModule(deps: {
   const audioService = new ConsultationAudioService(
     deps.prisma,
     deps.audioStore ?? null,
+  );
+  const transcriptionService = new ConsultationTranscriptionService(
+    deps.prisma,
+    deps.transcriptionProvider ?? null,
   );
   const clinicalEligibility =
     deps.clinicalEligibility ?? defaultClinicalEligibility;
@@ -162,6 +169,26 @@ export function consultationsModule(deps: {
             params: m.audioIdParams,
             organizationAccess: "consultations:write",
             response: { 200: m.audioResponse },
+          },
+        )
+        .post(
+          "/consultations/:consultationId/transcribe",
+          async ({ auth, organizationAccess, params, headers, set }) => {
+            const idempotencyKey = headers["idempotency-key"];
+            const result = await transcriptionService.transcribe(
+              organizationAccess.organizationId,
+              params.consultationId,
+              auth.userId,
+              idempotencyKey,
+            );
+            set.status = 202;
+            return result;
+          },
+          {
+            params: m.consultationIdParams,
+            headers: m.idempotencyHeaders,
+            organizationAccess: "consultations:write",
+            response: { 202: m.transcriptionResponse },
           },
         ),
     );

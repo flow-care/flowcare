@@ -155,6 +155,31 @@ export const audioIdParams = t.Object({
   audioId: uuid,
 });
 
+const nonBlankKey = "^\\s*\\S(?:[\\s\\S]*\\S)?\\s*$";
+
+export const idempotencyHeaders = t.Object(
+  {
+    "idempotency-key": t.String({
+      minLength: 1,
+      maxLength: 128,
+      pattern: nonBlankKey,
+    }),
+  },
+  { additionalProperties: true },
+);
+
+export const transcriptionJobStatus = t.Union([
+  t.Literal("QUEUED"),
+  t.Literal("PROCESSING"),
+  t.Literal("COMPLETED"),
+  t.Literal("FAILED"),
+]);
+
+export const transcriptionResponse = t.Object({
+  jobId: t.String(),
+  status: transcriptionJobStatus,
+});
+
 export type OrgSlugParams = typeof orgSlugParams.static;
 export type ConsultationIdParams = typeof consultationIdParams.static;
 export type ConsultationStatus = typeof consultationStatus.static;
@@ -172,3 +197,6 @@ export type ConsultationDetailResponse =
   typeof consultationDetailResponse.static;
 export type UploadAudioBody = typeof uploadAudioBody.static;
 export type PrepareAudioBody = typeof prepareAudioBody.static;
+export type IdempotencyHeaders = typeof idempotencyHeaders.static;
+export type TranscriptionJobStatus = typeof transcriptionJobStatus.static;
+export type TranscriptionResponse = typeof transcriptionResponse.static;
