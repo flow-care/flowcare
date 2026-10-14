@@ -1020,3 +1020,204 @@ export async function getPatientAttachments(
     isRestricted: false,
   };
 }
+
+export interface UpdatePatientAddressInput {
+  street?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postalCode?: string | null;
+}
+
+export interface UpdatePatientInput {
+  fullName?: string;
+  phone?: string;
+  email?: string | null;
+  birthDate?: string;
+  gender?: string | null;
+  address?: UpdatePatientAddressInput | null;
+  healthInsurance?: string | null;
+  insuranceNumber?: string | null;
+  insuranceExpiration?: string | null;
+  version: number;
+  cpf?: string;
+  distinctPersonConfirmed?: boolean;
+}
+
+export const updatePatientResponseSchema = z.object({
+  patient: z.object({
+    id: z.string(),
+    fullName: z.string(),
+    cpf: z.string(),
+    birthDate: z.string(),
+    phone: z.string(),
+    email: z.string().nullable().optional(),
+    gender: z.string().nullable().optional(),
+    healthInsurance: z.string().nullable().optional(),
+    insuranceNumber: z.string().nullable().optional(),
+    insuranceExpiration: z.string().nullable().optional(),
+    address: z
+      .object({
+        street: z.string().nullable().optional(),
+        city: z.string().nullable().optional(),
+        state: z.string().nullable().optional(),
+        postalCode: z.string().nullable().optional(),
+      })
+      .nullable()
+      .optional(),
+    version: z.number().optional(),
+    createdAt: z.string().optional(),
+    updatedAt: z.string().optional(),
+  }),
+});
+
+export type UpdatePatientResponse = z.infer<typeof updatePatientResponseSchema>;
+
+export async function updatePatient(
+  orgSlug: string,
+  patientId: string,
+  input: UpdatePatientInput,
+): Promise<UpdatePatientResponse> {
+  const token = await getSessionToken();
+  if (!token) {
+    throw new PatientsApiError(
+      "UNAUTHENTICATED",
+      "Entre novamente para continuar.",
+    );
+  }
+
+  const { apiBaseUrl } = getServerConfig();
+  const url = `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/patients/${encodeURIComponent(patientId)}`;
+
+  const payload: Record<string, unknown> = {
+    version: input.version,
+  };
+
+  if (input.fullName !== undefined) {
+    payload.fullName = input.fullName.trim();
+  }
+  if (input.phone !== undefined) {
+    payload.phone = input.phone.replace(/\D/g, "") || input.phone;
+  }
+  if (input.birthDate !== undefined) {
+    payload.birthDate = input.birthDate;
+  }
+  if (input.email !== undefined) {
+    payload.email = input.email ? input.email.trim() : null;
+  }
+  if (input.gender !== undefined) {
+    payload.gender = input.gender;
+  }
+  if (input.address !== undefined) {
+    payload.address = input.address;
+  }
+  if (input.healthInsurance !== undefined) {
+    payload.healthInsurance = input.healthInsurance
+      ? input.healthInsurance.trim()
+      : null;
+  }
+  if (input.insuranceNumber !== undefined) {
+    payload.insuranceNumber = input.insuranceNumber
+      ? input.insuranceNumber.trim()
+      : null;
+  }
+  if (input.insuranceExpiration !== undefined) {
+    payload.insuranceExpiration = input.insuranceExpiration;
+  }
+  if (input.cpf !== undefined) {
+    payload.cpf = input.cpf.replace(/\D/g, "") || input.cpf;
+  }
+  if (input.distinctPersonConfirmed !== undefined) {
+    payload.distinctPersonConfirmed = input.distinctPersonConfirmed;
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(payload),
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    throw new PatientsApiError(
+      "UNAVAILABLE",
+      "Não foi possível conectar ao servidor de pacientes.",
+    );
+  }
+
+  const json: unknown = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    if (response.status === 409) {
+      const err = json as {
+        error?: { code?: string; message?: string; details?: unknown };
+      } | null;
+      const code = err?.error?.code || "VERSION_CONFLICT";
+      const message =
+        code === "VERSION_CONFLICT"
+          ? "Este paciente foi atualizado por outro usuário. Recarregue para ver os dados mais recentes."
+          : err?.error?.message ||
+            "Foi encontrado um conflito ao atualizar os dados do paciente.";
+      throw new PatientsApiError(code, message, err?.error?.details);
+    }
+
+    if (response.status === 400) {
+      const err = json as {
+        error?: { code?: string; message?: string; details?: unknown };
+      } | null;
+      throw new PatientsApiError(
+        err?.error?.code || "VALIDATION_ERROR",
+        err?.error?.message || "Dados de cadastro inválidos.",
+        err?.error?.details,
+      );
+    }
+
+    if (response.status === 401) {
+      throw new PatientsApiError(
+        "UNAUTHENTICATED",
+        "Entre novamente para continuar.",
+      );
+    }
+
+    if (response.status === 403) {
+      throw new PatientsApiError(
+        "FORBIDDEN",
+        "Você não tem permissão para alterar pacientes nesta clínica.",
+      );
+    }
+
+    if (response.status === 404) {
+      throw new PatientsApiError("NOT_FOUND", "Paciente não encontrado.");
+    }
+
+    const err = json as { error?: { code?: string; message?: string } } | null;
+    throw new PatientsApiError(
+      err?.error?.code || "UNAVAILABLE",
+      err?.error?.message || "Não foi possível atualizar o paciente.",
+    );
+  }
+
+  const parsed = updatePatientResponseSchema.safeParse(json);
+  if (!parsed.success) {
+    if (
+      typeof json === "object" &&
+      json !== null &&
+      "id" in json &&
+      "fullName" in json
+    ) {
+      return { patient: json as UpdatePatientResponse["patient"] };
+    }
+    throw new PatientsApiError(
+      "INVALID_RESPONSE",
+      "Resposta inválida do servidor ao atualizar paciente.",
+    );
+  }
+
+  return parsed.data;
+}

@@ -20,10 +20,10 @@ export default async function PatientDetailPage({
   searchParams,
 }: {
   params: Promise<{ orgSlug: string; patientId: string }>;
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; sheet?: string }>;
 }) {
   const { orgSlug, patientId } = await params;
-  const { tab = "overview" } = await searchParams;
+  const { tab = "overview", sheet } = await searchParams;
 
   const organizations = await getAvailableOrganizations();
   const current = organizations?.find((org) => org.slug === orgSlug);
@@ -74,6 +74,7 @@ export default async function PatientDetailPage({
       timeline={timeline}
       attachments={attachments}
       initialTab={tab}
+      initialSheet={sheet}
     />
   );
 }
