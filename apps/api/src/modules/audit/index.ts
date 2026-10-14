@@ -22,6 +22,17 @@ export function auditModule(deps: { prisma: PrismaClient; jwtSecret: string }) {
         response: { 200: m.listAuditLogsResponse },
       },
     )
+    .get(
+      "/organizations/:orgSlug/audit",
+      ({ organizationAccess, query }) =>
+        service.listForOrganization(organizationAccess.organizationId, query),
+      {
+        params: m.auditOrganizationParams,
+        query: m.listAuditLogsQuery,
+        organizationAccess: "audit:read",
+        response: { 200: m.listAuditLogsResponse },
+      },
+    )
     .post(
       "/organizations/:orgSlug/audit-logs",
       () => service.rejectMutation(),
@@ -78,3 +89,5 @@ export function auditModule(deps: { prisma: PrismaClient; jwtSecret: string }) {
       params: m.globalAuditLogParams,
     });
 }
+
+export const auditPlugin = auditModule;
