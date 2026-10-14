@@ -252,3 +252,56 @@ export function formatAppointmentTime(
   const endTime = `${String(endH).padStart(2, "0")}:${String(endM).padStart(2, "0")}`;
   return `${time} – ${endTime}`;
 }
+
+function dateParts(date: Date, timeZone: string): Record<string, string> {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  return Object.fromEntries(parts.map((part) => [part.type, part.value]));
+}
+
+export function zonedDateTimeToUtc(
+  date: string,
+  time: string,
+  timeZone = "America/Sao_Paulo",
+): string {
+  const [year, month, day] = date.split("-").map(Number);
+  const [hour, minute] = time.split(":").map(Number);
+  const target = Date.UTC(year, month - 1, day, hour, minute);
+  let candidate = target;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const parts = dateParts(new Date(candidate), timeZone);
+    const represented = Date.UTC(
+      Number(parts.year),
+      Number(parts.month) - 1,
+      Number(parts.day),
+      Number(parts.hour),
+      Number(parts.minute),
+      Number(parts.second),
+    );
+    const offset = represented - target;
+    if (offset === 0) return new Date(candidate).toISOString();
+    candidate -= offset;
+  }
+  return new Date(candidate).toISOString();
+}
+
+export function getDefaultAppointmentTime(): string {
+  const now = new Date();
+  const nextHour = (now.getHours() + 1) % 24;
+  return `${String(nextHour).padStart(2, "0")}:00`;
+}
+
+export const APPOINTMENT_DURATION_OPTIONS = [
+  { value: 15, label: "15 minutos" },
+  { value: 30, label: "30 minutos" },
+  { value: 45, label: "45 minutos" },
+  { value: 60, label: "60 minutos" },
+] as const;

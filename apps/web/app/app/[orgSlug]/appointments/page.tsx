@@ -5,7 +5,12 @@ import {
   getWeekRange,
   isValidDateString,
 } from "@/lib/appointments";
-import { type AppointmentItem, getAppointments } from "@/server/appointments";
+import {
+  type AppointmentItem,
+  getAppointments,
+  getProfessionals,
+  type ProfessionalItem,
+} from "@/server/appointments";
 import { getAvailableOrganizations } from "@/server/organizations";
 import { getReceptionQueue, type ReceptionQueueItem } from "@/server/reception";
 import { AppointmentsErrorState } from "./error-state";
@@ -21,6 +26,8 @@ export default async function AppointmentsPage({
     date?: string;
     sheet?: string;
     appointmentId?: string;
+    time?: string;
+    slotTime?: string;
   }>;
 }) {
   const { orgSlug } = await params;
@@ -47,12 +54,18 @@ export default async function AppointmentsPage({
   let appointments: AppointmentItem[] = [];
   let receptionQueue: ReceptionQueueItem[] = [];
   let receptionError: string | null = null;
+  let professionals: ProfessionalItem[] = [];
+  let timeZone = "America/Sao_Paulo";
   let hasError = false;
 
   if (view === "reception") {
     try {
-      const result = await getReceptionQueue(orgSlug, date);
-      receptionQueue = result.queue ?? result;
+      const [queueResult, profs] = await Promise.all([
+        getReceptionQueue(orgSlug, date),
+        getProfessionals(orgSlug).catch(() => []),
+      ]);
+      receptionQueue = queueResult.queue ?? queueResult;
+      professionals = profs;
     } catch (err) {
       receptionError =
         err instanceof Error
@@ -64,11 +77,18 @@ export default async function AppointmentsPage({
       view === "week" ? getWeekRange(date) : { startDate: date, endDate: date };
 
     try {
-      const result = await getAppointments(orgSlug, {
-        startDate,
-        endDate,
-      });
+      const [result, profs] = await Promise.all([
+        getAppointments(orgSlug, {
+          startDate,
+          endDate,
+        }),
+        getProfessionals(orgSlug).catch(() => []),
+      ]);
       appointments = result.appointments ?? result;
+      if (result.timeZone) {
+        timeZone = result.timeZone;
+      }
+      professionals = profs;
     } catch {
       hasError = true;
     }
@@ -88,6 +108,9 @@ export default async function AppointmentsPage({
       receptionError={receptionError}
       sheet={query.sheet}
       appointmentId={query.appointmentId}
+      slotTime={query.time ?? query.slotTime}
+      timeZone={timeZone}
+      professionals={professionals}
     />
   );
 }
