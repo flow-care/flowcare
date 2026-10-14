@@ -1,11 +1,13 @@
 "use client";
 
+import { cn } from "cn";
 import {
   AlertCircleIcon,
   CalendarIcon,
   ClockIcon,
   FileTextIcon,
   MailIcon,
+  PencilIcon,
   PhoneIcon,
   PlayIcon,
   StethoscopeIcon,
@@ -13,7 +15,9 @@ import {
   UserIcon,
 } from "lucide-react";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import {
   AlertDialog,
   AlertDialogContent,
@@ -25,6 +29,13 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Sheet,
   SheetContent,
   SheetDescription,
@@ -32,8 +43,13 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import {
+  CANCELLATION_REASON_LABELS,
+  CANCELLATION_REASONS,
+  type CancellationReasonType,
   canCancelAppointment,
+  canEditAppointment,
   canStartAppointment,
   formatAppointmentTime,
   formatDateLabel,
@@ -46,6 +62,7 @@ import type {
   AppointmentDetails,
   AppointmentItem,
 } from "@/server/appointments";
+import { cancelAppointmentAction } from "./actions";
 
 export interface AppointmentDetailsSheetProps {
   isOpen: boolean;
@@ -55,6 +72,7 @@ export interface AppointmentDetailsSheetProps {
   appointmentId?: string | null;
   appointment?: AppointmentItem | null;
   onAppointmentCancelled?: (appointmentId: string) => void;
+  onEdit?: (appointmentId: string) => void;
 }
 
 export function AppointmentDetailsSheet({
@@ -65,7 +83,23 @@ export function AppointmentDetailsSheet({
   appointmentId,
   appointment,
   onAppointmentCancelled,
+  onEdit,
 }: AppointmentDetailsSheetProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  const handleOpenEdit = () => {
+    if (!details?.id) return;
+    if (onEdit) {
+      onEdit(details.id);
+    } else {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("sheet", "edit");
+      params.set("appointmentId", details.id);
+      router.push(`${pathname}?${params.toString()}`, { scroll: false });
+    }
+  };
   const [details, setDetails] = useState<AppointmentDetails | null>(() => {
     if (!appointment) return null;
     return {
@@ -96,7 +130,10 @@ export function AppointmentDetailsSheet({
 
   // Cancellation AlertDialog state
   const [isCancelDialogOpen, setIsCancelDialogOpen] = useState<boolean>(false);
-  const [cancelReason, setCancelReason] = useState<string>("");
+  const [cancelReasonType, setCancelReasonType] = useState<
+    CancellationReasonType | ""
+  >("");
+  const [cancelJustification, setCancelJustification] = useState<string>("");
   const [isCanceling, setIsCanceling] = useState<boolean>(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
 
@@ -104,7 +141,8 @@ export function AppointmentDetailsSheet({
   useEffect(() => {
     if (!isOpen) {
       setIsCancelDialogOpen(false);
-      setCancelReason("");
+      setCancelReasonType("");
+      setCancelJustification("");
       setCancelError(null);
       return;
     }
@@ -185,55 +223,70 @@ export function AppointmentDetailsSheet({
   }, [isOpen, appointmentId, appointment, orgSlug]);
 
   const handleOpenCancelDialog = () => {
-    setCancelReason("");
+    setCancelReasonType("");
+    setCancelJustification("");
     setCancelError(null);
     setIsCancelDialogOpen(true);
   };
 
   const handleConfirmCancel = async () => {
-    if (!details || cancelReason.trim().length < 10) return;
+    if (
+      !details ||
+      !cancelReasonType ||
+      cancelJustification.trim().length < 10
+    ) {
+      return;
+    }
     setIsCanceling(true);
     setCancelError(null);
 
     try {
-      const res = await fetch(
-        `/api/organizations/${encodeURIComponent(orgSlug)}/appointments/${encodeURIComponent(details.id)}/cancel`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            cancellationReason: cancelReason.trim(),
-            version: details.version ?? 0,
-          }),
-        },
-      );
+      const res = await cancelAppointmentAction(orgSlug, details.id, {
+        reasonType: cancelReasonType,
+        justification: cancelJustification.trim(),
+        version: details.version ?? 0,
+      });
 
-      if (!res.ok) {
-        const err = await res.json().catch(() => null);
-        throw new Error(err?.message || "Falha ao cancelar o agendamento.");
+      if (!res.success) {
+        const errorMsg = res.error || "Falha ao cancelar o agendamento.";
+        setCancelError(errorMsg);
+        toast.error(errorMsg);
+        return;
       }
 
-      const data = await res.json();
+      const data = res.data;
+      const finalReason =
+        data?.cancellationReason ??
+        (cancelReasonType
+          ? `[${CANCELLATION_REASON_LABELS[cancelReasonType]}] ${cancelJustification.trim()}`
+          : cancelJustification.trim());
+
       setDetails((prev) =>
         prev
           ? {
               ...prev,
               status: "CANCELLED",
-              cancellationReason:
-                data.cancellationReason ?? cancelReason.trim(),
-              cancelledAt: data.cancelledAt ?? new Date().toISOString(),
-              version: data.version ?? prev.version,
+              cancellationReason: finalReason,
+              cancelledAt: data?.cancelledAt ?? new Date().toISOString(),
+              version:
+                data?.version ??
+                (prev.version !== undefined ? prev.version + 1 : 1),
             }
           : null,
       );
       setIsCancelDialogOpen(false);
+      toast.success(
+        "Agendamento cancelado com sucesso. O horário foi liberado.",
+      );
       onAppointmentCancelled?.(details.id);
+      router.refresh();
     } catch (error) {
-      setCancelError(
+      const errorMsg =
         error instanceof Error
           ? error.message
-          : "Erro ao cancelar o agendamento.",
-      );
+          : "Erro ao cancelar o agendamento.";
+      setCancelError(errorMsg);
+      toast.error(errorMsg);
     } finally {
       setIsCanceling(false);
     }
@@ -328,6 +381,7 @@ export function AppointmentDetailsSheet({
 
   const canStart = canStartAppointment(userRole, details.status);
   const canCancel = canCancelAppointment(details.status);
+  const canEdit = canEditAppointment(details.status);
 
   const patientName =
     details.patient?.fullName ?? details.patientName ?? "Paciente";
@@ -528,6 +582,19 @@ export function AppointmentDetailsSheet({
               </Button>
             )}
 
+            {/* Editar agendamento */}
+            {canEdit && (
+              <Button
+                variant="outline"
+                type="button"
+                onClick={handleOpenEdit}
+                className="w-full"
+              >
+                <PencilIcon className="size-4 mr-2" />
+                Editar agendamento
+              </Button>
+            )}
+
             {/* Cancelar agendamento: opens AlertDialog */}
             {canCancel && (
               <Button
@@ -553,39 +620,112 @@ export function AppointmentDetailsSheet({
           <AlertDialogHeader>
             <AlertDialogTitle>Cancelar agendamento</AlertDialogTitle>
             <AlertDialogDescription>
-              Tem certeza que deseja cancelar este agendamento? Esta ação não
-              pode ser desfeita.
+              Esta ação é definitiva e cancelará o atendimento deste paciente.
             </AlertDialogDescription>
           </AlertDialogHeader>
 
-          <div className="flex flex-col gap-2 py-2">
-            <label
-              htmlFor="cancel-reason"
-              className="text-xs font-medium text-foreground"
-            >
-              Motivo do cancelamento (mínimo de 10 caracteres)
-            </label>
-            <textarea
-              id="cancel-reason"
-              value={cancelReason}
-              onChange={(e) => {
-                setCancelReason(e.target.value);
-                if (cancelError) setCancelError(null);
-              }}
-              placeholder="Ex.: Paciente solicitou reagendamento por motivos pessoais"
-              className="w-full rounded-md border border-input bg-background p-2.5 text-xs text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring min-h-[80px]"
-            />
-            {cancelReason.trim().length > 0 &&
-              cancelReason.trim().length < 10 && (
-                <span className="text-[11px] text-destructive">
-                  A justificativa deve ter no mínimo 10 caracteres (
-                  {cancelReason.trim().length}/10).
-                </span>
-              )}
-            {cancelError && (
-              <span className="text-xs text-destructive font-medium">
-                {cancelError}
+          {/* Explicit warning about immediate slot release */}
+          <div
+            role="alert"
+            className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-200 flex items-start gap-2.5 my-1"
+          >
+            <AlertCircleIcon className="size-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+            <div className="flex flex-col gap-0.5">
+              <span className="font-semibold text-xs">
+                Liberação imediata de horário
               </span>
+              <span className="text-[11px] leading-relaxed">
+                Ao confirmar o cancelamento, este horário ficará imediatamente
+                liberado e disponível na agenda para novas marcações.
+              </span>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-3 py-1">
+            {/* Standardized Cancellation Reason Select */}
+            <div className="flex flex-col gap-1.5">
+              <label
+                htmlFor="cancel-reason-type"
+                className="text-xs font-medium text-foreground"
+              >
+                Motivo do cancelamento{" "}
+                <span className="text-destructive">*</span>
+              </label>
+              <Select
+                value={cancelReasonType}
+                onValueChange={(val) => {
+                  setCancelReasonType(val as CancellationReasonType);
+                  if (cancelError) setCancelError(null);
+                }}
+              >
+                <SelectTrigger
+                  id="cancel-reason-type"
+                  className="w-full border-border bg-card"
+                >
+                  <SelectValue placeholder="Selecione o motivo padronizado..." />
+                </SelectTrigger>
+                <SelectContent className="z-[60]">
+                  {CANCELLATION_REASONS.map((reason) => (
+                    <SelectItem key={reason.value} value={reason.value}>
+                      {reason.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Justification Textarea */}
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between">
+                <label
+                  htmlFor="cancel-justification"
+                  className="text-xs font-medium text-foreground"
+                >
+                  Justificativa obrigatória{" "}
+                  <span className="text-destructive">*</span>
+                </label>
+                <span
+                  className={cn(
+                    "text-[11px]",
+                    cancelJustification.trim().length >= 10
+                      ? "text-muted-foreground"
+                      : "text-destructive font-medium",
+                  )}
+                >
+                  {cancelJustification.trim().length}/10 mín.
+                </span>
+              </div>
+              <Textarea
+                id="cancel-justification"
+                value={cancelJustification}
+                onChange={(e) => {
+                  setCancelJustification(e.target.value);
+                  if (cancelError) setCancelError(null);
+                }}
+                placeholder="Descreva detalhadamente a justificativa para este cancelamento..."
+                className="w-full border-border bg-card min-h-[80px] text-xs resize-none"
+                rows={3}
+              />
+              {cancelJustification.trim().length > 0 &&
+                cancelJustification.trim().length < 10 && (
+                  <span className="text-[11px] text-destructive">
+                    A justificativa deve ter no mínimo 10 caracteres (
+                    {cancelJustification.trim().length}/10).
+                  </span>
+                )}
+            </div>
+
+            {/* Rejection / error handling banner */}
+            {cancelError && (
+              <div
+                role="alert"
+                className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive flex items-start gap-2.5 my-1"
+              >
+                <AlertCircleIcon className="size-4 shrink-0 mt-0.5" />
+                <span className="text-xs font-medium leading-relaxed">
+                  {cancelError}
+                </span>
+              </div>
             )}
           </div>
 
@@ -603,7 +743,11 @@ export function AppointmentDetailsSheet({
               variant="destructive"
               size="sm"
               onClick={handleConfirmCancel}
-              disabled={cancelReason.trim().length < 10 || isCanceling}
+              disabled={
+                !cancelReasonType ||
+                cancelJustification.trim().length < 10 ||
+                isCanceling
+              }
               type="button"
             >
               {isCanceling ? "Cancelando..." : "Confirmar cancelamento"}

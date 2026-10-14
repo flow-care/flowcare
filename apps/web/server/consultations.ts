@@ -222,3 +222,137 @@ export async function getConsultations(
 
   return parsed.data;
 }
+
+export const consultationPatientSchema = z.object({
+  id: z.string(),
+  fullName: z.string(),
+  birthDate: z.string().nullable().optional(),
+  cpf: z.string().nullable().optional(),
+  phone: z.string().nullable().optional(),
+  email: z.string().nullable().optional(),
+  healthInsurance: z.string().nullable().optional(),
+  insuranceNumber: z.string().nullable().optional(),
+  allergies: z.array(z.string()).optional(),
+  clinicalAlerts: z.array(z.string()).optional(),
+});
+export type ConsultationPatient = z.infer<typeof consultationPatientSchema>;
+
+export const consultationProfessionalSchema = z.object({
+  id: z.string(),
+  fullName: z.string(),
+  professionalTitle: z.string().nullable().optional(),
+  registrationNumber: z.string().nullable().optional(),
+});
+export type ConsultationProfessional = z.infer<
+  typeof consultationProfessionalSchema
+>;
+
+export const consultationDetailSchema = z.object({
+  id: z.string(),
+  consultationId: z.string().optional(),
+  organizationId: z.string().optional(),
+  appointmentId: z.string().nullable().optional(),
+  patientId: z.string(),
+  professionalId: z.string(),
+  scheduledAt: z.string(),
+  localScheduledAt: z.string().optional(),
+  startedAt: z.string().nullable().optional(),
+  completedAt: z.string().nullable().optional(),
+  status: consultationStatusSchema,
+  anamnesisStatus: anamnesisStatusSchema,
+  anamnesisTopicRevisionId: z.string().nullable().optional(),
+  chiefComplaint: z.string().nullable().optional(),
+  clinicalNotes: z.string().nullable().optional(),
+  anamnesisDraft: z.unknown().optional(),
+  draftSavedAt: z.string().nullable().optional(),
+  draftSavedById: z.string().nullable().optional(),
+  approvedAt: z.string().nullable().optional(),
+  approvedById: z.string().nullable().optional(),
+  signedBy: z.string().nullable().optional(),
+  anamnesisSnapshot: z.unknown().optional(),
+  snapshotHash: z.string().nullable().optional(),
+  version: z.number().optional(),
+  createdAt: z.string().optional(),
+  updatedAt: z.string().optional(),
+  patient: consultationPatientSchema.optional(),
+  professional: consultationProfessionalSchema.optional(),
+});
+export type ConsultationDetail = z.infer<typeof consultationDetailSchema>;
+
+export async function getConsultationDetails(
+  orgSlug: string,
+  consultationId: string,
+): Promise<ConsultationDetail> {
+  const token = await getSessionToken();
+  if (!token) {
+    throw new ConsultationsApiError(
+      "UNAUTHENTICATED",
+      "Sessão expirada. Faça login novamente.",
+    );
+  }
+
+  const { apiBaseUrl } = getServerConfig();
+  const url = `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/consultations/${encodeURIComponent(consultationId)}`;
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
+      },
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    throw new ConsultationsApiError(
+      "UNAVAILABLE",
+      "Não foi possível conectar ao servidor de consultas.",
+    );
+  }
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      throw new ConsultationsApiError(
+        "UNAUTHENTICATED",
+        "Sessão expirada. Faça login novamente.",
+      );
+    }
+    if (response.status === 403) {
+      throw new ConsultationsApiError(
+        "FORBIDDEN",
+        "Acesso restrito à equipe clínica.",
+      );
+    }
+    if (response.status === 404) {
+      throw new ConsultationsApiError(
+        "NOT_FOUND",
+        "Atendimento não encontrado.",
+      );
+    }
+    throw new ConsultationsApiError(
+      "UNAVAILABLE",
+      "Não foi possível carregar os detalhes do atendimento.",
+    );
+  }
+
+  const data: unknown = await response.json();
+  const raw =
+    data &&
+    typeof data === "object" &&
+    "consultation" in data &&
+    data.consultation
+      ? data.consultation
+      : data;
+  const parsed = consultationDetailSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new ConsultationsApiError(
+      "UNAVAILABLE",
+      "Resposta inválida do servidor de consultas.",
+    );
+  }
+
+  return parsed.data;
+}

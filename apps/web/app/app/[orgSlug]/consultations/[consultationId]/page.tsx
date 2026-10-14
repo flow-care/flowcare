@@ -1,11 +1,15 @@
-import { ChevronLeft, Stethoscope } from "lucide-react";
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound } from "next/navigation";
+import { ConsultationDetailView } from "@/components/flowcare/consultations/consultation-detail-view";
 import { ConsultationsForbidden } from "@/components/flowcare/consultations/consultations-forbidden";
-import { Button } from "@/components/ui/button";
 import { canOpenSection } from "@/lib/app-navigation";
+import {
+  type ConsultationDetail,
+  ConsultationsApiError,
+  getConsultationDetails,
+} from "@/server/consultations";
 import { getAvailableOrganizations } from "@/server/organizations";
+import { getPatientOverview, type PatientOverview } from "@/server/patients";
 
 export const metadata: Metadata = {
   title: "Atendimento Clínico | Flowcare",
@@ -13,10 +17,14 @@ export const metadata: Metadata = {
 
 export default async function ConsultationDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ orgSlug: string; consultationId: string }>;
+  searchParams: Promise<{ tab?: string }>;
 }) {
   const { orgSlug, consultationId } = await params;
+  const { tab } = await searchParams;
+
   const organizations = await getAvailableOrganizations();
   const current = organizations?.find(
     (organization) => organization.slug === orgSlug,
@@ -26,38 +34,46 @@ export default async function ConsultationDetailPage({
     notFound();
   }
 
+  // Role check: Clinical roles (ADMIN_PROFESSIONAL, PROFESSIONAL) only.
+  // Non-clinical roles see clean 403 / "Acesso restrito à equipe clínica".
   if (!canOpenSection(current.role, "consultations")) {
     return <ConsultationsForbidden orgSlug={orgSlug} />;
   }
 
+  let consultation: ConsultationDetail;
+  try {
+    consultation = await getConsultationDetails(orgSlug, consultationId);
+  } catch (error) {
+    if (error instanceof ConsultationsApiError) {
+      if (error.code === "FORBIDDEN") {
+        return <ConsultationsForbidden orgSlug={orgSlug} />;
+      }
+      if (error.code === "NOT_FOUND") {
+        notFound();
+      }
+    }
+    throw error;
+  }
+
+  // Fetch patient overview if available to enrich patient summary card (age, allergies, alerts, insurance)
+  let patientOverview: PatientOverview | null = null;
+  if (consultation.patientId) {
+    try {
+      patientOverview = await getPatientOverview(
+        orgSlug,
+        consultation.patientId,
+      );
+    } catch {
+      patientOverview = null;
+    }
+  }
+
   return (
-    <div className="flex flex-col gap-6 p-6">
-      <div>
-        <Button
-          asChild
-          variant="ghost"
-          size="sm"
-          className="-ml-2 mb-4 text-muted-foreground hover:text-foreground"
-        >
-          <Link href={`/app/${encodeURIComponent(orgSlug)}/consultations`}>
-            <ChevronLeft className="mr-1 size-4" />
-            Voltar para atendimentos
-          </Link>
-        </Button>
-        <div className="flex items-center gap-3">
-          <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-            <Stethoscope className="size-5" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-              Atendimento Clínico
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              Identificador: {consultationId}
-            </p>
-          </div>
-        </div>
-      </div>
-    </div>
+    <ConsultationDetailView
+      orgSlug={orgSlug}
+      consultation={consultation}
+      patientOverview={patientOverview}
+      activeTab={tab}
+    />
   );
 }
