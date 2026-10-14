@@ -1,6 +1,11 @@
 import "server-only";
 
 import { z } from "zod";
+import {
+  addDays,
+  getTodayDateString,
+  isValidDateString,
+} from "@/lib/appointments";
 import { getServerConfig } from "./config";
 import { getSessionToken } from "./session";
 
@@ -24,6 +29,11 @@ export const appointmentItemSchema = z.object({
   durationMinutes: z.number().int(),
   status: appointmentStatusSchema,
   version: z.number().int().optional(),
+  notes: z.string().nullable().optional(),
+  queueStatus: z.string().nullable().optional(),
+  arrivedAt: z.string().nullable().optional(),
+  cancellationReason: z.string().nullable().optional(),
+  cancelledAt: z.string().nullable().optional(),
 });
 
 export type AppointmentItem = z.infer<typeof appointmentItemSchema> & {
@@ -286,6 +296,278 @@ export {
   type PendingConfirmationsResult,
   recordManualConfirmation,
 } from "./confirmations";
+
+export interface AppointmentDetails {
+  id: string;
+  patientId: string;
+  professionalId: string;
+  scheduledAt: string;
+  localScheduledAt: string;
+  durationMinutes: number;
+  status: AppointmentStatus;
+  version?: number;
+  notes?: string | null;
+  cancellationReason?: string | null;
+  cancelledAt?: string | null;
+  queueStatus?: string | null;
+  arrivedAt?: string | null;
+  patientName?: string;
+  professionalName?: string;
+  patient?: PatientDetail | null;
+  professional?: {
+    id: string;
+    fullName: string;
+    role?: string | null;
+    specialty?: string | null;
+  } | null;
+}
+
+export const cancelAppointmentInputSchema = z.object({
+  cancellationReason: z
+    .string()
+    .trim()
+    .min(10, "A justificativa deve ter pelo menos 10 caracteres."),
+  version: z.number().int().min(0),
+});
+
+export const cancelAppointmentResponseSchema = z.object({
+  status: z.literal("CANCELLED"),
+  cancellationReason: z.string(),
+  cancelledAt: z.string(),
+  cancelledById: z.string().optional(),
+  version: z.number().int(),
+});
+
+export type CancelAppointmentResponse = z.infer<
+  typeof cancelAppointmentResponseSchema
+>;
+
+export async function cancelAppointment(
+  orgSlug: string,
+  appointmentId: string,
+  input: { cancellationReason: string; version: number },
+): Promise<CancelAppointmentResponse> {
+  const token = await getSessionToken();
+  if (!token) {
+    throw new AppointmentsApiError(
+      "UNAUTHENTICATED",
+      "Sessão expirada. Entre novamente para continuar.",
+    );
+  }
+
+  const parsed = cancelAppointmentInputSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new AppointmentsApiError(
+      "VALIDATION_ERROR",
+      parsed.error.issues[0]?.message ?? "Justificativa inválida.",
+    );
+  }
+
+  const { apiBaseUrl } = getServerConfig();
+  let response: Response;
+  try {
+    response = await fetch(
+      `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/appointments/${encodeURIComponent(appointmentId)}/cancel`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(parsed.data),
+        cache: "no-store",
+        redirect: "error",
+        signal: AbortSignal.timeout(10_000),
+      },
+    );
+  } catch {
+    throw new AppointmentsApiError(
+      "UPSTREAM_UNAVAILABLE",
+      "Não foi possível conectar ao servidor para cancelar o agendamento.",
+    );
+  }
+
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new AppointmentsApiError(
+        "NOT_FOUND",
+        "Agendamento não encontrado.",
+      );
+    }
+    if (response.status === 409) {
+      throw new AppointmentsApiError(
+        "INVALID_STATE_TRANSITION",
+        "Agendamento encerrado ou em estado conflitante não pode ser cancelado.",
+      );
+    }
+    throw new AppointmentsApiError(
+      "UPSTREAM_ERROR",
+      "Não foi possível cancelar o agendamento.",
+    );
+  }
+
+  const json = await response.json();
+  const parsedResponse = cancelAppointmentResponseSchema.safeParse(json);
+  if (!parsedResponse.success) {
+    throw new AppointmentsApiError(
+      "INVALID_RESPONSE",
+      "Resposta inválida recebida ao cancelar o agendamento.",
+    );
+  }
+
+  return parsedResponse.data;
+}
+
+const UUID_REGEX =
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/;
+
+export async function getAppointmentDetails(
+  orgSlug: string,
+  appointmentId: string,
+  options?: {
+    hintDate?: string;
+    initialAppointment?: AppointmentItem | null;
+  },
+): Promise<AppointmentDetails | null> {
+  if (!appointmentId || !UUID_REGEX.test(appointmentId)) {
+    return null;
+  }
+
+  const token = await getSessionToken();
+  if (!token) {
+    throw new AppointmentsApiError(
+      "UNAUTHENTICATED",
+      "Sessão expirada. Entre novamente para continuar.",
+    );
+  }
+
+  let appointment = options?.initialAppointment;
+  if (!appointment || appointment.id !== appointmentId) {
+    const baseDate =
+      options?.hintDate && isValidDateString(options.hintDate)
+        ? options.hintDate
+        : getTodayDateString();
+
+    const startDate = addDays(baseDate, -14);
+    const endDate = addDays(baseDate, 15);
+
+    try {
+      const list = await getAppointments(orgSlug, { startDate, endDate });
+      appointment =
+        (list.appointments ?? list).find((item) => item.id === appointmentId) ??
+        null;
+    } catch {
+      appointment = null;
+    }
+  }
+
+  if (!appointment) {
+    return null;
+  }
+
+  const { apiBaseUrl } = getServerConfig();
+
+  const [patient, memberData, queueData] = await Promise.allSettled([
+    getPatientDetails(orgSlug, appointment.patientId),
+    fetch(
+      `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/members`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json",
+        },
+        cache: "no-store",
+        signal: AbortSignal.timeout(5000),
+      },
+    ).then(async (res) => (res.ok ? res.json() : null)),
+    fetch(
+      `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/appointments/queue?date=${appointment.localScheduledAt.slice(0, 10)}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json",
+        },
+        cache: "no-store",
+        signal: AbortSignal.timeout(5000),
+      },
+    ).then(async (res) => (res.ok ? res.json() : null)),
+  ]);
+
+  const patientDetail = patient.status === "fulfilled" ? patient.value : null;
+
+  let professionalDetail: AppointmentDetails["professional"] = null;
+  if (memberData.status === "fulfilled" && memberData.value) {
+    const parsedMembers = membersListSchema.safeParse(memberData.value);
+    if (parsedMembers.success) {
+      const member = parsedMembers.data.data.find(
+        (m) => m.userId === appointment.professionalId,
+      );
+      if (member) {
+        professionalDetail = {
+          id: member.userId,
+          fullName: member.userName,
+          role: member.role,
+          specialty:
+            member.role === "ADMIN_PROFESSIONAL" ||
+            member.role === "PROFESSIONAL"
+              ? "Profissional Clínico"
+              : (member.role ?? "Profissional"),
+        };
+      }
+    }
+  }
+
+  if (!professionalDetail) {
+    professionalDetail = {
+      id: appointment.professionalId,
+      fullName: appointment.professionalName ?? "Profissional",
+      role: null,
+      specialty: "Profissional de Saúde",
+    };
+  }
+
+  let queueStatus = appointment.queueStatus ?? null;
+  let arrivedAt = appointment.arrivedAt ?? null;
+
+  if (queueData.status === "fulfilled" && queueData.value) {
+    const qList = (
+      queueData.value as {
+        queue?: Array<{
+          appointmentId?: string;
+          id?: string;
+          queueStatus?: string;
+          arrivedAt?: string;
+        }>;
+      }
+    )?.queue;
+    if (Array.isArray(qList)) {
+      const qItem = qList.find(
+        (item) =>
+          item.appointmentId === appointmentId || item.id === appointmentId,
+      );
+      if (qItem) {
+        queueStatus = qItem.queueStatus ?? queueStatus;
+        arrivedAt = qItem.arrivedAt ?? arrivedAt;
+      }
+    }
+  }
+
+  return {
+    ...appointment,
+    patient: patientDetail ?? {
+      id: appointment.patientId,
+      fullName: appointment.patientName ?? "Paciente",
+      phone: null,
+      cpf: null,
+      email: null,
+      birthDate: null,
+    },
+    professional: professionalDetail,
+    queueStatus,
+    arrivedAt,
+  };
+}
 
 export const patientSearchResultSchema = z.object({
   id: z.string(),

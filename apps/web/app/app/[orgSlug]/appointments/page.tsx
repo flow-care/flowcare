@@ -120,6 +120,7 @@ export default async function AppointmentsPage({
   return (
     <AppointmentsSchedule
       orgSlug={orgSlug}
+      userRole={current.role}
       view={view}
       date={date}
       appointments={appointments}

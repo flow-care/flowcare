@@ -39,6 +39,7 @@ import { ReceptionQueueView } from "./reception-queue-view";
 
 interface AppointmentsScheduleProps {
   orgSlug: string;
+  userRole?: string;
   view: "day" | "week" | "reception" | "confirmations";
   date: string;
   appointments: AppointmentItem[];
@@ -54,6 +55,7 @@ interface AppointmentsScheduleProps {
 
 export function AppointmentsSchedule({
   orgSlug,
+  userRole,
   view,
   date,
   appointments,
@@ -487,7 +489,13 @@ export function AppointmentsSchedule({
       <AppointmentDetailsSheet
         isOpen={isDetailsOpen}
         onClose={handleCloseDetails}
+        orgSlug={orgSlug}
+        userRole={userRole}
+        appointmentId={appointmentId}
         appointment={selectedAppointment}
+        onAppointmentCancelled={() => {
+          router.refresh();
+        }}
       />
 
       {/* New Appointment Sheet */}
