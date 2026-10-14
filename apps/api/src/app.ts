@@ -30,6 +30,10 @@ import {
   type ConsultationAudioStore,
   createConsultationAudioStore,
 } from "./services/consultation-audio-store";
+import {
+  createDocumentPdfService,
+  type DocumentPdfService,
+} from "./services/document-pdf";
 import type { Mailer } from "./services/mailer";
 import {
   createProfilePhotoStore,
@@ -56,6 +60,7 @@ export interface AppDeps {
   consultationAudioStore?: ConsultationAudioStore | null;
   transcriptionProvider?: TranscriptionProvider | null;
   whatsappProvider?: WhatsAppProvider;
+  documentPdfService?: DocumentPdfService | null;
 }
 
 const WAHA_PROBE_TIMEOUT_MS = 1500;
@@ -112,6 +117,10 @@ export function createApp(env: Env, deps: AppDeps) {
     deps.consultationAudioStore === undefined
       ? createConsultationAudioStore(env)
       : deps.consultationAudioStore;
+  const documentPdfService =
+    deps.documentPdfService === undefined
+      ? createDocumentPdfService(env)
+      : deps.documentPdfService;
   const whatsappProvider =
     deps.whatsappProvider ??
     new WahaClient({ baseUrl: env.wahaBaseUrl, apiKey: env.wahaApiKey });
@@ -266,7 +275,13 @@ export function createApp(env: Env, deps: AppDeps) {
       }),
     )
     .use(templatesModule({ prisma: deps.prisma, jwtSecret: env.jwtSecret }))
-    .use(documentsModule({ prisma: deps.prisma, jwtSecret: env.jwtSecret }))
+    .use(
+      documentsModule({
+        prisma: deps.prisma,
+        jwtSecret: env.jwtSecret,
+        pdf: documentPdfService ?? undefined,
+      }),
+    )
     .use(
       anamnesisTopicsModule({ prisma: deps.prisma, jwtSecret: env.jwtSecret }),
     )

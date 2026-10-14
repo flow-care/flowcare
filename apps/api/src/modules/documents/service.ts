@@ -7,6 +7,7 @@ import type {
   PrismaClient,
 } from "../../generated/prisma/client";
 import { ApiError } from "../../lib/api-error";
+import { renderClinicalDocumentPdf } from "../../services/document-pdf";
 import {
   APPROVED_TEMPLATE_VARIABLES,
   APPROVED_VARIABLE_KEY_SET,
@@ -315,7 +316,16 @@ export class DocumentsService {
         title: string;
         content: string;
         snapshotHash: string;
+        type?: DocumentType;
+        chainVersion?: number;
+        variables?: Prisma.JsonValue;
+        issuedAt?: Date;
       }): Promise<string>;
+      getPdf?(input: {
+        organizationId: string;
+        documentId: string;
+        pdfObjectKey: string;
+      }): Promise<Uint8Array | null>;
     },
   ) {}
 
@@ -396,6 +406,10 @@ export class DocumentsService {
       title: snapshot.title,
       content: snapshot.content,
       snapshotHash,
+      type: current.type,
+      chainVersion: current.chainVersion,
+      variables: snapshot.variables,
+      issuedAt: new Date(),
     });
     if (!pdfObjectKey.startsWith(`organizations/${organizationId}/pdf/`)) {
       throw new ApiError(
@@ -478,6 +492,77 @@ export class DocumentsService {
         throw versionConflictError();
       throw error;
     }
+  }
+
+  async getPdf(
+    organizationId: string,
+    documentId: string,
+  ): Promise<Uint8Array> {
+    const doc = await this.prisma.clinicalDocument.findFirst({
+      where: { id: documentId, organizationId },
+    });
+    if (!doc) {
+      throw new ApiError("NOT_FOUND", 404, "Documento não encontrado.");
+    }
+    if (doc.status === "DRAFT") {
+      throw new ApiError(
+        "DOCUMENT_STATE_CONFLICT",
+        409,
+        "Documento em rascunho não possui PDF emitido.",
+        { currentStatus: doc.status, reason: "DOCUMENT_NOT_ISSUED" },
+      );
+    }
+    if (doc.status !== "ISSUED" && doc.status !== "VOIDED") {
+      throw new ApiError(
+        "DOCUMENT_STATE_CONFLICT",
+        409,
+        "Apenas documentos emitidos possuem PDF.",
+        { currentStatus: doc.status },
+      );
+    }
+    if (!doc.pdfObjectKey) {
+      throw new ApiError(
+        "STORAGE_UNAVAILABLE",
+        503,
+        "PDF do documento indisponível.",
+      );
+    }
+
+    if (this.pdf?.getPdf) {
+      const bytes = await this.pdf.getPdf({
+        organizationId,
+        documentId,
+        pdfObjectKey: doc.pdfObjectKey,
+      });
+      if (bytes && bytes.length > 0) {
+        return bytes;
+      }
+    }
+
+    if (doc.preparedRevisionId) {
+      const snapshot = await this.prisma.documentVersion.findFirst({
+        where: { id: doc.preparedRevisionId, documentId, organizationId },
+      });
+      if (snapshot) {
+        return renderClinicalDocumentPdf({
+          organizationId,
+          documentId,
+          title: snapshot.title,
+          content: snapshot.content,
+          snapshotHash: doc.snapshotHash ?? "",
+          type: doc.type,
+          chainVersion: doc.chainVersion,
+          variables: normalizeVariables(snapshot.variables),
+          issuedAt: doc.issuedAt ?? doc.createdAt,
+        });
+      }
+    }
+
+    throw new ApiError(
+      "STORAGE_UNAVAILABLE",
+      503,
+      "PDF do documento indisponível.",
+    );
   }
 
   async rectify(
