@@ -87,9 +87,9 @@ export function PatientProfileView({
   };
 
   const { ageText, birthDateFormatted } = formatBirthDateAndAge(
-    overview.patient.birthDate,
+    overview.patient.birthDate ?? "",
   );
-  const rawDigitsPhone = overview.patient.phone.replace(/\D/g, "");
+  const rawDigitsPhone = (overview.patient.phone ?? "").replace(/\D/g, "");
   const hasAllergies = Boolean(
     overview.allergies && overview.allergies.length > 0,
   );
@@ -178,7 +178,7 @@ export function PatientProfileView({
                 <span>{overview.patient.gender ?? "Gênero não informado"}</span>
                 <span aria-hidden="true">•</span>
                 <span className="font-mono text-xs sm:text-sm">
-                  CPF: {maskCpf(overview.patient.cpf)}
+                  CPF: {maskCpf(overview.patient.cpf ?? "")}
                 </span>
               </div>
 
@@ -187,10 +187,12 @@ export function PatientProfileView({
                 <a
                   href={`tel:${rawDigitsPhone}`}
                   className="inline-flex items-center gap-1.5 font-medium text-primary hover:underline"
-                  aria-label={`Ligar para ${formatPhoneWithAreaCode(overview.patient.phone)}`}
+                  aria-label={`Ligar para ${formatPhoneWithAreaCode(overview.patient.phone ?? "")}`}
                 >
                   <PhoneIcon className="size-4 shrink-0 text-primary" />
-                  <span>{formatPhoneWithAreaCode(overview.patient.phone)}</span>
+                  <span>
+                    {formatPhoneWithAreaCode(overview.patient.phone ?? "")}
+                  </span>
                 </a>
 
                 {overview.patient.email ? (
@@ -391,7 +393,7 @@ export function PatientProfileView({
                       className="font-medium text-primary hover:underline inline-flex items-center gap-1"
                     >
                       <PhoneIcon className="size-3.5" />
-                      {formatPhoneWithAreaCode(overview.patient.phone)}
+                      {formatPhoneWithAreaCode(overview.patient.phone ?? "")}
                     </a>
                   </div>
                   <div>

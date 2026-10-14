@@ -388,9 +388,9 @@ export async function checkPatientDuplicates(
 export const patientDetailSchema = z.object({
   id: z.string(),
   fullName: z.string(),
-  cpf: z.string().optional(),
-  birthDate: z.string().optional(),
-  phone: z.string().optional(),
+  cpf: z.string().optional().default(""),
+  birthDate: z.string().optional().default(""),
+  phone: z.string().optional().default(""),
   email: z.string().nullable().optional(),
   gender: z.string().nullable().optional(),
   healthInsurance: z.string().nullable().optional(),
