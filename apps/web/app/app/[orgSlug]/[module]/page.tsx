@@ -14,6 +14,7 @@ export default async function ModulePage({
       item.segment === module &&
       module !== "dashboard" &&
       module !== "settings" &&
+      module !== "documents" &&
       module !== "patients",
   );
   const organizations = await getAvailableOrganizations();
