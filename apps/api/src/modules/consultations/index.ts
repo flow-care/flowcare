@@ -258,6 +258,74 @@ export function consultationsModule(deps: {
             organizationAccess: "consultations:write",
             response: { 200: m.consultationDetailResponse },
           },
+        )
+        .post(
+          "/consultations/:consultationId/approve",
+          ({ auth, organizationAccess, params, body }) =>
+            service.approve(
+              organizationAccess.organizationId,
+              auth.userId,
+              organizationAccess.role,
+              params.consultationId,
+              body,
+            ),
+          {
+            params: m.consultationIdParams,
+            body: m.approveConsultationBody,
+            organizationAccess: "consultations:approve",
+            response: { 200: m.approveConsultationResponse },
+          },
+        )
+        .put(
+          "/consultations/:consultationId/approve",
+          ({ auth, organizationAccess, params, body }) =>
+            service.approve(
+              organizationAccess.organizationId,
+              auth.userId,
+              organizationAccess.role,
+              params.consultationId,
+              body,
+            ),
+          {
+            params: m.consultationIdParams,
+            body: m.approveConsultationBody,
+            organizationAccess: "consultations:approve",
+            response: { 200: m.approveConsultationResponse },
+          },
+        )
+        .post(
+          "/consultations/:consultationId/anamnesis/approve",
+          ({ auth, organizationAccess, params, body }) =>
+            service.approve(
+              organizationAccess.organizationId,
+              auth.userId,
+              organizationAccess.role,
+              params.consultationId,
+              body,
+            ),
+          {
+            params: m.consultationIdParams,
+            body: m.approveConsultationBody,
+            organizationAccess: "consultations:approve",
+            response: { 200: m.approveConsultationResponse },
+          },
+        )
+        .put(
+          "/consultations/:consultationId/anamnesis/approve",
+          ({ auth, organizationAccess, params, body }) =>
+            service.approve(
+              organizationAccess.organizationId,
+              auth.userId,
+              organizationAccess.role,
+              params.consultationId,
+              body,
+            ),
+          {
+            params: m.consultationIdParams,
+            body: m.approveConsultationBody,
+            organizationAccess: "consultations:approve",
+            response: { 200: m.approveConsultationResponse },
+          },
         ),
     );
 }

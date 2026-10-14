@@ -115,6 +115,13 @@ export const saveConsultationDraftBody = t.Object({
   topics: t.Optional(anamnesisTopicsInput),
 });
 
+export const approveConsultationBody = t.Object({
+  version: t.Integer({ minimum: 0 }),
+  chiefComplaint: t.Optional(t.Nullable(t.String({ maxLength: 5000 }))),
+  clinicalNotes: t.Optional(t.Nullable(t.String({ maxLength: 20000 }))),
+  topics: t.Optional(anamnesisTopicsInput),
+});
+
 export const consultationDetailResponse = t.Object({
   id: t.String(),
   consultationId: t.String(),
@@ -134,12 +141,28 @@ export const consultationDetailResponse = t.Object({
   anamnesisDraft: t.Optional(t.Nullable(t.Any())),
   draftSavedAt: t.Optional(t.Nullable(t.String())),
   draftSavedById: t.Optional(t.Nullable(t.String())),
+  approvedAt: t.Optional(t.Nullable(t.String())),
+  approvedById: t.Optional(t.Nullable(t.String())),
+  signedBy: t.Optional(t.Nullable(t.String())),
+  anamnesisSnapshot: t.Optional(t.Nullable(t.Any())),
+  snapshotHash: t.Optional(t.Nullable(t.String())),
   version: t.Integer({ minimum: 0 }),
   createdAt: t.String(),
   updatedAt: t.String(),
   patient: t.Optional(consultationPatientSummary),
   professional: t.Optional(consultationProfessionalSummary),
   consultation: t.Optional(t.Any()),
+});
+
+export const approveConsultationResponse = t.Object({
+  status: t.Literal("APPROVED"),
+  signedBy: t.String(),
+  approvedAt: t.String(),
+  consultationId: t.String(),
+  version: t.Integer({ minimum: 0 }),
+  snapshotHash: t.String(),
+  snapshot: t.Optional(t.Any()),
+  consultation: t.Optional(consultationDetailResponse),
 });
 
 export const MAX_AUDIO_BYTES = 50 * 1024 * 1024;
@@ -224,3 +247,6 @@ export type TranscriptionJobStatus = typeof transcriptionJobStatus.static;
 export type TranscriptionResponse = typeof transcriptionResponse.static;
 export type AnamnesisTopicsInput = typeof anamnesisTopicsInput.static;
 export type SaveConsultationDraftBody = typeof saveConsultationDraftBody.static;
+export type ApproveConsultationBody = typeof approveConsultationBody.static;
+export type ApproveConsultationResponse =
+  typeof approveConsultationResponse.static;

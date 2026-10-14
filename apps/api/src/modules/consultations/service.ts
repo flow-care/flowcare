@@ -1,8 +1,11 @@
+import { createHash } from "node:crypto";
 import type { Prisma, PrismaClient } from "../../generated/prisma/client";
 import { ApiError } from "../../lib/api-error";
 import { normalizePatientName } from "../patients/service";
 import type {
   AnamnesisStatus,
+  ApproveConsultationBody,
+  ApproveConsultationResponse,
   ConsultationDetailResponse,
   ConsultationListItem,
   ConsultationStatus,
@@ -325,6 +328,11 @@ export class ConsultationsService {
       anamnesisDraft?: Prisma.JsonValue | null;
       draftSavedAt?: Date | null;
       draftSavedById?: string | null;
+      approvedAt?: Date | null;
+      approvedById?: string | null;
+      signedBy?: string | null;
+      anamnesisSnapshot?: Prisma.JsonValue | null;
+      snapshotHash?: string | null;
       version: number;
       createdAt: Date;
       updatedAt: Date;
@@ -360,6 +368,11 @@ export class ConsultationsService {
       anamnesisDraft: row.anamnesisDraft ?? null,
       draftSavedAt: row.draftSavedAt ? row.draftSavedAt.toISOString() : null,
       draftSavedById: row.draftSavedById ?? null,
+      approvedAt: row.approvedAt ? row.approvedAt.toISOString() : null,
+      approvedById: row.approvedById ?? null,
+      signedBy: row.signedBy ?? null,
+      anamnesisSnapshot: row.anamnesisSnapshot ?? null,
+      snapshotHash: row.snapshotHash ?? null,
       version: row.version,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
@@ -393,6 +406,11 @@ export class ConsultationsService {
         anamnesisDraft: row.anamnesisDraft ?? null,
         draftSavedAt: row.draftSavedAt ? row.draftSavedAt.toISOString() : null,
         draftSavedById: row.draftSavedById ?? null,
+        approvedAt: row.approvedAt ? row.approvedAt.toISOString() : null,
+        approvedById: row.approvedById ?? null,
+        signedBy: row.signedBy ?? null,
+        anamnesisSnapshot: row.anamnesisSnapshot ?? null,
+        snapshotHash: row.snapshotHash ?? null,
         version: row.version,
         createdAt: row.createdAt.toISOString(),
         updatedAt: row.updatedAt.toISOString(),
@@ -847,6 +865,354 @@ export class ConsultationsService {
       }
 
       return this.formatConsultationDetail(updated, timeZone);
+    };
+
+    if (typeof this.prisma.$transaction === "function") {
+      return (
+        this.prisma.$transaction as unknown as <T>(
+          fn: (tx: PrismaClient) => Promise<T>,
+        ) => Promise<T>
+      )(runInTransaction);
+    }
+    return runInTransaction(this.prisma);
+  }
+
+  async approve(
+    organizationId: string,
+    actorUserId: string,
+    actorRole: string,
+    consultationId: string,
+    body: ApproveConsultationBody,
+  ): Promise<ApproveConsultationResponse> {
+    const timeZone = await this.resolveTimeZone(organizationId);
+
+    const consultation = await this.prisma.consultation.findFirst({
+      where: {
+        id: consultationId,
+        organizationId,
+      },
+      include: {
+        patient: { select: { id: true, fullName: true } },
+        professional: {
+          select: {
+            id: true,
+            fullName: true,
+            professionalTitle: true,
+            registrationNumber: true,
+          },
+        },
+      },
+    });
+
+    if (!consultation) {
+      throw new ApiError("NOT_FOUND", 404, "Atendimento não encontrado.");
+    }
+
+    const isAssigned = consultation.professionalId === actorUserId;
+    const isClinicAdminProf = actorRole === "ADMIN_PROFESSIONAL";
+    if (!isAssigned && !isClinicAdminProf) {
+      throw new ApiError(
+        "PERMISSION_DENIED",
+        403,
+        "Profissional não autorizado para aprovar este atendimento.",
+      );
+    }
+
+    if (
+      consultation.anamnesisStatus === "APPROVED" ||
+      consultation.status === "COMPLETED"
+    ) {
+      throw new ApiError(
+        "DOCUMENT_STATE_CONFLICT",
+        409,
+        "Anamnese já foi aprovada e congelada.",
+        {
+          currentStatus: consultation.status,
+          anamnesisStatus: consultation.anamnesisStatus,
+        },
+      );
+    }
+
+    if (consultation.status === "CANCELLED") {
+      throw new ApiError(
+        "DOCUMENT_STATE_CONFLICT",
+        409,
+        "Atendimento cancelado não pode ser aprovado.",
+      );
+    }
+
+    if (consultation.version !== body.version) {
+      throw new ApiError(
+        "VERSION_CONFLICT",
+        409,
+        "A consulta foi alterada por outra sessão. Recarregue antes de aprovar.",
+        {
+          currentVersion: consultation.version,
+          submittedVersion: body.version,
+        },
+      );
+    }
+
+    // Merge any draft updates submitted with approval
+    const existingDraft =
+      consultation.anamnesisDraft &&
+      typeof consultation.anamnesisDraft === "object" &&
+      !Array.isArray(consultation.anamnesisDraft)
+        ? (consultation.anamnesisDraft as Record<string, unknown>)
+        : {};
+
+    const finalChiefComplaint =
+      body.chiefComplaint !== undefined
+        ? (body.chiefComplaint ?? null)
+        : (consultation.chiefComplaint ??
+          (typeof existingDraft.chiefComplaint === "string"
+            ? existingDraft.chiefComplaint
+            : null));
+
+    const finalClinicalNotes =
+      body.clinicalNotes !== undefined
+        ? (body.clinicalNotes ?? null)
+        : (consultation.clinicalNotes ??
+          (typeof existingDraft.clinicalNotes === "string"
+            ? existingDraft.clinicalNotes
+            : null));
+
+    const existingTopics =
+      existingDraft.topics && typeof existingDraft.topics === "object"
+        ? existingDraft.topics
+        : null;
+
+    const finalTopicsInput =
+      body.topics !== undefined ? body.topics : existingTopics;
+
+    // Validate required topics
+    const requiredTopics: Array<{ key: string; label: string }> = [];
+
+    let revision = consultation.anamnesisTopicRevisionId
+      ? await this.prisma.anamnesisTopicRevision.findUnique({
+          where: { id: consultation.anamnesisTopicRevisionId },
+        })
+      : null;
+
+    if (!revision) {
+      const config = await this.prisma.anamnesisTopicConfig.findUnique({
+        where: {
+          organizationId_professionalId: {
+            organizationId,
+            professionalId: consultation.professionalId,
+          },
+        },
+        include: { revisions: { orderBy: { version: "desc" }, take: 1 } },
+      });
+      revision = config?.revisions[0] ?? null;
+    }
+
+    if (revision && Array.isArray(revision.topics)) {
+      for (const item of revision.topics as Array<{
+        key?: string;
+        label?: string;
+        active?: boolean;
+        required?: boolean;
+      }>) {
+        if (item && item.required && item.active !== false && item.key) {
+          requiredTopics.push({
+            key: item.key,
+            label: item.label || item.key,
+          });
+        }
+      }
+    }
+
+    const topicValuesMap = new Map<string, string>();
+    if (finalTopicsInput) {
+      if (Array.isArray(finalTopicsInput)) {
+        for (const t of finalTopicsInput) {
+          if (t && typeof t.key === "string" && typeof t.value === "string") {
+            topicValuesMap.set(t.key, t.value.trim());
+          }
+        }
+      } else if (typeof finalTopicsInput === "object") {
+        for (const [key, val] of Object.entries(finalTopicsInput)) {
+          if (typeof val === "string") {
+            topicValuesMap.set(key, val.trim());
+          }
+        }
+      }
+    }
+
+    if (finalChiefComplaint && finalChiefComplaint.trim()) {
+      topicValuesMap.set("chief_complaint", finalChiefComplaint.trim());
+      topicValuesMap.set("chiefComplaint", finalChiefComplaint.trim());
+    }
+    if (finalClinicalNotes && finalClinicalNotes.trim()) {
+      topicValuesMap.set("clinical_notes", finalClinicalNotes.trim());
+      topicValuesMap.set("clinicalNotes", finalClinicalNotes.trim());
+    }
+
+    const missingTopics: string[] = [];
+    for (const req of requiredTopics) {
+      const val = topicValuesMap.get(req.key);
+      if (!val || val.length === 0) {
+        missingTopics.push(req.label);
+      }
+    }
+
+    if (missingTopics.length > 0) {
+      throw new ApiError(
+        "VALIDATION_ERROR",
+        400,
+        `Tópicos obrigatórios da anamnese devem estar preenchidos antes da aprovação: ${missingTopics.join(", ")}.`,
+        {
+          field: "topics",
+          missingTopics,
+        },
+      );
+    }
+
+    const actorUser = await this.prisma.user.findUnique({
+      where: { id: actorUserId },
+      select: {
+        id: true,
+        fullName: true,
+        professionalTitle: true,
+        registrationNumber: true,
+      },
+    });
+
+    const prof = actorUser ?? consultation.professional;
+    const registration = prof?.registrationNumber?.trim();
+    const title = prof?.professionalTitle?.trim();
+    const signedBy = registration
+      ? registration
+      : title
+        ? `${title} ${prof?.fullName || ""}`.trim()
+        : (prof?.fullName ?? "CRM/SP 000000");
+
+    const now = new Date();
+    const nextVersion = consultation.version + 1;
+
+    const snapshot = {
+      consultationId,
+      organizationId,
+      version: nextVersion,
+      patient: {
+        id: consultation.patient.id,
+        fullName: consultation.patient.fullName,
+      },
+      professional: {
+        id: prof?.id ?? consultation.professionalId,
+        fullName: prof?.fullName ?? consultation.professional.fullName,
+        professionalTitle: prof?.professionalTitle ?? null,
+        registrationNumber: prof?.registrationNumber ?? null,
+      },
+      signedBy,
+      chiefComplaint: finalChiefComplaint,
+      clinicalNotes: finalClinicalNotes,
+      topics: finalTopicsInput ?? {},
+      approvedAt: now.toISOString(),
+      approvedById: actorUserId,
+    };
+
+    const snapshotHash =
+      "sha256_" +
+      createHash("sha256").update(JSON.stringify(snapshot)).digest("hex");
+
+    const runInTransaction = async (tx: PrismaClient) => {
+      const updateResult = await tx.consultation.updateMany({
+        where: {
+          id: consultationId,
+          organizationId,
+          version: consultation.version,
+        },
+        data: {
+          version: nextVersion,
+          anamnesisStatus: "APPROVED",
+          status: "COMPLETED",
+          completedAt: consultation.completedAt ?? now,
+          startedAt: consultation.startedAt ?? now,
+          chiefComplaint: finalChiefComplaint,
+          clinicalNotes: finalClinicalNotes,
+          approvedAt: now,
+          approvedById: actorUserId,
+          signedBy,
+          anamnesisSnapshot: snapshot as Prisma.InputJsonValue,
+          snapshotHash,
+        },
+      });
+
+      if (updateResult.count !== 1) {
+        throw new ApiError(
+          "VERSION_CONFLICT",
+          409,
+          "A consulta foi alterada por outra sessão. Recarregue antes de aprovar.",
+          {
+            currentVersion: consultation.version,
+            submittedVersion: body.version,
+          },
+        );
+      }
+
+      if (consultation.appointmentId) {
+        await tx.appointment.updateMany({
+          where: { id: consultation.appointmentId, organizationId },
+          data: {
+            status: "COMPLETED",
+            queueStatus: "COMPLETED",
+            queueUpdatedAt: now,
+            queueUpdatedById: actorUserId,
+          },
+        });
+      }
+
+      await tx.auditLog.create({
+        data: {
+          organizationId,
+          actorUserId,
+          action: "CONSULTATION_ANAMNESIS_APPROVED",
+          targetType: "CONSULTATION",
+          targetId: consultationId,
+          metadata: {
+            consultationId,
+            version: nextVersion,
+            professionalId: actorUserId,
+            signedBy,
+            snapshotHash,
+            approvedAt: now.toISOString(),
+          },
+        },
+      });
+
+      const updated = await tx.consultation.findFirst({
+        where: { id: consultationId, organizationId },
+        include: {
+          patient: { select: { id: true, fullName: true } },
+          professional: {
+            select: {
+              id: true,
+              fullName: true,
+              professionalTitle: true,
+              registrationNumber: true,
+            },
+          },
+        },
+      });
+
+      if (!updated) {
+        throw new ApiError("NOT_FOUND", 404, "Atendimento não encontrado.");
+      }
+
+      const formatted = this.formatConsultationDetail(updated, timeZone);
+
+      return {
+        status: "APPROVED" as const,
+        signedBy,
+        approvedAt: now.toISOString(),
+        consultationId,
+        version: nextVersion,
+        snapshotHash,
+        snapshot,
+        consultation: formatted,
+      };
     };
 
     if (typeof this.prisma.$transaction === "function") {

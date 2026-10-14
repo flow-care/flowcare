@@ -737,10 +737,10 @@ O identificador `revisionId` da versão vigente deve ser armazenado pela futura 
 * **Respostas:** `200 OK` (dados da consulta atualizados com nova `version`, `anamnesisStatus: "DRAFT"`, `chiefComplaint`, `clinicalNotes`, `anamnesisDraft`), `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`, `409 VERSION_CONFLICT`, `409 DOCUMENT_STATE_CONFLICT`.
 
 #### `POST /organizations/:orgSlug/consultations/:consultationId/approve`
-* **Descrição:** Conclui e aprova a versão final da anamnese com registro formal de autoria médica.
-* **Permissão:** `consultations:approve`.
-* **Body:** `{ "version": 4 }`
-* **Respostas:** `200 OK` (`{ "status": "APPROVED", "signedBy": "CRM/SP 123456", "approvedAt": "..." }`).
+* **Descrição:** Conclui e aprova a versão final da anamnese com validação de tópicos obrigatórios, gerando snapshot imutável com carimbo de tempo, autoria clínica e hash SHA-256. Possui aliases em `PUT /organizations/:orgSlug/consultations/:consultationId/approve` e `POST`/`PUT /organizations/:orgSlug/consultations/:consultationId/anamnesis/approve`.
+* **Permissão:** `consultations:approve` (`PROFESSIONAL` atribuído ou `ADMIN_PROFESSIONAL`).
+* **Body:** `{ "version": 4, "chiefComplaint"?: "...", "clinicalNotes"?: "...", "topics"?: ... }`
+* **Respostas:** `200 OK` (`{ "status": "APPROVED", "signedBy": "CRM/SP 123456", "approvedAt": "...", "consultationId": "...", "version": 5, "snapshotHash": "sha256_...", "snapshot": { ... }, "consultation": { ... } }`), `400 VALIDATION_ERROR` (se tópicos obrigatórios estiverem em branco), `401 UNAUTHENTICATED`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`, `409 VERSION_CONFLICT`, `409 DOCUMENT_STATE_CONFLICT`.
 
 ---
 
