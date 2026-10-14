@@ -190,6 +190,74 @@ export function consultationsModule(deps: {
             organizationAccess: "consultations:write",
             response: { 202: m.transcriptionResponse },
           },
+        )
+        .patch(
+          "/consultations/:consultationId/draft",
+          ({ auth, organizationAccess, params, body }) =>
+            service.saveDraft(
+              organizationAccess.organizationId,
+              auth.userId,
+              organizationAccess.role,
+              params.consultationId,
+              body,
+            ),
+          {
+            params: m.consultationIdParams,
+            body: m.saveConsultationDraftBody,
+            organizationAccess: "consultations:write",
+            response: { 200: m.consultationDetailResponse },
+          },
+        )
+        .put(
+          "/consultations/:consultationId/draft",
+          ({ auth, organizationAccess, params, body }) =>
+            service.saveDraft(
+              organizationAccess.organizationId,
+              auth.userId,
+              organizationAccess.role,
+              params.consultationId,
+              body,
+            ),
+          {
+            params: m.consultationIdParams,
+            body: m.saveConsultationDraftBody,
+            organizationAccess: "consultations:write",
+            response: { 200: m.consultationDetailResponse },
+          },
+        )
+        .patch(
+          "/consultations/:consultationId/anamnesis/draft",
+          ({ auth, organizationAccess, params, body }) =>
+            service.saveDraft(
+              organizationAccess.organizationId,
+              auth.userId,
+              organizationAccess.role,
+              params.consultationId,
+              body,
+            ),
+          {
+            params: m.consultationIdParams,
+            body: m.saveConsultationDraftBody,
+            organizationAccess: "consultations:write",
+            response: { 200: m.consultationDetailResponse },
+          },
+        )
+        .put(
+          "/consultations/:consultationId/anamnesis/draft",
+          ({ auth, organizationAccess, params, body }) =>
+            service.saveDraft(
+              organizationAccess.organizationId,
+              auth.userId,
+              organizationAccess.role,
+              params.consultationId,
+              body,
+            ),
+          {
+            params: m.consultationIdParams,
+            body: m.saveConsultationDraftBody,
+            organizationAccess: "consultations:write",
+            response: { 200: m.consultationDetailResponse },
+          },
         ),
     );
 }

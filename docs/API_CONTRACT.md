@@ -705,9 +705,9 @@ O identificador `revisionId` da versão vigente deve ser armazenado pela futura 
 * **Respostas:** `201 Created` (para novo atendimento) ou `200 OK` (caso já exista consulta ativa vinculada ao agendamento), `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 MEMBERSHIP_INACTIVE`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`.
 
 #### `GET /organizations/:orgSlug/consultations/:consultationId`
-* **Descrição:** Retorna os detalhes completos do atendimento clínico na clínica ativa, incluindo identificadores, vínculos (`patient`, `professional`), status de atendimento e anamnese, versão e carimbos de data/hora no fuso da clínica.
+* **Descrição:** Retorna os detalhes completos do atendimento clínico na clínica ativa, incluindo identificadores, vínculos (`patient`, `professional`), status de atendimento e anamnese, versão, rascunho da anamnese (`chiefComplaint`, `clinicalNotes`, `anamnesisDraft`) e carimbos de data/hora no fuso da clínica.
 * **Permissão:** `consultations:read` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL`). Papéis `RECEPTIONIST` e `ADMIN` sem atuação clínica recebem `403 PERMISSION_DENIED`.
-* **Respostas:** `200 OK` (`{ "id": "...", "consultationId": "...", "organizationId": "...", "appointmentId": "...", "patientId": "...", "professionalId": "...", "scheduledAt": "...", "localScheduledAt": "...", "startedAt": "...", "completedAt": null, "status": "IN_PROGRESS", "anamnesisStatus": "PENDING", "version": 0, "patient": { "id": "...", "fullName": "..." }, "professional": { "id": "...", "fullName": "...", "professionalTitle": "...", "registrationNumber": "..." }, "createdAt": "...", "updatedAt": "..." }`), `401 UNAUTHENTICATED`, `403 MEMBERSHIP_INACTIVE`, `403 PERMISSION_DENIED`, `404 NOT_FOUND` (atendimento inexistente ou de outra clínica).
+* **Respostas:** `200 OK` (`{ "id": "...", "consultationId": "...", "organizationId": "...", "appointmentId": "...", "patientId": "...", "professionalId": "...", "scheduledAt": "...", "localScheduledAt": "...", "startedAt": "...", "completedAt": null, "status": "IN_PROGRESS", "anamnesisStatus": "PENDING", "version": 0, "chiefComplaint": null, "clinicalNotes": null, "anamnesisDraft": {}, "draftSavedAt": null, "draftSavedById": null, "patient": { "id": "...", "fullName": "..." }, "professional": { "id": "...", "fullName": "...", "professionalTitle": "...", "registrationNumber": "..." }, "createdAt": "...", "updatedAt": "..." }`), `401 UNAUTHENTICATED`, `403 MEMBERSHIP_INACTIVE`, `403 PERMISSION_DENIED`, `404 NOT_FOUND` (atendimento inexistente ou de outra clínica).
 
 #### `POST /organizations/:orgSlug/consultations/:consultationId/audio`
 * **Descrição:** Registra o consentimento explícito e envia o áudio para armazenamento privado. Cria o processamento em estado `QUEUED` somente após o armazenamento concluir. O profissional deve ser o responsável pelo atendimento em andamento; paciente e atendimento pertencem à clínica ativa.
@@ -731,10 +731,10 @@ O identificador `revisionId` da versão vigente deve ser armazenado pela futura 
 * **Respostas:** `202 Accepted` (`{ "jobId": "job_tx_88", "status": "PROCESSING" }`).
 
 #### `PATCH /organizations/:orgSlug/consultations/:consultationId/draft`
-* **Descrição:** Salva edições no rascunho da anamnese médica com controle de versão.
-* **Permissão:** `consultations:write`.
-* **Body:** `{ "chiefComplaint": "Dor de cabeça persistente", "clinicalNotes": "...", "version": 3 }`
-* **Respostas:** `200 OK`, `409 VERSION_CONFLICT`.
+* **Descrição:** Salva edições no rascunho da anamnese médica com controle de versão e concorrência otimista. Possui aliases em `PUT /organizations/:orgSlug/consultations/:consultationId/draft` e `PATCH`/`PUT /organizations/:orgSlug/consultations/:consultationId/anamnesis/draft`.
+* **Permissão:** `consultations:write` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL` autorizados/atribuídos).
+* **Body:** `{ "version": 3, "chiefComplaint": "Dor de cabeça persistente", "clinicalNotes": "...", "topics": { "hda": "...", "antecedentes": "..." } }` (topics aceita objeto chave-valor ou lista `[{ "key": "...", "value": "..." }]`).
+* **Respostas:** `200 OK` (dados da consulta atualizados com nova `version`, `anamnesisStatus: "DRAFT"`, `chiefComplaint`, `clinicalNotes`, `anamnesisDraft`), `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`, `409 VERSION_CONFLICT`, `409 DOCUMENT_STATE_CONFLICT`.
 
 #### `POST /organizations/:orgSlug/consultations/:consultationId/approve`
 * **Descrição:** Conclui e aprova a versão final da anamnese com registro formal de autoria médica.
