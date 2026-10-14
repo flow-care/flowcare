@@ -3,9 +3,21 @@ import "server-only";
 import { z } from "zod";
 import {
   addDays,
+  CANCELLATION_REASON_LABELS,
+  CANCELLATION_REASONS,
+  type CancellationReasonType,
+  cancellationReasonTypeSchema,
   getTodayDateString,
   isValidDateString,
 } from "@/lib/appointments";
+
+export {
+  CANCELLATION_REASONS,
+  CANCELLATION_REASON_LABELS,
+  type CancellationReasonType,
+  cancellationReasonTypeSchema,
+};
+
 import { getServerConfig } from "./config";
 import { getSessionToken } from "./session";
 
@@ -322,13 +334,32 @@ export interface AppointmentDetails {
   } | null;
 }
 
-export const cancelAppointmentInputSchema = z.object({
-  cancellationReason: z
-    .string()
-    .trim()
-    .min(10, "A justificativa deve ter pelo menos 10 caracteres."),
-  version: z.number().int().min(0),
-});
+export const cancelAppointmentInputSchema = z
+  .object({
+    reasonType: cancellationReasonTypeSchema.optional(),
+    reason: cancellationReasonTypeSchema.optional(),
+    justification: z.string().trim().optional(),
+    cancellationReason: z.string().trim().optional(),
+    version: z.number().int().min(0),
+  })
+  .superRefine((data, ctx) => {
+    const text = data.justification ?? data.cancellationReason;
+    if (!text || text.trim().length < 10) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "A justificativa deve ter pelo menos 10 caracteres.",
+        path: [
+          data.justification !== undefined
+            ? "justification"
+            : "cancellationReason",
+        ],
+      });
+    }
+  });
+
+export type CancelAppointmentInput = z.infer<
+  typeof cancelAppointmentInputSchema
+>;
 
 export const cancelAppointmentResponseSchema = z.object({
   status: z.literal("CANCELLED"),
@@ -336,16 +367,19 @@ export const cancelAppointmentResponseSchema = z.object({
   cancelledAt: z.string(),
   cancelledById: z.string().optional(),
   version: z.number().int(),
+  slotReleased: z.boolean().optional(),
 });
 
 export type CancelAppointmentResponse = z.infer<
   typeof cancelAppointmentResponseSchema
->;
+> & {
+  slotReleased: boolean;
+};
 
 export async function cancelAppointment(
   orgSlug: string,
   appointmentId: string,
-  input: { cancellationReason: string; version: number },
+  input: CancelAppointmentInput,
 ): Promise<CancelAppointmentResponse> {
   const token = await getSessionToken();
   if (!token) {
@@ -363,6 +397,25 @@ export async function cancelAppointment(
     );
   }
 
+  const reasonType = parsed.data.reasonType ?? parsed.data.reason;
+  const rawText = (
+    parsed.data.justification ??
+    parsed.data.cancellationReason ??
+    ""
+  ).trim();
+
+  let finalReason = rawText;
+  if (reasonType && CANCELLATION_REASON_LABELS[reasonType]) {
+    const label = CANCELLATION_REASON_LABELS[reasonType];
+    if (!rawText.startsWith(`[${label}]`) && !rawText.startsWith(`${label}:`)) {
+      finalReason = `[${label}] ${rawText}`;
+    }
+  }
+
+  if (finalReason.length > 500) {
+    finalReason = finalReason.slice(0, 500);
+  }
+
   const { apiBaseUrl } = getServerConfig();
   let response: Response;
   try {
@@ -375,7 +428,10 @@ export async function cancelAppointment(
           "Content-Type": "application/json",
           Accept: "application/json",
         },
-        body: JSON.stringify(parsed.data),
+        body: JSON.stringify({
+          cancellationReason: finalReason,
+          version: parsed.data.version,
+        }),
         cache: "no-store",
         redirect: "error",
         signal: AbortSignal.timeout(10_000),
@@ -389,6 +445,8 @@ export async function cancelAppointment(
   }
 
   if (!response.ok) {
+    const json = await response.json().catch(() => null);
+
     if (response.status === 404) {
       throw new AppointmentsApiError(
         "NOT_FOUND",
@@ -396,14 +454,46 @@ export async function cancelAppointment(
       );
     }
     if (response.status === 409) {
+      const code = json?.error?.code || json?.code;
+      if (code === "VERSION_CONFLICT") {
+        throw new AppointmentsApiError(
+          "VERSION_CONFLICT",
+          json?.error?.message ||
+            "O agendamento foi alterado por outro usuário. Recarregue os dados.",
+        );
+      }
       throw new AppointmentsApiError(
         "INVALID_STATE_TRANSITION",
         "Agendamento encerrado ou em estado conflitante não pode ser cancelado.",
       );
     }
+    if (response.status === 400) {
+      throw new AppointmentsApiError(
+        "VALIDATION_ERROR",
+        json?.error?.message ||
+          json?.message ||
+          "Dados de cancelamento inválidos.",
+      );
+    }
+    if (response.status === 401) {
+      throw new AppointmentsApiError(
+        "UNAUTHENTICATED",
+        "Sessão expirada. Entre novamente para continuar.",
+      );
+    }
+    if (response.status === 403) {
+      throw new AppointmentsApiError(
+        "FORBIDDEN",
+        json?.error?.message ||
+          json?.message ||
+          "Você não tem permissão para cancelar agendamentos.",
+      );
+    }
     throw new AppointmentsApiError(
       "UPSTREAM_ERROR",
-      "Não foi possível cancelar o agendamento.",
+      json?.error?.message ||
+        json?.message ||
+        "Não foi possível cancelar o agendamento.",
     );
   }
 
@@ -416,7 +506,10 @@ export async function cancelAppointment(
     );
   }
 
-  return parsedResponse.data;
+  return {
+    ...parsedResponse.data,
+    slotReleased: true,
+  };
 }
 
 const UUID_REGEX =
