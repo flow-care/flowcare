@@ -13,7 +13,8 @@ export default async function ModulePage({
     (item) =>
       item.segment === module &&
       module !== "dashboard" &&
-      module !== "settings",
+      module !== "settings" &&
+      module !== "documents",
   );
   const organizations = await getAvailableOrganizations();
   const current = organizations?.find(
