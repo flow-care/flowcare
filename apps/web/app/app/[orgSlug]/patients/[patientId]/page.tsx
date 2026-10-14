@@ -20,10 +20,15 @@ export default async function PatientDetailPage({
   searchParams,
 }: {
   params: Promise<{ orgSlug: string; patientId: string }>;
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{
+    tab?: string;
+    type?: string;
+    startDate?: string;
+    endDate?: string;
+  }>;
 }) {
   const { orgSlug, patientId } = await params;
-  const { tab = "overview" } = await searchParams;
+  const { tab = "overview", type, startDate, endDate } = await searchParams;
 
   const organizations = await getAvailableOrganizations();
   const current = organizations?.find((org) => org.slug === orgSlug);
@@ -52,10 +57,12 @@ export default async function PatientDetailPage({
   }
 
   const clinicalUser = isClinicalRole(current.role) && !overview.isRestricted;
+  const timelineFilters =
+    type || startDate || endDate ? { type, startDate, endDate } : undefined;
 
   const [timeline, attachments] = await Promise.all([
     clinicalUser
-      ? getPatientTimeline(orgSlug, patientId)
+      ? getPatientTimeline(orgSlug, patientId, timelineFilters)
       : Promise.resolve({
           data: [],
           pageInfo: { limit: 0, hasNextPage: false, nextCursor: null },
