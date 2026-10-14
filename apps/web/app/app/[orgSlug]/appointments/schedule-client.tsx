@@ -6,6 +6,7 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   ClockIcon,
+  PlusIcon,
 } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMemo } from "react";
@@ -28,8 +29,9 @@ import {
   normalizeAppointmentStatus,
   SHORT_WEEKDAY_NAMES,
 } from "@/lib/appointments";
-import type { AppointmentItem } from "@/server/appointments";
+import type { AppointmentItem, ProfessionalItem } from "@/server/appointments";
 import { AppointmentDetailsSheet } from "./appointment-details-sheet";
+import { NewAppointmentSheet } from "./new-appointment-sheet";
 
 interface AppointmentsScheduleProps {
   orgSlug: string;
@@ -38,15 +40,21 @@ interface AppointmentsScheduleProps {
   appointments: AppointmentItem[];
   sheet?: string;
   appointmentId?: string;
+  slotTime?: string;
+  timeZone?: string;
+  professionals?: ProfessionalItem[];
 }
 
 export function AppointmentsSchedule({
-  orgSlug: _orgSlug,
+  orgSlug,
   view,
   date,
   appointments,
   sheet,
   appointmentId,
+  slotTime,
+  timeZone = "America/Sao_Paulo",
+  professionals = [],
 }: AppointmentsScheduleProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -96,6 +104,22 @@ export function AppointmentsSchedule({
     updateUrl({ sheet: undefined, appointmentId: undefined });
   };
 
+  // New Appointment Sheet Handlers
+  const handleOpenNew = (slotDate?: string, targetTime?: string) => {
+    updateUrl({
+      sheet: "new",
+      date: slotDate ?? date,
+      time: targetTime ?? slotTime,
+      appointmentId: undefined,
+    });
+  };
+
+  const handleCloseNew = () => {
+    updateUrl({ sheet: undefined, time: undefined });
+  };
+
+  const isNewOpen = sheet === "new";
+
   const selectedAppointment = useMemo(() => {
     if (!appointmentId) return null;
     return appointments.find((appt) => appt.id === appointmentId) ?? null;
@@ -143,6 +167,15 @@ export function AppointmentsSchedule({
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
+          {/* Action: Novo Agendamento */}
+          <Button
+            onClick={() => handleOpenNew(date)}
+            className="h-8 gap-1.5 px-3 text-xs font-medium cursor-pointer"
+          >
+            <PlusIcon className="size-3.5" />
+            Novo agendamento
+          </Button>
+
           {/* Navigation Controls: Hoje, Anterior, Próximo */}
           <div className="flex items-center gap-1.5 rounded-lg border border-border bg-card p-1 shadow-2xs">
             <Button
@@ -210,6 +243,17 @@ export function AppointmentsSchedule({
                 : "Não há consultas agendadas para esta semana."}
             </EmptyDescription>
           </EmptyHeader>
+          <div className="mt-4 flex justify-center">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleOpenNew(date)}
+              className="gap-1.5 text-xs font-medium cursor-pointer"
+            >
+              <PlusIcon className="size-3.5" />
+              Novo agendamento
+            </Button>
+          </div>
         </Empty>
       ) : view === "day" ? (
         /* DAY VIEW */
@@ -263,6 +307,16 @@ export function AppointmentsSchedule({
               </button>
             );
           })}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => handleOpenNew(date)}
+            className="w-full border-dashed gap-1.5 text-xs text-muted-foreground hover:text-foreground py-3 h-auto cursor-pointer"
+          >
+            <PlusIcon className="size-3.5" />
+            Novo agendamento neste dia
+          </Button>
         </div>
       ) : (
         /* WEEK VIEW */
@@ -313,50 +367,65 @@ export function AppointmentsSchedule({
                 {/* Day Column Appointments */}
                 <div className="flex flex-col gap-2 flex-1">
                   {dayAppts.length === 0 ? (
-                    <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground/60 italic py-6">
-                      Sem agendamentos
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenNew(dayStr, "09:00")}
+                      className="flex-1 flex flex-col items-center justify-center text-xs text-muted-foreground/60 hover:text-primary hover:bg-accent/10 rounded-lg border border-dashed border-transparent hover:border-primary/30 p-4 transition-all group cursor-pointer"
+                    >
+                      <PlusIcon className="size-4 mb-1 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      <span>Horário livre</span>
+                    </button>
                   ) : (
-                    dayAppts.map((appt) => {
-                      const statusInfo = normalizeAppointmentStatus(
-                        appt.status,
-                      );
-                      const time = appt.localScheduledAt.slice(11, 16);
+                    <>
+                      {dayAppts.map((appt) => {
+                        const statusInfo = normalizeAppointmentStatus(
+                          appt.status,
+                        );
+                        const time = appt.localScheduledAt.slice(11, 16);
 
-                      return (
-                        <button
-                          key={appt.id}
-                          type="button"
-                          onClick={() => handleOpenDetails(appt.id)}
-                          className="group w-full p-2.5 rounded-lg border border-border bg-card hover:border-primary/50 hover:bg-accent/10 transition-all cursor-pointer flex flex-col gap-1 shadow-2xs text-left"
-                        >
-                          <div className="flex items-center justify-between gap-1 text-xs">
-                            <span className="font-semibold text-foreground">
-                              {time}
-                            </span>
-                            <Badge
-                              variant={statusInfo.variant}
-                              data-status={statusInfo.key}
-                              className="text-[10px] px-1.5 py-0 h-4"
+                        return (
+                          <button
+                            key={appt.id}
+                            type="button"
+                            onClick={() => handleOpenDetails(appt.id)}
+                            className="group w-full p-2.5 rounded-lg border border-border bg-card hover:border-primary/50 hover:bg-accent/10 transition-all cursor-pointer flex flex-col gap-1 shadow-2xs text-left"
+                          >
+                            <div className="flex items-center justify-between gap-1 text-xs">
+                              <span className="font-semibold text-foreground">
+                                {time}
+                              </span>
+                              <Badge
+                                variant={statusInfo.variant}
+                                data-status={statusInfo.key}
+                                className="text-[10px] px-1.5 py-0 h-4"
+                              >
+                                {statusInfo.label}
+                              </Badge>
+                            </div>
+                            <div
+                              className="text-xs font-medium text-foreground truncate group-hover:text-primary transition-colors"
+                              title={appt.patientName}
                             >
-                              {statusInfo.label}
-                            </Badge>
-                          </div>
-                          <div
-                            className="text-xs font-medium text-foreground truncate group-hover:text-primary transition-colors"
-                            title={appt.patientName}
-                          >
-                            {appt.patientName ?? "Paciente"}
-                          </div>
-                          <div
-                            className="text-[11px] text-muted-foreground truncate"
-                            title={appt.professionalName}
-                          >
-                            {appt.professionalName ?? "Profissional"}
-                          </div>
-                        </button>
-                      );
-                    })
+                              {appt.patientName ?? "Paciente"}
+                            </div>
+                            <div
+                              className="text-[11px] text-muted-foreground truncate"
+                              title={appt.professionalName}
+                            >
+                              {appt.professionalName ?? "Profissional"}
+                            </div>
+                          </button>
+                        );
+                      })}
+                      <button
+                        type="button"
+                        onClick={() => handleOpenNew(dayStr)}
+                        className="mt-1 flex items-center justify-center gap-1 py-1.5 text-xs text-muted-foreground hover:text-primary hover:bg-accent/10 rounded border border-dashed border-border hover:border-primary/30 transition-colors cursor-pointer"
+                      >
+                        <PlusIcon className="size-3" />
+                        Agendar
+                      </button>
+                    </>
                   )}
                 </div>
               </div>
@@ -370,6 +439,21 @@ export function AppointmentsSchedule({
         isOpen={isDetailsOpen}
         onClose={handleCloseDetails}
         appointment={selectedAppointment}
+      />
+
+      {/* New Appointment Sheet */}
+      <NewAppointmentSheet
+        isOpen={isNewOpen}
+        onClose={handleCloseNew}
+        orgSlug={orgSlug}
+        timeZone={timeZone}
+        initialDate={date}
+        initialTime={slotTime}
+        professionals={professionals}
+        onSuccess={() => {
+          handleCloseNew();
+          router.refresh();
+        }}
       />
     </div>
   );

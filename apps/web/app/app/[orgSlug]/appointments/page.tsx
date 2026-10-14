@@ -5,7 +5,12 @@ import {
   getWeekRange,
   isValidDateString,
 } from "@/lib/appointments";
-import { type AppointmentItem, getAppointments } from "@/server/appointments";
+import {
+  type AppointmentItem,
+  getAppointments,
+  getProfessionals,
+  type ProfessionalItem,
+} from "@/server/appointments";
 import { getAvailableOrganizations } from "@/server/organizations";
 import { AppointmentsErrorState } from "./error-state";
 import { AppointmentsSchedule } from "./schedule-client";
@@ -20,6 +25,8 @@ export default async function AppointmentsPage({
     date?: string;
     sheet?: string;
     appointmentId?: string;
+    time?: string;
+    slotTime?: string;
   }>;
 }) {
   const { orgSlug } = await params;
@@ -42,14 +49,23 @@ export default async function AppointmentsPage({
     view === "week" ? getWeekRange(date) : { startDate: date, endDate: date };
 
   let appointments: AppointmentItem[] = [];
+  let professionals: ProfessionalItem[] = [];
+  let timeZone = "America/Sao_Paulo";
   let hasError = false;
 
   try {
-    const result = await getAppointments(orgSlug, {
-      startDate,
-      endDate,
-    });
+    const [result, profs] = await Promise.all([
+      getAppointments(orgSlug, {
+        startDate,
+        endDate,
+      }),
+      getProfessionals(orgSlug).catch(() => []),
+    ]);
     appointments = result.appointments ?? result;
+    if (result.timeZone) {
+      timeZone = result.timeZone;
+    }
+    professionals = profs;
   } catch {
     hasError = true;
   }
@@ -66,6 +82,9 @@ export default async function AppointmentsPage({
       appointments={appointments}
       sheet={query.sheet}
       appointmentId={query.appointmentId}
+      slotTime={query.time ?? query.slotTime}
+      timeZone={timeZone}
+      professionals={professionals}
     />
   );
 }
