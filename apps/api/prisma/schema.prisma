@@ -754,6 +754,8 @@ model ClinicalDocument {
   issuedById        String?        @db.Uuid
   issuedAt          DateTime?
   voidedAt          DateTime?
+  voidReason        String?
+  voidedById        String?        @db.Uuid
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
 

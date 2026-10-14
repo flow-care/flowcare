@@ -126,6 +126,8 @@ export const documentListItem = t.Object({
   author: documentUserSummary,
   issuedAt: t.Nullable(t.String()),
   voidedAt: t.Nullable(t.String()),
+  voidReason: t.Optional(t.Nullable(t.String())),
+  voidedById: t.Optional(t.Nullable(t.String())),
   createdAt: t.String(),
   updatedAt: t.String(),
 });
@@ -166,6 +168,8 @@ export const documentItem = t.Object({
   author: documentUserSummary,
   issuedAt: t.Nullable(t.String()),
   voidedAt: t.Nullable(t.String()),
+  voidReason: t.Optional(t.Nullable(t.String())),
+  voidedById: t.Optional(t.Nullable(t.String())),
   createdAt: t.String(),
   updatedAt: t.String(),
   versions: t.Array(documentVersionItem),
@@ -193,6 +197,8 @@ export const documentResponse = t.Object({
   author: documentUserSummary,
   issuedAt: t.Nullable(t.String()),
   voidedAt: t.Nullable(t.String()),
+  voidReason: t.Optional(t.Nullable(t.String())),
+  voidedById: t.Optional(t.Nullable(t.String())),
   createdAt: t.String(),
   updatedAt: t.String(),
   versions: t.Array(documentVersionItem),
@@ -204,6 +210,8 @@ export const documentVersionsResponse = t.Object({
   currentVersion: t.Integer({ minimum: 1 }),
   currentRevisionId: t.Nullable(t.String()),
   status: documentStatus,
+  voidedAt: t.Optional(t.Nullable(t.String())),
+  voidReason: t.Optional(t.Nullable(t.String())),
   data: t.Array(documentVersionItem),
   versions: t.Array(documentVersionItem),
 });
@@ -222,6 +230,8 @@ export const documentVersionDetailResponse = t.Object({
   savedById: t.String(),
   savedBy: documentUserSummary,
   isActiveVersion: t.Boolean(),
+  voidedAt: t.Optional(t.Nullable(t.String())),
+  voidReason: t.Optional(t.Nullable(t.String())),
   createdAt: t.String(),
   snapshot: t.Object({
     version: t.Integer({ minimum: 1 }),
@@ -272,6 +282,8 @@ export const prepareDocumentSnapshotResponse = t.Object({
   currentRevisionId: t.Nullable(t.String()),
   issuedAt: t.Nullable(t.String()),
   voidedAt: t.Nullable(t.String()),
+  voidReason: t.Optional(t.Nullable(t.String())),
+  voidedById: t.Optional(t.Nullable(t.String())),
   createdAt: t.String(),
   updatedAt: t.String(),
   versions: t.Array(documentVersionItem),
@@ -292,6 +304,18 @@ export const rectifyDocumentResponse = t.Object({
   status: t.Literal("DRAFT"),
   replacesDocumentId: t.String(),
   chainVersion: t.Integer({ minimum: 2 }),
+});
+
+export const voidDocumentBody = t.Object({
+  reason: t.String({ minLength: 10, maxLength: 2000 }),
+  version: t.Optional(t.Integer({ minimum: 1 })),
+});
+
+export const voidDocumentResponse = t.Object({
+  documentId: t.Optional(t.String()),
+  status: t.Literal("VOIDED"),
+  voidedAt: t.String(),
+  voidReason: t.String(),
 });
 
 export type OrgSlugParams = typeof orgSlugParams.static;
@@ -320,3 +344,5 @@ export type DocumentVersionDetailResponse =
 export type DocumentSnapshotItem = typeof documentSnapshotItem.static;
 export type PrepareDocumentSnapshotResponse =
   typeof prepareDocumentSnapshotResponse.static;
+export type VoidDocumentBody = typeof voidDocumentBody.static;
+export type VoidDocumentResponse = typeof voidDocumentResponse.static;

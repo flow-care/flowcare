@@ -16,7 +16,8 @@ async function defaultClinicalEligibility(
   return (
     (capability === "documents:read" ||
       capability === "documents:write" ||
-      capability === "documents:issue") &&
+      capability === "documents:issue" ||
+      capability === "documents:void") &&
     (context.role === "ADMIN_PROFESSIONAL" || context.role === "PROFESSIONAL")
   );
 }
@@ -261,6 +262,23 @@ export function documentsModule(deps: {
             params: m.documentIdParams,
             organizationAccess: "documents:write",
             response: { 201: m.rectifyDocumentResponse },
+          },
+        )
+        .post(
+          "/documents/:documentId/void",
+          ({ auth, organizationAccess, params, body }) =>
+            service.void(
+              organizationAccess.organizationId,
+              auth.userId,
+              organizationAccess.role,
+              params.documentId,
+              body,
+            ),
+          {
+            params: m.documentIdParams,
+            body: m.voidDocumentBody,
+            organizationAccess: "documents:void",
+            response: { 200: m.voidDocumentResponse },
           },
         ),
     );
