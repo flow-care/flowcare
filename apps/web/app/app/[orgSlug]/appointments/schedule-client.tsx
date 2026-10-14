@@ -33,6 +33,7 @@ import { AppointmentDetailsSheet } from "./appointment-details-sheet";
 
 interface AppointmentsScheduleProps {
   orgSlug: string;
+  userRole?: string;
   view: "day" | "week";
   date: string;
   appointments: AppointmentItem[];
@@ -41,7 +42,8 @@ interface AppointmentsScheduleProps {
 }
 
 export function AppointmentsSchedule({
-  orgSlug: _orgSlug,
+  orgSlug,
+  userRole,
   view,
   date,
   appointments,
@@ -369,7 +371,13 @@ export function AppointmentsSchedule({
       <AppointmentDetailsSheet
         isOpen={isDetailsOpen}
         onClose={handleCloseDetails}
+        orgSlug={orgSlug}
+        userRole={userRole}
+        appointmentId={appointmentId}
         appointment={selectedAppointment}
+        onAppointmentCancelled={() => {
+          router.refresh();
+        }}
       />
     </div>
   );

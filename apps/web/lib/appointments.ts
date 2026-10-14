@@ -185,3 +185,46 @@ export function formatAppointmentTime(
   const endTime = `${String(endH).padStart(2, "0")}:${String(endM).padStart(2, "0")}`;
   return `${time} – ${endTime}`;
 }
+
+export function formatQueueStatus(status?: string | null): string {
+  switch (status) {
+    case "WAITING":
+      return "Aguardando chegada";
+    case "ARRIVED":
+      return "Aguardando na recepção";
+    case "CALLED":
+      return "Chamado";
+    case "IN_SERVICE":
+      return "Em atendimento";
+    case "COMPLETED":
+      return "Finalizado";
+    case "NO_SHOW":
+      return "Não compareceu";
+    default:
+      return status || "Aguardando";
+  }
+}
+
+export function canStartAppointment(
+  userRole?: string,
+  appointmentStatus?: string,
+): boolean {
+  if (userRole !== "ADMIN_PROFESSIONAL" && userRole !== "PROFESSIONAL") {
+    return false;
+  }
+  if (!appointmentStatus) return true;
+  return (
+    appointmentStatus !== "CANCELLED" &&
+    appointmentStatus !== "COMPLETED" &&
+    appointmentStatus !== "NO_SHOW"
+  );
+}
+
+export function canCancelAppointment(appointmentStatus?: string): boolean {
+  if (!appointmentStatus) return false;
+  return (
+    appointmentStatus !== "CANCELLED" &&
+    appointmentStatus !== "COMPLETED" &&
+    appointmentStatus !== "NO_SHOW"
+  );
+}
