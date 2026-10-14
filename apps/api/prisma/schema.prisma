@@ -248,6 +248,7 @@ model Organization {
   whatsappSession WhatsAppSession?
   activeUsers User[] @relation("ActiveOrganization")
   customRoles OrganizationRole[]
+  transcriptionJobs TranscriptionJob[]
 }
 
 model AuditLog {
@@ -577,6 +578,7 @@ model Consultation {
   professional           User                    @relation(fields: [professionalId], references: [id], onDelete: Restrict)
   anamnesisTopicRevision AnamnesisTopicRevision? @relation(fields: [anamnesisTopicRevisionId], references: [id], onDelete: Restrict)
   audios                 ConsultationAudio[]
+  transcriptionJobs      TranscriptionJob[]
 
   @@index([organizationId, scheduledAt, id])
   @@index([organizationId, professionalId, scheduledAt])
@@ -617,6 +619,7 @@ model ConsultationAudio {
   consultation Consultation @relation(fields: [consultationId], references: [id], onDelete: Cascade)
   uploadedBy User @relation("ConsultationAudioUploadedBy", fields: [uploadedById], references: [id], onDelete: Restrict)
   processing AudioProcessing?
+  transcriptionJobs TranscriptionJob[]
 
   @@index([organizationId, consultationId])
   @@index([status, uploadExpiresAt])
@@ -630,6 +633,36 @@ model AudioProcessing {
   updatedAt      DateTime              @updatedAt
 
   audio ConsultationAudio @relation(fields: [audioId], references: [id], onDelete: Cascade)
+}
+
+enum TranscriptionJobStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model TranscriptionJob {
+  id             String                 @id @default(uuid()) @db.Uuid
+  organizationId String                 @db.Uuid
+  consultationId String                 @db.Uuid
+  audioId        String?                @db.Uuid
+  idempotencyKey String
+  status         TranscriptionJobStatus @default(PROCESSING)
+  errorReason    String?
+  retryCount     Int                    @default(0)
+  provider       String?
+  providerJobId  String?
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  consultation Consultation      @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+  audio        ConsultationAudio? @relation(fields: [audioId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, idempotencyKey])
+  @@index([organizationId, consultationId, createdAt])
+  @@index([organizationId, status])
 }
 
 // Progresso do onboarding guiado (issue #215) — sobrevive a recarregar a página.

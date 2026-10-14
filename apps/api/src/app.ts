@@ -36,6 +36,7 @@ import {
   PROFILE_PHOTO_MAX_BYTES,
   type ProfilePhotoStore,
 } from "./services/profile-photo-store";
+import type { TranscriptionProvider } from "./services/transcription-provider";
 import { WahaClient, type WhatsAppProvider } from "./services/waha-client";
 
 /**
@@ -53,6 +54,7 @@ export interface AppDeps {
   profilePhotoStore?: ProfilePhotoStore | null;
   attachmentStore?: ProfilePhotoStore | null;
   consultationAudioStore?: ConsultationAudioStore | null;
+  transcriptionProvider?: TranscriptionProvider | null;
   whatsappProvider?: WhatsAppProvider;
 }
 
@@ -273,6 +275,7 @@ export function createApp(env: Env, deps: AppDeps) {
         prisma: deps.prisma,
         jwtSecret: env.jwtSecret,
         audioStore: consultationAudioStore,
+        transcriptionProvider: deps.transcriptionProvider,
       }),
     )
     .use(auditModule({ prisma: deps.prisma, jwtSecret: env.jwtSecret }));
