@@ -44,6 +44,73 @@ export function normalizeAppointmentStatus(status: string): StatusBadgeInfo {
   }
 }
 
+export type ReceptionQueueStatusKey =
+  | "WAITING"
+  | "ARRIVED"
+  | "CALLED"
+  | "IN_SERVICE"
+  | "COMPLETED"
+  | "CANCELLED"
+  | "NO_SHOW";
+
+export interface ReceptionStatusBadgeInfo {
+  key: ReceptionQueueStatusKey;
+  label: string;
+  variant: "default" | "secondary" | "destructive" | "outline";
+}
+
+export function normalizeReceptionQueueStatus(
+  status: string,
+): ReceptionStatusBadgeInfo {
+  switch (status) {
+    case "WAITING":
+      return { key: "WAITING", label: "Aguardando", variant: "outline" };
+    case "ARRIVED":
+      return { key: "ARRIVED", label: "Presente", variant: "secondary" };
+    case "CALLED":
+      return { key: "CALLED", label: "Chamado", variant: "default" };
+    case "IN_SERVICE":
+    case "IN_CONSULTATION":
+    case "IN_PROGRESS":
+      return { key: "IN_SERVICE", label: "Em atendimento", variant: "default" };
+    case "COMPLETED":
+      return { key: "COMPLETED", label: "Concluído", variant: "outline" };
+    case "CANCELLED":
+      return { key: "CANCELLED", label: "Cancelado", variant: "destructive" };
+    case "NO_SHOW":
+      return {
+        key: "NO_SHOW",
+        label: "Não compareceu",
+        variant: "destructive",
+      };
+    default:
+      return { key: "WAITING", label: status, variant: "outline" };
+  }
+}
+
+export function calculateWaitTimeMinutes(
+  arrivedAt: string | null | undefined,
+  referenceTime: Date | number = new Date(),
+): number | null {
+  if (!arrivedAt) return null;
+  const arrivedMs =
+    typeof arrivedAt === "string" ? Date.parse(arrivedAt) : Number(arrivedAt);
+  if (Number.isNaN(arrivedMs)) return null;
+  const refMs =
+    referenceTime instanceof Date ? referenceTime.getTime() : referenceTime;
+  return Math.max(0, Math.floor((refMs - arrivedMs) / 60000));
+}
+
+export function formatWaitTime(minutes: number | null): string {
+  if (minutes === null) return "–";
+  if (minutes < 1) return "< 1 min";
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const remaining = minutes % 60;
+  if (remaining === 0) return `${hours}h`;
+  return `${hours}h ${remaining}min`;
+}
+
 const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
 export function isValidDateString(dateStr: unknown): dateStr is string {
