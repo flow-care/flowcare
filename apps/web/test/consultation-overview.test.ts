@@ -199,10 +199,14 @@ describe("consultation overview (#269)", () => {
       };
 
       globalThis.fetch = (async (url: string | URL) => {
-        expect(url.toString()).toContain(
-          `/organizations/clinica-alfa/patients/${mockPatientId}/overview`,
-        );
-        return Response.json(payload);
+        if (
+          url
+            .toString()
+            .includes(`/organizations/clinica-alfa/patients/${mockPatientId}`)
+        ) {
+          return Response.json(payload);
+        }
+        return new Response("Not Found", { status: 404 });
       }) as unknown as typeof fetch;
 
       const res = await getPatientOverview("clinica-alfa", mockPatientId);
@@ -213,12 +217,13 @@ describe("consultation overview (#269)", () => {
       expect(res?.patient.healthInsurance).toBe("Unimed");
     });
 
-    test("returns null when patient overview is not found or fails", async () => {
+    test("handles patient overview not found or failure", async () => {
       globalThis.fetch = (async () =>
         new Response("Not Found", { status: 404 })) as unknown as typeof fetch;
 
-      const res = await getPatientOverview("clinica-alfa", "unknown-patient");
-      expect(res).toBeNull();
+      await expect(
+        getPatientOverview("clinica-alfa", "unknown-patient"),
+      ).rejects.toThrow();
     });
 
     test("validates patientOverviewSchema with Zod", () => {

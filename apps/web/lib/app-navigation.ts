@@ -66,3 +66,7 @@ export function canOpenSection(role: Role, segment: string): boolean {
   const section = appSections.find((item) => item.segment === segment);
   return Boolean(section?.roles.some((allowed) => allowed === role));
 }
+
+export function isClinicalRole(role?: Role | string | null): boolean {
+  return role === "ADMIN_PROFESSIONAL" || role === "PROFESSIONAL";
+}
