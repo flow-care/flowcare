@@ -6,6 +6,7 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   ClockIcon,
+  PlusIcon,
 } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMemo } from "react";
@@ -28,19 +29,27 @@ import {
   normalizeAppointmentStatus,
   SHORT_WEEKDAY_NAMES,
 } from "@/lib/appointments";
-import type { AppointmentItem } from "@/server/appointments";
+import type { AppointmentItem, ProfessionalItem } from "@/server/appointments";
 import type { PendingConfirmationItem } from "@/server/confirmations";
+import type { ReceptionQueueItem } from "@/server/reception";
 import { AppointmentDetailsSheet } from "./appointment-details-sheet";
+import { NewAppointmentSheet } from "./new-appointment-sheet";
 import { PendingConfirmationsView } from "./pending-confirmations-view";
+import { ReceptionQueueView } from "./reception-queue-view";
 
 interface AppointmentsScheduleProps {
   orgSlug: string;
-  view: "day" | "week" | "confirmations";
+  view: "day" | "week" | "reception" | "confirmations";
   date: string;
   appointments: AppointmentItem[];
   pendingConfirmations?: PendingConfirmationItem[];
   sheet?: string;
   appointmentId?: string;
+  slotTime?: string;
+  timeZone?: string;
+  professionals?: ProfessionalItem[];
+  receptionQueue?: ReceptionQueueItem[];
+  receptionError?: string | null;
 }
 
 export function AppointmentsSchedule({
@@ -51,6 +60,11 @@ export function AppointmentsSchedule({
   pendingConfirmations = [],
   sheet,
   appointmentId,
+  slotTime,
+  timeZone = "America/Sao_Paulo",
+  professionals = [],
+  receptionQueue,
+  receptionError,
 }: AppointmentsScheduleProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -86,7 +100,9 @@ export function AppointmentsSchedule({
   };
 
   // View Switch Handlers (Preserves Active Date!)
-  const handleViewChange = (newView: "day" | "week" | "confirmations") => {
+  const handleViewChange = (
+    newView: "day" | "week" | "reception" | "confirmations",
+  ) => {
     if (newView === view) return;
     updateUrl({ view: newView });
   };
@@ -99,6 +115,22 @@ export function AppointmentsSchedule({
   const handleCloseDetails = () => {
     updateUrl({ sheet: undefined, appointmentId: undefined });
   };
+
+  // New Appointment Sheet Handlers
+  const handleOpenNew = (slotDate?: string, targetTime?: string) => {
+    updateUrl({
+      sheet: "new",
+      date: slotDate ?? date,
+      time: targetTime ?? slotTime,
+      appointmentId: undefined,
+    });
+  };
+
+  const handleCloseNew = () => {
+    updateUrl({ sheet: undefined, time: undefined });
+  };
+
+  const isNewOpen = sheet === "new";
 
   const selectedAppointment = useMemo(() => {
     if (!appointmentId) return null;
@@ -130,10 +162,10 @@ export function AppointmentsSchedule({
     if (view === "confirmations") {
       return "Pendências de confirmação que exigem contato da recepção";
     }
-    if (view === "day") {
-      return formatDateLabel(date);
+    if (view === "week") {
+      return formatWeekRangeLabel(weekRange.startDate, weekRange.endDate);
     }
-    return formatWeekRangeLabel(weekRange.startDate, weekRange.endDate);
+    return formatDateLabel(date);
   }, [view, date, weekRange]);
 
   return (
@@ -142,7 +174,11 @@ export function AppointmentsSchedule({
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between border-b border-border pb-5">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground">
-            {view === "confirmations" ? "Confirmações" : "Agenda"}
+            {view === "confirmations"
+              ? "Confirmações"
+              : view === "reception"
+                ? "Fila da Recepção"
+                : "Agenda"}
           </h1>
           <p className="text-sm font-medium text-muted-foreground mt-0.5">
             {dateIndicatorText}
@@ -150,7 +186,16 @@ export function AppointmentsSchedule({
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          {/* Navigation Controls: Hoje, Anterior, Próximo (shown in day and week views) */}
+          {/* Action: Novo Agendamento */}
+          <Button
+            onClick={() => handleOpenNew(date)}
+            className="h-8 gap-1.5 px-3 text-xs font-medium cursor-pointer"
+          >
+            <PlusIcon className="size-3.5" />
+            Novo agendamento
+          </Button>
+
+          {/* Navigation Controls: Hoje, Anterior, Próximo (shown in day, week, reception) */}
           {view !== "confirmations" && (
             <div className="flex items-center gap-1.5 rounded-lg border border-border bg-card p-1 shadow-2xs">
               <Button
@@ -183,7 +228,7 @@ export function AppointmentsSchedule({
             </div>
           )}
 
-          {/* View Switcher: Dia / Semana / Confirmações */}
+          {/* View Switcher: Dia / Semana / Fila da Recepção / Confirmações */}
           <div className="flex items-center rounded-lg border border-border bg-card p-1 shadow-2xs">
             <Button
               variant={view === "day" ? "default" : "ghost"}
@@ -200,6 +245,14 @@ export function AppointmentsSchedule({
               className="h-8 px-3 text-xs font-medium"
             >
               Semana
+            </Button>
+            <Button
+              variant={view === "reception" ? "default" : "ghost"}
+              size="sm"
+              onClick={() => handleViewChange("reception")}
+              className="h-8 px-3 text-xs font-medium"
+            >
+              Fila da Recepção
             </Button>
             <Button
               variant={view === "confirmations" ? "default" : "ghost"}
@@ -219,6 +272,13 @@ export function AppointmentsSchedule({
           orgSlug={orgSlug}
           initialData={pendingConfirmations}
         />
+      ) : view === "reception" ? (
+        <ReceptionQueueView
+          orgSlug={orgSlug}
+          date={date}
+          initialQueue={receptionQueue}
+          initialError={receptionError}
+        />
       ) : appointments.length === 0 ? (
         <Empty className="border border-dashed border-border bg-card/40 py-16">
           <EmptyHeader>
@@ -232,6 +292,17 @@ export function AppointmentsSchedule({
                 : "Não há consultas agendadas para esta semana."}
             </EmptyDescription>
           </EmptyHeader>
+          <div className="mt-4 flex justify-center">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleOpenNew(date)}
+              className="gap-1.5 text-xs font-medium cursor-pointer"
+            >
+              <PlusIcon className="size-3.5" />
+              Novo agendamento
+            </Button>
+          </div>
         </Empty>
       ) : view === "day" ? (
         /* DAY VIEW */
@@ -285,6 +356,16 @@ export function AppointmentsSchedule({
               </button>
             );
           })}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => handleOpenNew(date)}
+            className="w-full border-dashed gap-1.5 text-xs text-muted-foreground hover:text-foreground py-3 h-auto cursor-pointer"
+          >
+            <PlusIcon className="size-3.5" />
+            Novo agendamento neste dia
+          </Button>
         </div>
       ) : (
         /* WEEK VIEW */
@@ -335,50 +416,65 @@ export function AppointmentsSchedule({
                 {/* Day Column Appointments */}
                 <div className="flex flex-col gap-2 flex-1">
                   {dayAppts.length === 0 ? (
-                    <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground/60 italic py-6">
-                      Sem agendamentos
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenNew(dayStr, "09:00")}
+                      className="flex-1 flex flex-col items-center justify-center text-xs text-muted-foreground/60 hover:text-primary hover:bg-accent/10 rounded-lg border border-dashed border-transparent hover:border-primary/30 p-4 transition-all group cursor-pointer"
+                    >
+                      <PlusIcon className="size-4 mb-1 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      <span>Horário livre</span>
+                    </button>
                   ) : (
-                    dayAppts.map((appt) => {
-                      const statusInfo = normalizeAppointmentStatus(
-                        appt.status,
-                      );
-                      const time = appt.localScheduledAt.slice(11, 16);
+                    <>
+                      {dayAppts.map((appt) => {
+                        const statusInfo = normalizeAppointmentStatus(
+                          appt.status,
+                        );
+                        const time = appt.localScheduledAt.slice(11, 16);
 
-                      return (
-                        <button
-                          key={appt.id}
-                          type="button"
-                          onClick={() => handleOpenDetails(appt.id)}
-                          className="group w-full p-2.5 rounded-lg border border-border bg-card hover:border-primary/50 hover:bg-accent/10 transition-all cursor-pointer flex flex-col gap-1 shadow-2xs text-left"
-                        >
-                          <div className="flex items-center justify-between gap-1 text-xs">
-                            <span className="font-semibold text-foreground">
-                              {time}
-                            </span>
-                            <Badge
-                              variant={statusInfo.variant}
-                              data-status={statusInfo.key}
-                              className="text-[10px] px-1.5 py-0 h-4"
+                        return (
+                          <button
+                            key={appt.id}
+                            type="button"
+                            onClick={() => handleOpenDetails(appt.id)}
+                            className="group w-full p-2.5 rounded-lg border border-border bg-card hover:border-primary/50 hover:bg-accent/10 transition-all cursor-pointer flex flex-col gap-1 shadow-2xs text-left"
+                          >
+                            <div className="flex items-center justify-between gap-1 text-xs">
+                              <span className="font-semibold text-foreground">
+                                {time}
+                              </span>
+                              <Badge
+                                variant={statusInfo.variant}
+                                data-status={statusInfo.key}
+                                className="text-[10px] px-1.5 py-0 h-4"
+                              >
+                                {statusInfo.label}
+                              </Badge>
+                            </div>
+                            <div
+                              className="text-xs font-medium text-foreground truncate group-hover:text-primary transition-colors"
+                              title={appt.patientName}
                             >
-                              {statusInfo.label}
-                            </Badge>
-                          </div>
-                          <div
-                            className="text-xs font-medium text-foreground truncate group-hover:text-primary transition-colors"
-                            title={appt.patientName}
-                          >
-                            {appt.patientName ?? "Paciente"}
-                          </div>
-                          <div
-                            className="text-[11px] text-muted-foreground truncate"
-                            title={appt.professionalName}
-                          >
-                            {appt.professionalName ?? "Profissional"}
-                          </div>
-                        </button>
-                      );
-                    })
+                              {appt.patientName ?? "Paciente"}
+                            </div>
+                            <div
+                              className="text-[11px] text-muted-foreground truncate"
+                              title={appt.professionalName}
+                            >
+                              {appt.professionalName ?? "Profissional"}
+                            </div>
+                          </button>
+                        );
+                      })}
+                      <button
+                        type="button"
+                        onClick={() => handleOpenNew(dayStr)}
+                        className="mt-1 flex items-center justify-center gap-1 py-1.5 text-xs text-muted-foreground hover:text-primary hover:bg-accent/10 rounded border border-dashed border-border hover:border-primary/30 transition-colors cursor-pointer"
+                      >
+                        <PlusIcon className="size-3" />
+                        Agendar
+                      </button>
+                    </>
                   )}
                 </div>
               </div>
@@ -392,6 +488,21 @@ export function AppointmentsSchedule({
         isOpen={isDetailsOpen}
         onClose={handleCloseDetails}
         appointment={selectedAppointment}
+      />
+
+      {/* New Appointment Sheet */}
+      <NewAppointmentSheet
+        isOpen={isNewOpen}
+        onClose={handleCloseNew}
+        orgSlug={orgSlug}
+        timeZone={timeZone}
+        initialDate={date}
+        initialTime={slotTime}
+        professionals={professionals}
+        onSuccess={() => {
+          handleCloseNew();
+          router.refresh();
+        }}
       />
     </div>
   );
