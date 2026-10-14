@@ -356,3 +356,384 @@ export async function getConsultationDetails(
 
   return parsed.data;
 }
+
+export const audioPresignedUrlInputSchema = z.object({
+  fileName: z.string().min(1),
+  contentType: z.string().min(1),
+  sizeBytes: z
+    .number()
+    .int()
+    .positive()
+    .max(50 * 1024 * 1024),
+});
+export type AudioPresignedUrlInput = z.infer<
+  typeof audioPresignedUrlInputSchema
+>;
+
+export const audioPresignedUrlResponseSchema = z.object({
+  audioId: z.string(),
+  uploadUrl: z.string(),
+  expiresInSeconds: z.number().optional(),
+  status: z.string().optional(),
+});
+export type AudioPresignedUrlResponse = z.infer<
+  typeof audioPresignedUrlResponseSchema
+>;
+
+export async function getAudioPresignedUrl(
+  orgSlug: string,
+  consultationId: string,
+  body: { fileName: string; contentType: string; sizeBytes: number },
+): Promise<AudioPresignedUrlResponse> {
+  const token = await getSessionToken();
+  if (!token) {
+    throw new ConsultationsApiError(
+      "UNAUTHENTICATED",
+      "Sessão expirada. Faça login novamente.",
+    );
+  }
+
+  if (body.sizeBytes > 50 * 1024 * 1024) {
+    throw new ConsultationsApiError(
+      "UNAVAILABLE",
+      "O arquivo de áudio excede o limite máximo permitido de 50MB.",
+    );
+  }
+
+  let mappedContentType = body.contentType.toLowerCase();
+  const lowerName = body.fileName.toLowerCase();
+  if (mappedContentType.includes("webm") || lowerName.endsWith(".webm")) {
+    mappedContentType = "audio/webm";
+  } else if (
+    mappedContentType.includes("mpeg") ||
+    mappedContentType.includes("mp3") ||
+    lowerName.endsWith(".mp3")
+  ) {
+    mappedContentType = "audio/mpeg";
+  } else if (
+    mappedContentType.includes("mp4") ||
+    mappedContentType.includes("m4a") ||
+    lowerName.endsWith(".m4a")
+  ) {
+    mappedContentType = "audio/mp4";
+  } else if (mappedContentType.includes("wav") || lowerName.endsWith(".wav")) {
+    mappedContentType = "audio/webm";
+  } else {
+    mappedContentType = "audio/webm";
+  }
+
+  const { apiBaseUrl } = getServerConfig();
+  const url = `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/consultations/${encodeURIComponent(consultationId)}/audio/upload-url`;
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({
+        contentType: mappedContentType,
+        sizeBytes: body.sizeBytes,
+        consentConfirmed: true,
+      }),
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    throw new ConsultationsApiError(
+      "UNAVAILABLE",
+      "Não foi possível conectar ao servidor para obter o link de envio do áudio.",
+    );
+  }
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      throw new ConsultationsApiError(
+        "UNAUTHENTICATED",
+        "Sessão expirada. Faça login novamente.",
+      );
+    }
+    if (response.status === 403) {
+      throw new ConsultationsApiError(
+        "FORBIDDEN",
+        "Acesso restrito à equipe clínica.",
+      );
+    }
+    if (response.status === 404) {
+      throw new ConsultationsApiError(
+        "NOT_FOUND",
+        "Atendimento não encontrado.",
+      );
+    }
+    let errorMsg = "Não foi possível preparar o envio do áudio.";
+    try {
+      const errData = (await response.json()) as { message?: string };
+      if (errData?.message) errorMsg = errData.message;
+    } catch {
+      // Ignore json parse error
+    }
+    throw new ConsultationsApiError("UNAVAILABLE", errorMsg);
+  }
+
+  const data: unknown = await response.json();
+  const parsed = audioPresignedUrlResponseSchema.safeParse(data);
+  if (!parsed.success) {
+    throw new ConsultationsApiError(
+      "UNAVAILABLE",
+      "Resposta inválida do servidor ao preparar envio do áudio.",
+    );
+  }
+
+  return parsed.data;
+}
+
+export async function completeAudioUpload(
+  orgSlug: string,
+  consultationId: string,
+  audioId: string,
+): Promise<{ audioId: string; status: "UPLOADED" }> {
+  const token = await getSessionToken();
+  if (!token) {
+    throw new ConsultationsApiError(
+      "UNAUTHENTICATED",
+      "Sessão expirada. Faça login novamente.",
+    );
+  }
+
+  const { apiBaseUrl } = getServerConfig();
+  const url = `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/consultations/${encodeURIComponent(consultationId)}/audio/${encodeURIComponent(audioId)}/complete`;
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
+      },
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    throw new ConsultationsApiError(
+      "UNAVAILABLE",
+      "Não foi possível conectar ao servidor para concluir o envio do áudio.",
+    );
+  }
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      throw new ConsultationsApiError(
+        "UNAUTHENTICATED",
+        "Sessão expirada. Faça login novamente.",
+      );
+    }
+    if (response.status === 403) {
+      throw new ConsultationsApiError(
+        "FORBIDDEN",
+        "Acesso restrito à equipe clínica.",
+      );
+    }
+    if (response.status === 404) {
+      throw new ConsultationsApiError("NOT_FOUND", "Áudio não encontrado.");
+    }
+    throw new ConsultationsApiError(
+      "UNAVAILABLE",
+      "Não foi possível finalizar o envio do áudio.",
+    );
+  }
+
+  return (await response.json()) as { audioId: string; status: "UPLOADED" };
+}
+
+export const startTranscriptionJobPayloadSchema = z.object({
+  audioUrl: z.string().optional(),
+  storageKey: z.string().optional(),
+  consentConfirmed: z.boolean(),
+  idempotencyKey: z.string().optional(),
+});
+export type StartTranscriptionJobPayload = z.infer<
+  typeof startTranscriptionJobPayloadSchema
+>;
+
+export const transcriptionJobResponseSchema = z.object({
+  jobId: z.string(),
+  status: z.enum(["QUEUED", "PROCESSING", "COMPLETED", "FAILED"]),
+});
+export type TranscriptionJobResponse = z.infer<
+  typeof transcriptionJobResponseSchema
+>;
+
+export async function startTranscriptionJob(
+  orgSlug: string,
+  consultationId: string,
+  payload: {
+    audioUrl?: string;
+    storageKey?: string;
+    consentConfirmed: boolean;
+    idempotencyKey?: string;
+  },
+): Promise<TranscriptionJobResponse> {
+  if (!payload.consentConfirmed) {
+    throw new ConsultationsApiError(
+      "FORBIDDEN",
+      "Consentimento formal do paciente é obrigatório para iniciar a transcrição.",
+    );
+  }
+
+  const token = await getSessionToken();
+  if (!token) {
+    throw new ConsultationsApiError(
+      "UNAUTHENTICATED",
+      "Sessão expirada. Faça login novamente.",
+    );
+  }
+
+  const idempotencyKey = payload.idempotencyKey?.trim() || crypto.randomUUID();
+
+  const { apiBaseUrl } = getServerConfig();
+  const url = `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/consultations/${encodeURIComponent(consultationId)}/transcribe`;
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        "Idempotency-Key": idempotencyKey,
+      },
+      body: JSON.stringify({
+        audioUrl: payload.audioUrl,
+        storageKey: payload.storageKey,
+        consentConfirmed: true,
+      }),
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    throw new ConsultationsApiError(
+      "UNAVAILABLE",
+      "Não foi possível conectar ao serviço de transcrição.",
+    );
+  }
+
+  if (!response.ok && response.status !== 202) {
+    if (response.status === 401) {
+      throw new ConsultationsApiError(
+        "UNAUTHENTICATED",
+        "Sessão expirada. Faça login novamente.",
+      );
+    }
+    if (response.status === 403) {
+      throw new ConsultationsApiError(
+        "FORBIDDEN",
+        "Acesso restrito à equipe clínica.",
+      );
+    }
+    if (response.status === 404) {
+      throw new ConsultationsApiError(
+        "NOT_FOUND",
+        "Atendimento não encontrado.",
+      );
+    }
+    let errorMsg = "Não foi possível iniciar o processamento da transcrição.";
+    try {
+      const errData = (await response.json()) as { message?: string };
+      if (errData?.message) errorMsg = errData.message;
+    } catch {
+      // Ignore
+    }
+    throw new ConsultationsApiError("UNAVAILABLE", errorMsg);
+  }
+
+  const data: unknown = await response.json();
+  const parsed = transcriptionJobResponseSchema.safeParse(data);
+  if (!parsed.success) {
+    throw new ConsultationsApiError(
+      "UNAVAILABLE",
+      "Resposta inválida do serviço de transcrição.",
+    );
+  }
+
+  return parsed.data;
+}
+
+export interface TranscriptionStatusResult {
+  jobId: string;
+  status: "QUEUED" | "PROCESSING" | "COMPLETED" | "FAILED";
+  error?: string;
+}
+
+export async function getTranscriptionStatus(
+  orgSlug: string,
+  consultationId: string,
+): Promise<TranscriptionStatusResult> {
+  const token = await getSessionToken();
+  if (!token) {
+    throw new ConsultationsApiError(
+      "UNAUTHENTICATED",
+      "Sessão expirada. Faça login novamente.",
+    );
+  }
+
+  const { apiBaseUrl } = getServerConfig();
+  const url = `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/consultations/${encodeURIComponent(consultationId)}/transcription`;
+
+  let response: Response | null = null;
+  try {
+    response = await fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
+      },
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    // Continue to fallback check
+  }
+
+  if (response?.ok) {
+    const data: unknown = await response.json();
+    const parsed = transcriptionJobResponseSchema.safeParse(data);
+    if (parsed.success) {
+      return parsed.data;
+    }
+  }
+
+  // Fallback: check consultation details to determine status
+  const details = await getConsultationDetails(orgSlug, consultationId);
+  if (
+    details.anamnesisStatus === "DRAFT" ||
+    details.anamnesisStatus === "APPROVED" ||
+    Boolean(details.anamnesisDraft)
+  ) {
+    return {
+      jobId: details.id,
+      status: "COMPLETED",
+    };
+  }
+
+  if (details.status === "CANCELLED") {
+    return {
+      jobId: details.id,
+      status: "FAILED",
+      error: "Atendimento cancelado.",
+    };
+  }
+
+  return {
+    jobId: details.id,
+    status: "PROCESSING",
+  };
+}
