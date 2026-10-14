@@ -120,6 +120,41 @@ export const consultationDetailResponse = t.Object({
   consultation: t.Optional(t.Any()),
 });
 
+export const MAX_AUDIO_BYTES = 50 * 1024 * 1024;
+
+export const uploadAudioBody = t.Object({
+  audioFile: t.File({ maxSize: MAX_AUDIO_BYTES }),
+  consentConfirmed: t.Union([t.String(), t.Boolean()]),
+});
+
+export const prepareAudioBody = t.Object({
+  contentType: t.Union([
+    t.Literal("audio/webm"),
+    t.Literal("audio/mpeg"),
+    t.Literal("audio/mp4"),
+  ]),
+  sizeBytes: t.Integer({ minimum: 1, maximum: MAX_AUDIO_BYTES }),
+  consentConfirmed: t.Boolean(),
+});
+
+export const audioResponse = t.Object({
+  audioId: t.String(),
+  status: t.Literal("UPLOADED"),
+});
+
+export const prepareAudioResponse = t.Object({
+  audioId: t.String(),
+  uploadUrl: t.String(),
+  expiresInSeconds: t.Literal(600),
+  status: t.Literal("PENDING_UPLOAD"),
+});
+
+export const audioIdParams = t.Object({
+  orgSlug: t.String({ minLength: 2, maxLength: 60 }),
+  consultationId: uuid,
+  audioId: uuid,
+});
+
 export type OrgSlugParams = typeof orgSlugParams.static;
 export type ConsultationIdParams = typeof consultationIdParams.static;
 export type ConsultationStatus = typeof consultationStatus.static;
@@ -135,3 +170,5 @@ export type ConsultationsPageInfo = typeof consultationsPageInfo.static;
 export type ListConsultationsResponse = typeof listConsultationsResponse.static;
 export type ConsultationDetailResponse =
   typeof consultationDetailResponse.static;
+export type UploadAudioBody = typeof uploadAudioBody.static;
+export type PrepareAudioBody = typeof prepareAudioBody.static;

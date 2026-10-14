@@ -130,6 +130,7 @@ model User {
   decidedConfirmations AppointmentConfirmation[] @relation("ConfirmationDecidedBy")
   confirmationDecisions ConfirmationDecision[]   @relation("ConfirmationDecisionAuthor")
   uploadedPatientAttachments PatientAttachment[] @relation("PatientAttachmentUploadedBy")
+  consultationAudios ConsultationAudio[] @relation("ConsultationAudioUploadedBy")
   archivedPatientAttachments PatientAttachment[] @relation("PatientAttachmentArchivedBy")
   notificationPreferences UserNotificationPreference[]
   authoredDocuments  ClinicalDocument[] @relation("ClinicalDocumentAuthor")
@@ -233,6 +234,7 @@ model Organization {
   documentTemplateVersions DocumentTemplateVersion[]
   appointments Appointment[]
   consultations Consultation[]
+  consultationAudios ConsultationAudio[]
   appointmentConfirmations AppointmentConfirmation[]
   confirmationDecisions ConfirmationDecision[]
   appointmentCreationRequests AppointmentCreationRequest[]
@@ -574,12 +576,60 @@ model Consultation {
   patient                Patient                 @relation(fields: [patientId], references: [id], onDelete: Restrict)
   professional           User                    @relation(fields: [professionalId], references: [id], onDelete: Restrict)
   anamnesisTopicRevision AnamnesisTopicRevision? @relation(fields: [anamnesisTopicRevisionId], references: [id], onDelete: Restrict)
+  audios                 ConsultationAudio[]
 
   @@index([organizationId, scheduledAt, id])
   @@index([organizationId, professionalId, scheduledAt])
   @@index([organizationId, patientId, scheduledAt])
   @@index([organizationId, status, scheduledAt])
   @@index([organizationId, anamnesisStatus, scheduledAt])
+}
+
+enum ConsultationAudioStatus {
+  PENDING_UPLOAD
+  UPLOADED
+}
+
+enum AudioProcessingStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model ConsultationAudio {
+  id                 String                  @id @default(uuid()) @db.Uuid
+  organizationId     String                  @db.Uuid
+  consultationId     String                  @db.Uuid
+  uploadedById       String                  @db.Uuid
+  objectKey          String                  @unique
+  stagingObjectKey   String?
+  contentType        String
+  sizeBytes          Int
+  status             ConsultationAudioStatus @default(PENDING_UPLOAD)
+  consentConfirmedAt DateTime
+  uploadExpiresAt    DateTime?
+  objectDeletedAt    DateTime?
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  consultation Consultation @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+  uploadedBy User @relation("ConsultationAudioUploadedBy", fields: [uploadedById], references: [id], onDelete: Restrict)
+  processing AudioProcessing?
+
+  @@index([organizationId, consultationId])
+  @@index([status, uploadExpiresAt])
+}
+
+model AudioProcessing {
+  id             String                @id @default(uuid()) @db.Uuid
+  audioId        String                @unique @db.Uuid
+  status         AudioProcessingStatus @default(QUEUED)
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  audio ConsultationAudio @relation(fields: [audioId], references: [id], onDelete: Cascade)
 }
 
 // Progresso do onboarding guiado (issue #215) — sobrevive a recarregar a página.

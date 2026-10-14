@@ -22,6 +22,8 @@ Na VPS, `infra/storage/expire-audio.sh` sem argumentos faz uma simulação: cons
 
 Antes de habilitar, rode uma simulação e confira a contagem. O job usa a data do upload como início da retenção de 30 dias; a integração com o estado de conclusão da transcrição ainda não existe e deve ser incorporada quando esse fluxo for implementado.
 
+Áudios clínicos enviados pela rota de consulta também são incluídos no job. Uploads assinados que não foram confirmados são removidos após o vencimento do link mais uma hora de tolerância, sem criar processamento. Ao confirmar, o backend copia o áudio validado para uma chave privada diferente; a chave temporária é removida imediatamente e verificada novamente pelo job após o vencimento da URL, pois o cliente ainda poderia reutilizá-la até lá. Para áudios confirmados com mais de 30 dias, o objeto final é apagado e `objectDeletedAt` é registrado; o consentimento e o histórico do processamento permanecem no banco. O modo padrão do job continua sendo simulação.
+
 ## Verificação operacional
 
 Use um objeto de teste sem dados clínicos. Este bucket não tem endpoint público: `r2.dev` está desativado e não há domínio personalizado. O endpoint S3 sem assinatura retorna `400 Bad Request` para GET anônimo; esse status não deve ser interpretado como arquivo público. Uma URL assinada permite acesso durante sua validade e retorna `403` após expirar.

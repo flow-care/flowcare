@@ -26,6 +26,10 @@ import { teamModule } from "./modules/team";
 import { templatesModule } from "./modules/templates";
 import { createSesWebhook } from "./modules/webhooks/ses";
 import { requestLogger } from "./plugins/request-logger";
+import {
+  type ConsultationAudioStore,
+  createConsultationAudioStore,
+} from "./services/consultation-audio-store";
 import type { Mailer } from "./services/mailer";
 import {
   createProfilePhotoStore,
@@ -48,6 +52,7 @@ export interface AppDeps {
   mailer: Mailer;
   profilePhotoStore?: ProfilePhotoStore | null;
   attachmentStore?: ProfilePhotoStore | null;
+  consultationAudioStore?: ConsultationAudioStore | null;
   whatsappProvider?: WhatsAppProvider;
 }
 
@@ -101,6 +106,10 @@ export function createApp(env: Env, deps: AppDeps) {
       : deps.profilePhotoStore;
   const attachmentStore =
     deps.attachmentStore === undefined ? photoStore : deps.attachmentStore;
+  const consultationAudioStore =
+    deps.consultationAudioStore === undefined
+      ? createConsultationAudioStore(env)
+      : deps.consultationAudioStore;
   const whatsappProvider =
     deps.whatsappProvider ??
     new WahaClient({ baseUrl: env.wahaBaseUrl, apiKey: env.wahaApiKey });
@@ -259,7 +268,13 @@ export function createApp(env: Env, deps: AppDeps) {
     .use(
       anamnesisTopicsModule({ prisma: deps.prisma, jwtSecret: env.jwtSecret }),
     )
-    .use(consultationsModule({ prisma: deps.prisma, jwtSecret: env.jwtSecret }))
+    .use(
+      consultationsModule({
+        prisma: deps.prisma,
+        jwtSecret: env.jwtSecret,
+        audioStore: consultationAudioStore,
+      }),
+    )
     .use(auditModule({ prisma: deps.prisma, jwtSecret: env.jwtSecret }));
 
   return app;
