@@ -125,3 +125,75 @@ export async function getPatients(
 
   return parsed.data;
 }
+
+export const patientOverviewSchema = z.object({
+  patient: z.object({
+    id: z.string(),
+    fullName: z.string(),
+    cpf: z.string().optional(),
+    birthDate: z.string().optional(),
+    phone: z.string().optional(),
+    email: z.string().nullable().optional(),
+    healthInsurance: z.string().nullable().optional(),
+    insuranceNumber: z.string().nullable().optional(),
+    version: z.number().optional(),
+  }),
+  contact: z
+    .object({
+      phone: z.string().optional(),
+      email: z.string().nullable().optional(),
+    })
+    .optional(),
+  activeInsurance: z
+    .object({
+      name: z.string(),
+      number: z.string().nullable().optional(),
+    })
+    .nullable()
+    .optional(),
+  healthInsurance: z.string().nullable().optional(),
+  insuranceNumber: z.string().nullable().optional(),
+  allergies: z.array(z.string()).optional(),
+  comorbidities: z.array(z.string()).optional(),
+  clinicalAlerts: z.array(z.string()).optional(),
+  medicalNotes: z.string().nullable().optional(),
+  clinicalSummary: z
+    .object({
+      allergies: z.array(z.string()).optional(),
+      comorbidities: z.array(z.string()).optional(),
+      clinicalAlerts: z.array(z.string()).optional(),
+      medicalNotes: z.string().nullable().optional(),
+    })
+    .optional(),
+});
+export type PatientOverview = z.infer<typeof patientOverviewSchema>;
+
+export async function getPatientOverview(
+  orgSlug: string,
+  patientId: string,
+): Promise<PatientOverview | null> {
+  const token = await getSessionToken();
+  if (!token) return null;
+
+  try {
+    const { apiBaseUrl } = getServerConfig();
+    const url = `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/patients/${encodeURIComponent(patientId)}/overview`;
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
+      },
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(5000),
+    });
+
+    if (!response.ok) return null;
+    const json = await response.json();
+    const parsed = patientOverviewSchema.safeParse(json);
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
