@@ -7,6 +7,7 @@ import {
 } from "@/lib/appointments";
 import { type AppointmentItem, getAppointments } from "@/server/appointments";
 import { getAvailableOrganizations } from "@/server/organizations";
+import { getReceptionQueue, type ReceptionQueueItem } from "@/server/reception";
 import { AppointmentsErrorState } from "./error-state";
 import { AppointmentsSchedule } from "./schedule-client";
 
@@ -33,25 +34,44 @@ export default async function AppointmentsPage({
     notFound();
   }
 
-  const view: "day" | "week" = query.view === "week" ? "week" : "day";
+  const view: "day" | "week" | "reception" =
+    query.view === "reception"
+      ? "reception"
+      : query.view === "week"
+        ? "week"
+        : "day";
   const date = isValidDateString(query.date)
     ? query.date
     : getTodayDateString();
 
-  const { startDate, endDate } =
-    view === "week" ? getWeekRange(date) : { startDate: date, endDate: date };
-
   let appointments: AppointmentItem[] = [];
+  let receptionQueue: ReceptionQueueItem[] = [];
+  let receptionError: string | null = null;
   let hasError = false;
 
-  try {
-    const result = await getAppointments(orgSlug, {
-      startDate,
-      endDate,
-    });
-    appointments = result.appointments ?? result;
-  } catch {
-    hasError = true;
+  if (view === "reception") {
+    try {
+      const result = await getReceptionQueue(orgSlug, date);
+      receptionQueue = result.queue ?? result;
+    } catch (err) {
+      receptionError =
+        err instanceof Error
+          ? err.message
+          : "Não foi possível carregar a fila da recepção.";
+    }
+  } else {
+    const { startDate, endDate } =
+      view === "week" ? getWeekRange(date) : { startDate: date, endDate: date };
+
+    try {
+      const result = await getAppointments(orgSlug, {
+        startDate,
+        endDate,
+      });
+      appointments = result.appointments ?? result;
+    } catch {
+      hasError = true;
+    }
   }
 
   if (hasError) {
@@ -64,6 +84,8 @@ export default async function AppointmentsPage({
       view={view}
       date={date}
       appointments={appointments}
+      receptionQueue={receptionQueue}
+      receptionError={receptionError}
       sheet={query.sheet}
       appointmentId={query.appointmentId}
     />

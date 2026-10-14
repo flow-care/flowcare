@@ -29,24 +29,30 @@ import {
   SHORT_WEEKDAY_NAMES,
 } from "@/lib/appointments";
 import type { AppointmentItem } from "@/server/appointments";
+import type { ReceptionQueueItem } from "@/server/reception";
 import { AppointmentDetailsSheet } from "./appointment-details-sheet";
+import { ReceptionQueueView } from "./reception-queue-view";
 
 interface AppointmentsScheduleProps {
   orgSlug: string;
-  view: "day" | "week";
+  view: "day" | "week" | "reception";
   date: string;
   appointments: AppointmentItem[];
   sheet?: string;
   appointmentId?: string;
+  receptionQueue?: ReceptionQueueItem[];
+  receptionError?: string | null;
 }
 
 export function AppointmentsSchedule({
-  orgSlug: _orgSlug,
+  orgSlug,
   view,
   date,
   appointments,
   sheet,
   appointmentId,
+  receptionQueue,
+  receptionError,
 }: AppointmentsScheduleProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -82,7 +88,7 @@ export function AppointmentsSchedule({
   };
 
   // View Switch Handlers (Preserves Active Date!)
-  const handleViewChange = (newView: "day" | "week") => {
+  const handleViewChange = (newView: "day" | "week" | "reception") => {
     if (newView === view) return;
     updateUrl({ view: newView });
   };
@@ -123,10 +129,10 @@ export function AppointmentsSchedule({
 
   // Formatted Date Indicator
   const dateIndicatorText = useMemo(() => {
-    if (view === "day") {
-      return formatDateLabel(date);
+    if (view === "week") {
+      return formatWeekRangeLabel(weekRange.startDate, weekRange.endDate);
     }
-    return formatWeekRangeLabel(weekRange.startDate, weekRange.endDate);
+    return formatDateLabel(date);
   }, [view, date, weekRange]);
 
   return (
@@ -135,7 +141,7 @@ export function AppointmentsSchedule({
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between border-b border-border pb-5">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground">
-            Agenda
+            {view === "reception" ? "Fila da Recepção" : "Agenda"}
           </h1>
           <p className="text-sm font-medium text-muted-foreground mt-0.5">
             {dateIndicatorText}
@@ -174,7 +180,7 @@ export function AppointmentsSchedule({
             </Button>
           </div>
 
-          {/* View Switcher: Dia / Semana (Preserves Date!) */}
+          {/* View Switcher: Dia / Semana / Fila da Recepção (Preserves Date!) */}
           <div className="flex items-center rounded-lg border border-border bg-card p-1 shadow-2xs">
             <Button
               variant={view === "day" ? "default" : "ghost"}
@@ -192,12 +198,27 @@ export function AppointmentsSchedule({
             >
               Semana
             </Button>
+            <Button
+              variant={view === "reception" ? "default" : "ghost"}
+              size="sm"
+              onClick={() => handleViewChange("reception")}
+              className="h-8 px-3 text-xs font-medium"
+            >
+              Fila da Recepção
+            </Button>
           </div>
         </div>
       </div>
 
       {/* Main Content Area */}
-      {appointments.length === 0 ? (
+      {view === "reception" ? (
+        <ReceptionQueueView
+          orgSlug={orgSlug}
+          date={date}
+          initialQueue={receptionQueue}
+          initialError={receptionError}
+        />
+      ) : appointments.length === 0 ? (
         <Empty className="border border-dashed border-border bg-card/40 py-16">
           <EmptyHeader>
             <EmptyMedia variant="icon">
