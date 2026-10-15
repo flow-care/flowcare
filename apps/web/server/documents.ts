@@ -130,3 +130,217 @@ export async function getDocuments(
     return null;
   }
 }
+
+export class DocumentsApiError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly details?: unknown,
+  ) {
+    super(message);
+    this.name = "DocumentsApiError";
+  }
+}
+
+export const documentTemplateItemSchema = z.object({
+  id: z.string(),
+  organizationId: z.string().nullable().optional(),
+  scope: z.enum(["ORGANIZATION", "GLOBAL"]).optional(),
+  isGlobal: z.boolean().optional(),
+  title: z.string(),
+  type: documentTypeSchema,
+  bodyTemplate: z.string(),
+  status: z.enum(["ACTIVE", "ARCHIVED"]).optional(),
+  version: z.number(),
+  selectable: z.boolean().optional(),
+  archivedAt: z.string().nullable().optional(),
+  createdAt: z.string().optional(),
+  updatedAt: z.string().optional(),
+});
+
+export type DocumentTemplateItem = z.infer<typeof documentTemplateItemSchema>;
+
+export function normalizeDocumentType(type: string): DocumentType {
+  const upper = type.toUpperCase();
+  if (upper === "PRESCRIPTION" || upper === "RECEITA") return "PRESCRIPTION";
+  if (upper === "CERTIFICATE" || upper === "ATESTADO") return "CERTIFICATE";
+  if (
+    upper === "REPORT" ||
+    upper === "LAUDO" ||
+    upper === "CUSTOM" ||
+    upper === "PERSONALIZADO"
+  ) {
+    return "REPORT";
+  }
+  if (
+    upper === "EXAM_REQUEST" ||
+    upper === "EXAM" ||
+    upper === "EXAME" ||
+    upper === "PEDIDO_EXAME"
+  ) {
+    return "EXAM_REQUEST";
+  }
+  return upper as DocumentType;
+}
+
+export async function getDocumentTemplates(
+  orgSlug: string,
+  type?: string,
+): Promise<DocumentTemplateItem[]> {
+  const token = await getSessionToken();
+  if (!token) {
+    throw new DocumentsApiError(
+      "UNAUTHENTICATED",
+      "Entre novamente para continuar.",
+    );
+  }
+
+  const { apiBaseUrl } = getServerConfig();
+  const searchParams = new URLSearchParams();
+
+  if (type) {
+    const lower = type.toLowerCase();
+    // For custom, all active templates can be returned or no type filter applied
+    if (lower !== "custom") {
+      const normalizedType = normalizeDocumentType(type);
+      if (normalizedType) {
+        searchParams.set("type", normalizedType);
+      }
+    }
+  }
+
+  const qs = searchParams.toString();
+  const url = `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/templates${
+    qs ? `?${qs}` : ""
+  }`;
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
+      },
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    throw new DocumentsApiError(
+      "UNAVAILABLE",
+      "Não foi possível conectar ao servidor de modelos.",
+    );
+  }
+
+  if (!response.ok) {
+    let message = "Erro ao buscar modelos de documentos.";
+    let code = "UNKNOWN_ERROR";
+    try {
+      const errJson = await response.json();
+      if (errJson?.message) message = errJson.message;
+      if (errJson?.code) code = errJson.code;
+    } catch {}
+    throw new DocumentsApiError(code, message);
+  }
+
+  const json = await response.json();
+  const parsed = z
+    .object({ data: z.array(documentTemplateItemSchema) })
+    .safeParse(json);
+  if (!parsed.success) {
+    return [];
+  }
+  return parsed.data.data;
+}
+
+export interface CreateDocumentDraftInput {
+  patientId: string;
+  type: string;
+  title: string;
+  content: string;
+  notes?: string;
+  templateId?: string;
+  idempotencyKey?: string;
+}
+
+export async function createDocumentDraft(
+  orgSlug: string,
+  body: CreateDocumentDraftInput,
+): Promise<DocumentListItem> {
+  const token = await getSessionToken();
+  if (!token) {
+    throw new DocumentsApiError(
+      "UNAUTHENTICATED",
+      "Entre novamente para continuar.",
+    );
+  }
+
+  const { apiBaseUrl } = getServerConfig();
+  const url = `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/documents`;
+
+  const idempotencyKey =
+    body.idempotencyKey ||
+    (typeof crypto !== "undefined" && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `doc_${Date.now()}`);
+
+  const normalizedType = normalizeDocumentType(body.type);
+
+  const payload: Record<string, unknown> = {
+    patientId: body.patientId,
+    type: normalizedType,
+    title: body.title.trim(),
+    content: body.content.trim(),
+  };
+
+  if (body.templateId) {
+    payload.templateId = body.templateId;
+  }
+
+  if (body.notes?.trim()) {
+    payload.notes = body.notes.trim();
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        "Idempotency-Key": idempotencyKey,
+      },
+      body: JSON.stringify(payload),
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    throw new DocumentsApiError(
+      "UNAVAILABLE",
+      "Não foi possível conectar ao servidor de documentos.",
+    );
+  }
+
+  if (!response.ok) {
+    let message = "Não foi possível criar o documento.";
+    let code = "UNKNOWN_ERROR";
+    let details: unknown;
+    try {
+      const errJson = await response.json();
+      if (errJson?.message) message = errJson.message;
+      if (errJson?.code) code = errJson.code;
+      if (errJson?.details) details = errJson.details;
+    } catch {}
+    throw new DocumentsApiError(code, message, details);
+  }
+
+  const json = await response.json();
+  const parsed = documentListItemSchema.safeParse(json);
+  if (parsed.success) {
+    return parsed.data;
+  }
+  return json as DocumentListItem;
+}
