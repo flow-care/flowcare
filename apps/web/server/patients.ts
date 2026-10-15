@@ -858,7 +858,7 @@ export async function getPatientOverview(
 
 export const timelineEventItemSchema = z.object({
   id: z.string(),
-  eventType: z.enum(["CONSULTATION", "DOCUMENT", "ATTACHMENT", "APPOINTMENT"]),
+  eventType: z.string(),
   timestamp: z.string(),
   professional: z
     .object({
@@ -877,6 +877,12 @@ export const timelineEventItemSchema = z.object({
 
 export type TimelineEventItem = z.infer<typeof timelineEventItemSchema>;
 
+export interface PatientTimelineFilters {
+  type?: string;
+  startDate?: string;
+  endDate?: string;
+}
+
 export interface PatientTimelineResult {
   data: TimelineEventItem[];
   pageInfo: {
@@ -890,6 +896,7 @@ export interface PatientTimelineResult {
 export async function getPatientTimeline(
   orgSlug: string,
   patientId: string,
+  filters?: PatientTimelineFilters,
 ): Promise<PatientTimelineResult> {
   const token = await getSessionToken();
   if (!token) {
@@ -900,7 +907,22 @@ export async function getPatientTimeline(
   }
 
   const { apiBaseUrl } = getServerConfig();
-  const url = `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/patients/${encodeURIComponent(patientId)}/timeline`;
+  const searchParams = new URLSearchParams();
+
+  if (filters?.type && filters.type !== "all" && filters.type !== "ALL") {
+    searchParams.set("type", filters.type);
+  }
+  if (filters?.startDate) {
+    searchParams.set("startDate", filters.startDate);
+  }
+  if (filters?.endDate) {
+    searchParams.set("endDate", filters.endDate);
+  }
+
+  const queryString = searchParams.toString();
+  const url = `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/patients/${encodeURIComponent(patientId)}/timeline${
+    queryString ? `?${queryString}` : ""
+  }`;
 
   let response: Response;
   try {
@@ -918,6 +940,12 @@ export async function getPatientTimeline(
     };
   }
 
+  if (response.status === 401) {
+    throw new PatientsApiError(
+      "UNAUTHENTICATED",
+      "Entre novamente para continuar.",
+    );
+  }
   if (response.status === 403) {
     return {
       data: [],
@@ -929,10 +957,14 @@ export async function getPatientTimeline(
     if (response.status === 404) {
       throw new PatientsApiError("NOT_FOUND", "Paciente não encontrado.");
     }
-    return {
-      data: [],
-      pageInfo: { limit: 0, hasNextPage: false, nextCursor: null },
-    };
+    const err = (await response.json().catch(() => null)) as {
+      error?: { code?: string; message?: string };
+    } | null;
+    throw new PatientsApiError(
+      err?.error?.code || "UNAVAILABLE",
+      err?.error?.message ||
+        "Não foi possível carregar o prontuário do paciente.",
+    );
   }
 
   const json = await response.json().catch(() => null);
@@ -940,8 +972,26 @@ export async function getPatientTimeline(
     json && typeof json === "object" ? (json as Record<string, unknown>) : null;
   const events = (data?.data ?? data?.events ?? []) as TimelineEventItem[];
   const pageInfo = data?.pageInfo as Record<string, unknown> | undefined;
+
+  const parsedEvents: TimelineEventItem[] = [];
+  if (Array.isArray(events)) {
+    for (const item of events) {
+      const parsed = timelineEventItemSchema.safeParse(item);
+      if (parsed.success) {
+        parsedEvents.push(parsed.data);
+      } else if (
+        item &&
+        typeof item === "object" &&
+        "id" in item &&
+        "eventType" in item
+      ) {
+        parsedEvents.push(item as TimelineEventItem);
+      }
+    }
+  }
+
   return {
-    data: Array.isArray(events) ? events : [],
+    data: parsedEvents,
     pageInfo: {
       limit: typeof pageInfo?.limit === "number" ? pageInfo.limit : 20,
       hasNextPage: Boolean(pageInfo?.hasNextPage),

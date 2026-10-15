@@ -16,6 +16,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { PatientAttachmentsView } from "@/components/flowcare/patients/patient-attachments-view";
+import { PatientRecordsTimeline } from "@/components/flowcare/patients/patient-records-timeline";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -618,92 +619,13 @@ export function PatientProfileView({
 
         {/* Tab "Prontuário" */}
         <TabsContent value="records" className="space-y-6">
-          {!isClinical || timeline.isRestricted ? (
-            <Card>
-              <CardContent className="flex flex-col items-center justify-center p-12 text-center">
-                <div className="mb-4 flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                  <LockIcon className="size-6" />
-                </div>
-                <h3 className="text-lg font-semibold text-foreground">
-                  Acesso restrito ao prontuário clínico
-                </h3>
-                <p className="mt-2 max-w-md text-sm text-muted-foreground">
-                  O prontuário e o histórico clínico deste paciente são
-                  restritos a profissionais de saúde autorizados.
-                </p>
-              </CardContent>
-            </Card>
-          ) : (
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="text-base font-semibold">
-                      Histórico e Prontuário Clínico
-                    </CardTitle>
-                    <CardDescription>
-                      Linha do tempo cronológica de atendimentos, evoluções e
-                      documentos
-                    </CardDescription>
-                  </div>
-                  <Badge variant="secondary">
-                    {timeline.data.length} registro(s)
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {timeline.data.length === 0 ? (
-                  <div className="py-12 text-center text-sm text-muted-foreground">
-                    Nenhum registro clínico encontrado no prontuário deste
-                    paciente.
-                  </div>
-                ) : (
-                  <div className="relative pl-6 space-y-6 before:absolute before:left-2 before:top-2 before:bottom-2 before:w-0.5 before:bg-border">
-                    {timeline.data.map((event) => (
-                      <div key={event.id} className="relative">
-                        <span className="absolute -left-6 top-1 flex size-4 items-center justify-center rounded-full bg-background border-2 border-primary" />
-                        <div className="rounded-lg border border-border bg-card p-4 space-y-1.5 shadow-2xs">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-xs font-semibold uppercase tracking-wider text-primary">
-                              {event.eventType === "CONSULTATION"
-                                ? "Consulta"
-                                : event.eventType === "DOCUMENT"
-                                  ? "Documento"
-                                  : event.eventType === "ATTACHMENT"
-                                    ? "Anexo"
-                                    : "Agendamento"}
-                            </span>
-                            <span className="text-xs text-muted-foreground">
-                              {new Intl.DateTimeFormat("pt-BR", {
-                                dateStyle: "short",
-                                timeStyle: "short",
-                              }).format(new Date(event.timestamp))}
-                            </span>
-                          </div>
-                          <p className="font-medium text-foreground text-sm">
-                            {event.summary}
-                          </p>
-                          {event.professional && (
-                            <p className="text-xs text-muted-foreground">
-                              Profissional: {event.professional.name}
-                              {event.professional.registrationNumber
-                                ? ` (${event.professional.registrationNumber})`
-                                : ""}
-                            </p>
-                          )}
-                          <div className="pt-1 flex items-center gap-2">
-                            <Badge variant="outline" className="text-xs">
-                              {event.status}
-                            </Badge>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
+          <PatientRecordsTimeline
+            timeline={timeline}
+            isClinical={isClinical}
+            isRestricted={overview.isRestricted}
+            orgSlug={orgSlug}
+            patientId={overview.patient.id}
+          />
         </TabsContent>
 
         {/* Tab "Anexos" */}
