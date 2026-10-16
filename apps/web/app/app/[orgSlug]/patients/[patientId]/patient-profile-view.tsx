@@ -5,7 +5,6 @@ import {
   ArrowLeftIcon,
   CalendarClockIcon,
   CalendarPlusIcon,
-  FileTextIcon,
   LockIcon,
   MailIcon,
   PhoneIcon,
@@ -16,6 +15,7 @@ import {
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { PatientAttachmentsView } from "@/components/flowcare/patients/patient-attachments-view";
 import { PatientRecordsTimeline } from "@/components/flowcare/patients/patient-records-timeline";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -630,85 +630,13 @@ export function PatientProfileView({
 
         {/* Tab "Anexos" */}
         <TabsContent value="attachments" className="space-y-6">
-          {!isClinical || attachments.isRestricted ? (
-            <Card>
-              <CardContent className="flex flex-col items-center justify-center p-12 text-center">
-                <div className="mb-4 flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                  <LockIcon className="size-6" />
-                </div>
-                <h3 className="text-lg font-semibold text-foreground">
-                  Acesso restrito aos anexos clínicos
-                </h3>
-                <p className="mt-2 max-w-md text-sm text-muted-foreground">
-                  Exames e documentos clínicos anexados ao paciente são
-                  restritos a profissionais de saúde autorizados.
-                </p>
-              </CardContent>
-            </Card>
-          ) : (
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="text-base font-semibold">
-                      Documentos e Arquivos Anexados
-                    </CardTitle>
-                    <CardDescription>
-                      Laudos, exames laboratoriais e arquivos digitais do
-                      paciente
-                    </CardDescription>
-                  </div>
-                  <Badge variant="secondary">
-                    {attachments.data.length} anexo(s)
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {attachments.data.length === 0 ? (
-                  <div className="py-12 text-center text-sm text-muted-foreground">
-                    Nenhum anexo clínico encontrado para este paciente.
-                  </div>
-                ) : (
-                  <div className="divide-y divide-border rounded-lg border border-border">
-                    {attachments.data.map((att) => (
-                      <div
-                        key={att.id}
-                        className="p-3.5 flex items-center justify-between gap-3 text-sm"
-                      >
-                        <div className="flex items-center gap-3 min-w-0">
-                          <FileTextIcon className="size-5 text-primary shrink-0" />
-                          <div className="min-w-0">
-                            <p className="font-medium text-foreground truncate">
-                              {att.fileName}
-                            </p>
-                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                              {att.category && (
-                                <Badge
-                                  variant="secondary"
-                                  className="text-[10px] py-0"
-                                >
-                                  {att.category}
-                                </Badge>
-                              )}
-                              <span>
-                                {(att.sizeBytes / 1024).toFixed(0)} KB
-                              </span>
-                              <span>•</span>
-                              <span>
-                                {new Intl.DateTimeFormat("pt-BR", {
-                                  dateStyle: "short",
-                                }).format(new Date(att.createdAt))}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
+          <PatientAttachmentsView
+            orgSlug={orgSlug}
+            patientId={overview.patient.id}
+            initialAttachments={attachments.data}
+            isRestricted={!isClinical || attachments.isRestricted}
+            canUpload={isClinical}
+          />
         </TabsContent>
       </Tabs>
     </div>
