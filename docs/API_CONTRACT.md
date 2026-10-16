@@ -93,7 +93,23 @@ Em caso de falha (códigos HTTP 4xx e 5xx), a API responde com a seguinte estrut
 ### Módulo 1: Autenticação & Sessões
 *(Ref: Issues [#192](https://github.com/Flowcare-team/flowcare-monorepo/issues/192), [#207](https://github.com/Flowcare-team/flowcare-monorepo/issues/207), [#208](https://github.com/Flowcare-team/flowcare-monorepo/issues/208), [#209](https://github.com/Flowcare-team/flowcare-monorepo/issues/209))*
 
-**Implementado:** JWT com `sid`/`sub` e sessão persistida, TTL de 12 horas sem renovação automática; verificação de e-mail em 24 horas, reset em 30 minutos e até 3 emissões de token de verificação por conta a cada hora (incluindo o token inicial). Senhas usam Argon2id e aceitam 8 a 72 caracteres. Tokens enviados por e-mail são de uso único e persistidos somente como SHA-256. Proteção por IP, uniformização de latência e invalidação de tokens anteriores ao reenvio estão na [#356](https://github.com/flow-care/flowcare/issues/356).
+**Implementado:** JWT com `sid`/`sub` e sessão persistida, TTL de 12 horas sem renovação automática; verificação de e-mail em 24 horas, reset em 30 minutos e até 3 emissões de token de verificação por conta a cada hora (incluindo o token inicial). Senhas usam Argon2id e aceitam 8 a 72 caracteres. Tokens enviados por e-mail são de uso único e persistidos somente como SHA-256; uma nova emissão invalida atomicamente tokens anteriores ainda válidos do mesmo tipo.
+
+#### Proteção contra abuso e enumeração (#356)
+
+Os contadores usam janelas fixas persistidas no PostgreSQL. Identificadores de origem, e-mail e token são armazenados somente como HMAC-SHA256; o valor completo não é gravado no limitador nem nos metadados de auditoria. Falha de leitura/escrita do limitador interrompe a requisição, sem liberar o envio de e-mail ou a autenticação.
+
+| Fluxo | Limite por origem | Limite por conta/token | Janela |
+|---|---:|---:|---:|
+| Login | 20 | 5 por e-mail normalizado | 15 minutos |
+| Cadastro e reenvio de verificação (contador compartilhado) | 10 | 3 por e-mail normalizado | 1 hora |
+| Solicitação de redefinição | 10 | 3 por e-mail normalizado | 1 hora |
+| Confirmação de e-mail | 20 | 5 por token | 15 minutos |
+| Consumo de token de redefinição | 10 | 5 por token | 15 minutos |
+
+O excesso por origem ou nos fluxos de login/consumo de token retorna `429 RATE_LIMITED`. No cadastro, reenvio e recuperação, o excesso por conta mantém a mesma resposta neutra de sucesso e apenas suprime novo token/e-mail, evitando revelar se a conta existe. Login executa Argon2id também para conta inexistente; cadastro executa o hash nos dois caminhos; cadastro, reenvio, login e recuperação observam tempo mínimo uniforme de 500 ms fora do ambiente de teste.
+
+Quando `TRUST_PROXY=true`, a API aceita `X-Forwarded-For` somente para extração de um IP sintaticamente válido, usando o último elemento da cadeia; sem essa opção usa exclusivamente o endereço do peer. Sob a mesma configuração explícita, as Server Actions do Next.js encaminham ao backend apenas esse último IP validado, nunca a cadeia arbitrária recebida. Com `TRUST_PROXY=false`, o Next.js não encaminha o cabeçalho.
 
 #### `POST /auth/register`
 * **Descrição:** Cria uma nova conta pessoal e dispara e-mail de verificação.
@@ -106,25 +122,25 @@ Em caso de falha (códigos HTTP 4xx e 5xx), a API responde com a seguinte estrut
     "password": "<senha_segura>"
   }
   ```
-* **Respostas:** `201 Created` (`{ "message": "Conta criada com sucesso. Verifique seu e-mail para continuar." }`), `400 VALIDATION_ERROR`. E-mails já cadastrados recebem a mesma resposta; contas já verificadas não recebem outro link.
+* **Respostas:** `201 Created` (`{ "message": "Conta criada com sucesso. Verifique seu e-mail para continuar." }`), `400 VALIDATION_ERROR`, `429 RATE_LIMITED` por origem. E-mails já cadastrados e limites por conta recebem a mesma resposta `201`; contas já verificadas não recebem outro link.
 
 #### `POST /auth/verify-email`
 * **Descrição:** Confirma o endereço de e-mail com o token recebido.
 * **Permissão:** Pública.
 * **Body:** `{ "token": "<token_verificacao>" }`
-* **Respostas:** `200 OK` com o mesmo DTO de sessão de `POST /auth/login` (`token`, `user`, `availableOrganizations`, `onboardingCompleted`), `400 INVALID_TOKEN`. O token de verificação é consumido uma única vez; o frontend guarda a sessão em cookie HttpOnly e segue para o onboarding ou clínica disponível.
+* **Respostas:** `200 OK` com o mesmo DTO de sessão de `POST /auth/login` (`token`, `user`, `availableOrganizations`, `onboardingCompleted`), `400 INVALID_TOKEN`, `429 RATE_LIMITED`. O token de verificação é consumido uma única vez; o frontend guarda a sessão em cookie HttpOnly e segue para o onboarding ou clínica disponível.
 
 #### `POST /auth/resend-verification`
 * **Descrição:** Solicita outro link de confirmação para uma conta ainda pendente. A resposta é igual para e-mail inexistente, já confirmado ou temporariamente limitado, para não revelar o estado da conta.
 * **Permissão:** Pública.
 * **Body:** `{ "email": "maria.silva@exemplo.com" }`
-* **Respostas:** `200 OK` (`{ "message": "Se a conta estiver pendente, um novo link será enviado." }`), `400 VALIDATION_ERROR`.
+* **Respostas:** `200 OK` (`{ "message": "Se a conta estiver pendente, um novo link será enviado." }`), `400 VALIDATION_ERROR`, `429 RATE_LIMITED` por origem. Limite por conta mantém a resposta `200`.
 
 #### `POST /auth/login`
 * **Descrição:** Autentica com e-mail e senha e inicia a sessão do usuário.
 * **Permissão:** Pública.
 * **Body:** `{ "email": "maria.silva@exemplo.com", "password": "<senha_segura>" }`
-* **Respostas:** `200 OK` (`{ "user": { "id": "usr_1", "email": "...", "fullName": "..." }, "availableOrganizations": [ { "id", "name", "slug", "role", "isOwner" } ], "token": "...", "onboardingCompleted": false, "onboardingCurrentStep": "PROFILE_SETUP" }`), `401 INVALID_CREDENTIALS`, `401 ACCOUNT_NOT_VERIFIED`.
+* **Respostas:** `200 OK` (`{ "user": { "id": "usr_1", "email": "...", "fullName": "..." }, "availableOrganizations": [ { "id", "name", "slug", "role", "isOwner" } ], "token": "...", "onboardingCompleted": false, "onboardingCurrentStep": "PROFILE_SETUP" }`), `401 INVALID_CREDENTIALS`, `401 ACCOUNT_NOT_VERIFIED`, `429 RATE_LIMITED`.
 
 > `isOwner` = `true` quando a clínica foi criada pelo próprio usuário (ele é o pagador da assinatura); membros convidados recebem `isOwner: false` e não pagam.
 
@@ -132,13 +148,13 @@ Em caso de falha (códigos HTTP 4xx e 5xx), a API responde com a seguinte estrut
 * **Descrição:** Solicita redefinição de senha. Retorna resposta indistinguível para evitar enumeração de contas.
 * **Permissão:** Pública.
 * **Body:** `{ "email": "maria.silva@exemplo.com" }`
-* **Respostas:** `200 OK` (`{ "message": "Se o e-mail estiver cadastrado, as instruções serão enviadas." }`).
+* **Respostas:** `200 OK` (`{ "message": "Se o e-mail estiver cadastrado, as instruções serão enviadas." }`), `429 RATE_LIMITED` por origem. E-mail inexistente e limite por conta mantêm a mesma resposta `200`.
 
 #### `POST /auth/reset-password`
 * **Descrição:** Redefine a senha utilizando o token e encerra todas as sessões anteriores por segurança.
 * **Permissão:** Pública.
 * **Body:** `{ "token": "<token_redefinicao>", "newPassword": "<nova_senha>" }`
-* **Respostas:** `200 OK` (`{ "message": "Senha alterada com sucesso. Todas as sessões anteriores foram encerradas." }`), `400 INVALID_TOKEN`.
+* **Respostas:** `200 OK` (`{ "message": "Senha alterada com sucesso. Todas as sessões anteriores foram encerradas." }`), `400 INVALID_TOKEN`, `429 RATE_LIMITED`.
 
 #### `POST /auth/logout`
 * **Descrição:** Encerra a sessão ativa do usuário.
@@ -1088,7 +1104,7 @@ A definição completa e o schema Prisma oficial para o banco PostgreSQL são ma
 * **`Appointment`**: Agendamentos ligados a `Patient`, `User` (profissional) e `Organization`.
 * **`Consultation`**: Atendimento clínico ligado a `Appointment` e `Patient`.
 * **`Document` & `DocumentVersion`**: Documentos médicos com histórico de versões e snapshots imutáveis.
-* **`AuditLog`**: Trilha imutável de eventos de auditoria da organização.
+* **`AuditLog`**: Trilha imutável de eventos de auditoria da organização e de segurança. `actorUserId` pode ser nulo somente quando a tentativa ocorre antes de uma identidade ser comprovada; nesses casos, alvo e origem são pseudonimizados com HMAC-SHA256.
 
 #### `User`, `Organization` e `Membership`
 
@@ -1160,5 +1176,6 @@ Consulta a trilha de auditoria e segurança da clínica ativa. Acesso restrito a
 #### Imutabilidade e Sanitização de Dados
 * **Imutabilidade**: Eventos de auditoria são somente gravação pelo sistema. Qualquer tentativa de alteração ou remoção via API comum (`POST`, `PATCH`, `PUT`, `DELETE /organizations/:orgSlug/audit-logs` ou `/audit-logs`) é expressamente rejeitada com HTTP 403 `AUDIT_LOG_IMMUTABLE`.
 * **Sanitização de Metadados**: O serviço de auditoria sanitiza previamente qualquer dado sensível em profundidade. É terminantemente proibida a persistência de senhas, hashes de senha, tokens, chaves privadas/API, áudios brutos, gravações de voz ou conteúdo clínico bruto nos metadados.
+* **Eventos públicos de autenticação**: `AUTH_LOGIN_FAILED` e `AUTH_RATE_LIMITED` usam `targetType: "AUTH_SUBJECT"`, `actorUserId: null` quando a conta não pode ser comprovada e somente digests HMAC do alvo/origem. E-mail, IP, senha e token completos não entram na trilha nem nos logs HTTP abertos.
 * **Fail-Closed**: Falha no registro de auditoria em ações críticas aborta a transação e retorna erro HTTP, impedindo que mutações críticas ocorram sem rastro.
 * **Retenção**: Prazo de retenção homologado de 5 anos (1.825 dias).

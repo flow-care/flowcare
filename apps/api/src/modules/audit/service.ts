@@ -111,7 +111,7 @@ export class AuditService extends AuditLogger {
         Array<{
           id: string;
           organizationId: string | null;
-          actorUserId: string;
+          actorUserId: string | null;
           action: string;
           targetType: string;
           targetId: string;
@@ -143,7 +143,9 @@ export class AuditService extends AuditLogger {
     // Resolve actor details if available
     const actorUserIds = Array.from(
       new Set(
-        rows.map((r: { actorUserId: string }) => r.actorUserId).filter(Boolean),
+        rows
+          .map((r: { actorUserId: string | null }) => r.actorUserId)
+          .filter((id): id is string => Boolean(id)),
       ),
     );
     const userMap = new Map<
@@ -187,7 +189,9 @@ export class AuditService extends AuditLogger {
 
     return {
       data: rows.map((row) => {
-        const actor = userMap.get(row.actorUserId);
+        const actor = row.actorUserId
+          ? userMap.get(row.actorUserId)
+          : undefined;
         return {
           id: row.id,
           organizationId: row.organizationId,

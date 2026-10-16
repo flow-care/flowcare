@@ -16,7 +16,18 @@ export function authModule(deps: AuthDeps) {
     group
       .post(
         "/register",
-        async ({ body, status }) => status(201, await service.register(body)),
+        async ({ body, request, server, status }) =>
+          status(
+            201,
+            await service.register(
+              body,
+              sessionMetadataFromRequest({
+                request,
+                peerAddress: server?.requestIP(request)?.address ?? null,
+                trustProxy: deps.config.trustProxy,
+              }),
+            ),
+          ),
         {
           body: m.registerBody,
           response: { 201: m.messageResponse },
@@ -37,7 +48,15 @@ export function authModule(deps: AuthDeps) {
       )
       .post(
         "/resend-verification",
-        ({ body }) => service.resendVerification(body.email),
+        ({ body, request, server }) =>
+          service.resendVerification(
+            body.email,
+            sessionMetadataFromRequest({
+              request,
+              peerAddress: server?.requestIP(request)?.address ?? null,
+              trustProxy: deps.config.trustProxy,
+            }),
+          ),
         {
           body: m.resendVerificationBody,
           response: { 200: m.messageResponse },
@@ -59,13 +78,37 @@ export function authModule(deps: AuthDeps) {
           response: { 200: m.loginResponse },
         },
       )
-      .post("/forgot-password", ({ body }) => service.forgotPassword(body), {
-        body: m.forgotPasswordBody,
-        response: { 200: m.messageResponse },
-      })
-      .post("/reset-password", ({ body }) => service.resetPassword(body), {
-        body: m.resetPasswordBody,
-        response: { 200: m.messageResponse },
-      }),
+      .post(
+        "/forgot-password",
+        ({ body, request, server }) =>
+          service.forgotPassword(
+            body,
+            sessionMetadataFromRequest({
+              request,
+              peerAddress: server?.requestIP(request)?.address ?? null,
+              trustProxy: deps.config.trustProxy,
+            }),
+          ),
+        {
+          body: m.forgotPasswordBody,
+          response: { 200: m.messageResponse },
+        },
+      )
+      .post(
+        "/reset-password",
+        ({ body, request, server }) =>
+          service.resetPassword(
+            body,
+            sessionMetadataFromRequest({
+              request,
+              peerAddress: server?.requestIP(request)?.address ?? null,
+              trustProxy: deps.config.trustProxy,
+            }),
+          ),
+        {
+          body: m.resetPasswordBody,
+          response: { 200: m.messageResponse },
+        },
+      ),
   );
 }

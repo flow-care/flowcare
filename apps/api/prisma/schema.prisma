@@ -196,6 +196,17 @@ model VerificationToken {
   @@index([userId, type])
 }
 
+// Contadores de tentativas dos endpoints públicos de auth (#356), janela fixa.
+// `key` = escopo + HMAC-SHA256 do identificador (IP ou e-mail) + índice da
+// janela: nenhum IP ou e-mail em texto plano é persistido.
+model AuthRateLimit {
+  key       String   @id
+  count     Int      @default(0)
+  expiresAt DateTime
+
+  @@index([expiresAt])
+}
+
 model Organization {
   id        String   @id @default(uuid()) @db.Uuid
   name      String
@@ -254,7 +265,8 @@ model Organization {
 model AuditLog {
   id             String        @id @default(uuid()) @db.Uuid
   organizationId String?       @db.Uuid
-  actorUserId    String        @db.Uuid
+  // Nulo somente para eventos de segurança originados antes da autenticação.
+  actorUserId    String?       @db.Uuid
   action         String
   targetType     String
   targetId       String

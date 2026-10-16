@@ -5,6 +5,11 @@ import type { Env } from "../src/config/env";
 import type { PrismaClient } from "../src/generated/prisma/client";
 import { signSessionToken } from "../src/services/session-token";
 
+const alwaysAllowRateLimiter = {
+  consume: async () => ({ allowed: true, count: 1 }),
+  reset: async () => {},
+};
+
 const env = {
   port: 0,
   nodeEnv: "test",
@@ -116,6 +121,7 @@ function setup() {
     prisma,
     mailer: { send: async () => {} },
     profilePhotoStore: null,
+    authRateLimiter: alwaysAllowRateLimiter,
   });
   const bearer = {
     authorization: `Bearer ${signSessionToken({ sid: "session-a", sub: "user-a" }, env.jwtSecret, 3600)}`,
@@ -265,6 +271,7 @@ test("login returns saved organization only while its membership remains active"
     prisma,
     mailer: { send: async () => {} },
     profilePhotoStore: null,
+    authRateLimiter: alwaysAllowRateLimiter,
   });
   const login = () =>
     app.handle(

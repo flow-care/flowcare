@@ -95,6 +95,7 @@ services:
     image: ghcr.io/flow-care/flowcare-web:${FLOWCARE_TAG:?FLOWCARE_TAG e obrigatorio (infra/deploy.sh exporta)}
     environment:
       API_INTERNAL_URL: ${API_INTERNAL_URL:?Defina API_INTERNAL_URL no .env}
+      TRUST_PROXY: ${TRUST_PROXY:-false}
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/"]
       interval: 30s
