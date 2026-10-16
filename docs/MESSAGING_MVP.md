@@ -19,6 +19,8 @@ O envio operacional por WhatsApp exige opt-in explícito registrado por clínica
 
 Templates são limitados aos três eventos de WhatsApp acima. Variáveis desconhecidas são recusadas. Diagnóstico, medicamento, hipótese clínica e conteúdo de prontuário são proibidos nos textos; como texto livre não permite detecção confiável, a clínica deve revisar o template antes de ativá-lo. O texto usa apenas informações logísticas necessárias; nome de profissional e da clínica são opcionais conforme o template aprovado. O armazenamento e os logs não devem expor telefone completo, credencial, token ou conteúdo clínico.
 
+**Decisão provisória do MVP para a #298:** a gravação por um membro com capacidade administrativa `settings:write` equivale à revisão e aprovação da nova versão, que passa a ser a versão corrente. Não há estado ou endpoint de ativação separado nesta fase. Cada texto aceita no máximo 4.096 caracteres; esse limite fica centralizado na API e deve ser reavaliado quando o contrato definitivo do provedor e do produto for homologado. A auditoria registra tipo, autor, versões e variáveis utilizadas, mas não copia o conteúdo do texto para os metadados.
+
 Esta é uma política de produto conservadora para o canal. A base legal e os avisos de privacidade de cada clínica precisam de revisão jurídica antes da operação real; o opt-in por si só não substitui essa revisão. A [LGPD](https://www.planalto.gov.br/ccivil_03/_ato2015-2018/2018/lei/l13709.htm) disciplina o tratamento de dados pessoais, e a [ANPD](https://www.gov.br/anpd/pt-br/assuntos/noticias/anpd-conclui-a-analise-sobre-compartilhamento-de-dados-pessoais-entre-whatsapp-e-meta) destaca transparência no uso do WhatsApp.
 
 ## Fila, estados e idempotência
