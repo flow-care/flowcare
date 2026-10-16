@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  setSystemTime,
+  test,
+} from "bun:test";
 import { canOpenSection } from "@/lib/app-navigation";
 import { formatScheduledAt } from "../components/flowcare/consultations/format-date";
 
@@ -27,6 +35,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  setSystemTime();
   globalThis.fetch = originalFetch;
   if (originalApiUrl === undefined) delete process.env.API_INTERNAL_URL;
   else process.env.API_INTERNAL_URL = originalApiUrl;
@@ -119,6 +128,8 @@ describe("consultations web logic (#268)", () => {
   });
 
   test("getConsultations handles unauthenticated sessions and API responses", async () => {
+    setSystemTime(new Date("2026-10-14T14:30:00.000Z"));
+
     // When no cookie is found, getSessionToken returns null
     mockToken = null;
     await expect(getConsultations("clinica-teste")).rejects.toMatchObject({
