@@ -921,28 +921,28 @@ O identificador `revisionId` da versão vigente deve ser armazenado pela futura 
 
 #### `GET /organizations/:orgSlug/communications/whatsapp/templates`
 * **Descrição:** Lista os textos já configurados pela clínica para `APPOINTMENT_CONFIRMATION`, `APPOINTMENT_CANCELLATION` e `APPOINTMENT_REMINDER_24H`. Organizações sem configuração recebem `data: []`; a API não cria textos padrão implicitamente.
-* **Permissão:** `settings:read` (`ADMIN` ou `ADMIN_PROFESSIONAL`).
+* **Permissão:** `communications:read` (`ADMIN`, `ADMIN_PROFESSIONAL` ou `RECEPTIONIST` ativo).
 * **Resposta:** `{ "data": [{ "type": "APPOINTMENT_CONFIRMATION", "content": "Consulta confirmada para {data} às {hora}.", "version": 1, "allowedVariables": ["{paciente_nome}", "{data}", "{hora}", "{medico_nome}", "{clinica_nome}"], "maxLength": 4096, "approvedById": "...", "approvedAt": "...", "createdAt": "...", "updatedAt": "..." }] }`.
 
 #### `PUT /organizations/:orgSlug/communications/whatsapp/templates/:type`
-* **Descrição:** Cria ou atualiza um texto operacional com concorrência otimista. `version: 0` cria a primeira versão; atualizações devem enviar a versão corrente. Salvar por administrador equivale à revisão/aprovação e torna a nova versão corrente. Versões anteriores permanecem imutáveis.
-* **Permissão:** `settings:write` (`ADMIN` ou `ADMIN_PROFESSIONAL`).
+* **Descrição:** Cria ou atualiza um texto operacional com concorrência otimista. `version: 0` cria a primeira versão; atualizações devem enviar a versão corrente. Salvar por um membro autorizado equivale à revisão/aprovação e torna imediatamente a nova versão corrente. Não há rascunho ou etapa de aprovação separada no MVP. Versões anteriores permanecem imutáveis.
+* **Permissão:** `communications:write` (`ADMIN`, `ADMIN_PROFESSIONAL` ou `RECEPTIONIST` ativo).
 * **Body:** `{ "content": "Olá, {paciente_nome}. Sua consulta será em {data} às {hora}.", "version": 0 }`. O conteúdo tem limite provisório de 4.096 caracteres.
-* **Respostas:** `200 OK` com o template corrente; `400 VALIDATION_ERROR` para payload estruturalmente inválido; `409 VERSION_CONFLICT`; `422 INVALID_TEMPLATE_STRUCTURE`; `422 INVALID_TEMPLATE_VARIABLE`. A auditoria registra somente tipo, versões, campos alterados e variáveis, sem copiar o texto.
+* **Respostas:** `200 OK` com o template corrente; `400 VALIDATION_ERROR` para payload estruturalmente inválido; `409 VERSION_CONFLICT`; `422 INVALID_TEMPLATE_STRUCTURE`; `422 INVALID_TEMPLATE_VARIABLE`. A auditoria registra responsável, organização, tipo, versões, instante de aprovação, campos alterados e variáveis, sem copiar o texto.
 
 #### `GET /organizations/:orgSlug/communications/whatsapp/templates/:type/versions`
 * **Descrição:** Lista os snapshots imutáveis do tipo configurado, em ordem crescente de versão.
-* **Permissão:** `settings:read`.
+* **Permissão:** `communications:read` (`ADMIN`, `ADMIN_PROFESSIONAL` ou `RECEPTIONIST` ativo).
 * **Resposta:** `{ "data": [{ "type": "APPOINTMENT_CONFIRMATION", "content": "...", "version": 1, "approvedById": "...", "approvedAt": "...", "createdAt": "..." }] }`; `404 NOT_FOUND` quando o tipo ainda não foi configurado para a clínica.
 
 #### `GET /organizations/:orgSlug/communications/whatsapp/templates/:type/versions/:version`
 * **Descrição:** Recupera um snapshot histórico específico do tipo configurado na clínica.
-* **Permissão:** `settings:read`.
+* **Permissão:** `communications:read` (`ADMIN`, `ADMIN_PROFESSIONAL` ou `RECEPTIONIST` ativo).
 * **Respostas:** `200 OK`; `400 VALIDATION_ERROR` quando `version` não for um inteiro entre 1 e 2.147.483.647; `404 NOT_FOUND` para tipo/versão inexistente dentro da organização ativa.
 
 #### `POST /organizations/:orgSlug/communications/whatsapp/templates/:type/preview`
 * **Descrição:** Valida um texto sem persistir e substitui somente as variáveis presentes por exemplos fixos e fictícios. Não consulta paciente, agenda, profissional ou organização.
-* **Permissão:** `settings:write`.
+* **Permissão:** `communications:write` (`ADMIN`, `ADMIN_PROFESSIONAL` ou `RECEPTIONIST` ativo).
 * **Body:** `{ "content": "Olá, {paciente_nome}. Sua consulta será em {data} às {hora}." }`.
 * **Resposta:** `{ "isExample": true, "type": "APPOINTMENT_CONFIRMATION", "content": "Olá, Maria da Silva. Sua consulta será em 20/10/2026 às 14:30.", "variables": { "paciente_nome": "Maria da Silva", "data": "20/10/2026", "hora": "14:30" }, "allowedVariables": [...], "maxLength": 4096 }`.
 * **Erros:** `400 VALIDATION_ERROR` para payload estruturalmente inválido; `422 INVALID_TEMPLATE_STRUCTURE`; `422 INVALID_TEMPLATE_VARIABLE`.

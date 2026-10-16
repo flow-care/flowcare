@@ -51,7 +51,7 @@ export function communicationsModule(deps: {
           },
           {
             params: t.Object({ orgSlug: t.String() }),
-            organizationAccess: "settings:read",
+            organizationAccess: "communications:read",
             response: {
               200: "communications.whatsappTemplatesResponse",
             },
@@ -66,7 +66,7 @@ export function communicationsModule(deps: {
           {
             params: m.whatsappTemplateParams,
             body: m.previewWhatsappTemplateBody,
-            organizationAccess: "settings:write",
+            organizationAccess: "communications:write",
             response: {
               200: "communications.whatsappTemplatePreviewResponse",
             },
@@ -83,7 +83,7 @@ export function communicationsModule(deps: {
           },
           {
             params: m.whatsappTemplateParams,
-            organizationAccess: "settings:read",
+            organizationAccess: "communications:read",
             response: {
               200: "communications.whatsappTemplateVersionsResponse",
             },
@@ -101,7 +101,7 @@ export function communicationsModule(deps: {
           },
           {
             params: m.whatsappTemplateVersionParams,
-            organizationAccess: "settings:read",
+            organizationAccess: "communications:read",
             response: {
               200: m.whatsappTemplateVersionItem,
             },
@@ -122,7 +122,7 @@ export function communicationsModule(deps: {
           {
             params: m.whatsappTemplateParams,
             body: m.saveWhatsappTemplateBody,
-            organizationAccess: "settings:write",
+            organizationAccess: "communications:write",
             response: {
               200: "communications.whatsappTemplateItem",
             },

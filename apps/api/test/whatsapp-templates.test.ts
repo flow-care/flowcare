@@ -63,7 +63,11 @@ function setup() {
 
   const membershipByUserAndSlug = new Map<
     string,
-    { organizationId: string; role: MembershipRole }
+    {
+      organizationId: string;
+      role: MembershipRole;
+      status?: "ACTIVE" | "SUSPENDED";
+    }
   >([
     ["admin-a:clinic-a", { organizationId: "org-a", role: "ADMIN" }],
     [
@@ -71,6 +75,14 @@ function setup() {
       { organizationId: "org-a", role: "ADMIN_PROFESSIONAL" },
     ],
     ["reception-a:clinic-a", { organizationId: "org-a", role: "RECEPTIONIST" }],
+    [
+      "suspended-reception-a:clinic-a",
+      {
+        organizationId: "org-a",
+        role: "RECEPTIONIST",
+        status: "SUSPENDED",
+      },
+    ],
     [
       "professional-a:clinic-a",
       { organizationId: "org-a", role: "PROFESSIONAL" },
@@ -98,7 +110,7 @@ function setup() {
           ? {
               id: `membership-${where.userId}`,
               ...membership,
-              status: "ACTIVE" as const,
+              status: membership.status ?? ("ACTIVE" as const),
             }
           : null;
       },
@@ -505,10 +517,91 @@ describe("organization WhatsApp templates", () => {
     expect(maximumInt.status).toBe(404);
   });
 
-  test("allows only administrators to read or change templates", async () => {
-    const { request } = setup();
+  test("allows communications operators and rejects unauthorized access", async () => {
+    const { audits, request } = setup();
+    const original = "Consulta fictícia em {data} às {hora}.";
+    const updated = "Consulta fictícia atualizada em {data} às {hora}.";
 
-    for (const userId of ["reception-a", "professional-a"]) {
+    const created = await request(
+      "reception-a",
+      `${basePath}/APPOINTMENT_CONFIRMATION`,
+      "PUT",
+      { content: original, version: 0 },
+    );
+    expect(created.status).toBe(200);
+    expect(await created.json()).toMatchObject({
+      content: original,
+      version: 1,
+      approvedById: "reception-a",
+      approvedAt: expect.any(String),
+    });
+
+    const changed = await request(
+      "reception-a",
+      `${basePath}/APPOINTMENT_CONFIRMATION`,
+      "PUT",
+      { content: updated, version: 1 },
+    );
+    expect(changed.status).toBe(200);
+    expect(await changed.json()).toMatchObject({
+      content: updated,
+      version: 2,
+      approvedById: "reception-a",
+    });
+
+    const read = await request("reception-a", basePath);
+    expect(read.status).toBe(200);
+    expect(await read.json()).toMatchObject({
+      data: [{ content: updated, version: 2 }],
+    });
+
+    const history = await request(
+      "reception-a",
+      `${basePath}/APPOINTMENT_CONFIRMATION/versions`,
+    );
+    expect(history.status).toBe(200);
+    expect(await history.json()).toMatchObject({
+      data: [
+        { content: original, version: 1, approvedById: "reception-a" },
+        { content: updated, version: 2, approvedById: "reception-a" },
+      ],
+    });
+
+    const historicalVersion = await request(
+      "reception-a",
+      `${basePath}/APPOINTMENT_CONFIRMATION/versions/1`,
+    );
+    expect(historicalVersion.status).toBe(200);
+    expect(await historicalVersion.json()).toMatchObject({
+      content: original,
+      version: 1,
+      approvedById: "reception-a",
+    });
+
+    const preview = await request(
+      "reception-a",
+      `${basePath}/APPOINTMENT_CONFIRMATION/preview`,
+      "POST",
+      { content: "Olá, {paciente_nome}. Consulta em {data} às {hora}." },
+    );
+    expect(preview.status).toBe(200);
+    expect(await preview.json()).toMatchObject({
+      isExample: true,
+      content: "Olá, Maria da Silva. Consulta em 20/10/2026 às 14:30.",
+    });
+
+    expect(audits).toHaveLength(2);
+    expect(
+      audits.every(
+        (event) =>
+          event.actorUserId === "reception-a" &&
+          event.organizationId === "org-a" &&
+          event.metadata.approvalMethod === "SAVE_AND_ACTIVATE" &&
+          typeof event.metadata.approvedAt === "string",
+      ),
+    ).toBe(true);
+
+    for (const userId of ["professional-a"]) {
       const read = await request(userId, basePath);
       expect(read.status).toBe(403);
       expect(await read.json()).toMatchObject({
@@ -544,8 +637,39 @@ describe("organization WhatsApp templates", () => {
       expect(preview.status).toBe(403);
     }
 
+    const receptionistReconnect = await request(
+      "reception-a",
+      "/organizations/clinic-a/communications/whatsapp/reconnect",
+      "POST",
+    );
+    expect(receptionistReconnect.status).toBe(403);
+
+    const suspended = await request("suspended-reception-a", basePath);
+    expect(suspended.status).toBe(403);
+    expect(await suspended.json()).toMatchObject({
+      error: { code: "MEMBERSHIP_INACTIVE" },
+    });
+
+    const foreignOrganization = await request(
+      "reception-a",
+      "/organizations/clinic-b/communications/whatsapp/templates",
+    );
+    expect(foreignOrganization.status).toBe(404);
+
+    const admin = await request("admin-a", basePath);
+    expect(admin.status).toBe(200);
     const adminProfessional = await request("admin-prof-a", basePath);
     expect(adminProfessional.status).toBe(200);
+    const adminProfessionalWrite = await request(
+      "admin-prof-a",
+      `${basePath}/APPOINTMENT_CANCELLATION`,
+      "PUT",
+      {
+        content: "Cancelamento fictício em {data} às {hora}.",
+        version: 0,
+      },
+    );
+    expect(adminProfessionalWrite.status).toBe(200);
 
     const unauthenticated = await request(null, basePath);
     expect(unauthenticated.status).toBe(401);

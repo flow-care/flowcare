@@ -103,11 +103,15 @@ const compactRunId = runId.replaceAll("-", "");
 const ids = {
   adminA: crypto.randomUUID(),
   receptionistA: crypto.randomUUID(),
+  professionalA: crypto.randomUUID(),
+  suspendedReceptionistA: crypto.randomUUID(),
   adminB: crypto.randomUUID(),
   organizationA: crypto.randomUUID(),
   organizationB: crypto.randomUUID(),
   sessionAdminA: crypto.randomUUID(),
   sessionReceptionistA: crypto.randomUUID(),
+  sessionProfessionalA: crypto.randomUUID(),
+  sessionSuspendedReceptionistA: crypto.randomUUID(),
   sessionAdminB: crypto.randomUUID(),
 };
 const slugs = {
@@ -115,7 +119,13 @@ const slugs = {
   organizationB: `whatsapp-298-b-${compactRunId}`,
 };
 const organizationIds = [ids.organizationA, ids.organizationB];
-const userIds = [ids.adminA, ids.receptionistA, ids.adminB];
+const userIds = [
+  ids.adminA,
+  ids.receptionistA,
+  ids.professionalA,
+  ids.suspendedReceptionistA,
+  ids.adminB,
+];
 const tokens = {
   adminA: signSessionToken(
     { sub: ids.adminA, sid: ids.sessionAdminA },
@@ -124,6 +134,19 @@ const tokens = {
   ),
   receptionistA: signSessionToken(
     { sub: ids.receptionistA, sid: ids.sessionReceptionistA },
+    JWT_SECRET,
+    3_600,
+  ),
+  professionalA: signSessionToken(
+    { sub: ids.professionalA, sid: ids.sessionProfessionalA },
+    JWT_SECRET,
+    3_600,
+  ),
+  suspendedReceptionistA: signSessionToken(
+    {
+      sub: ids.suspendedReceptionistA,
+      sid: ids.sessionSuspendedReceptionistA,
+    },
     JWT_SECRET,
     3_600,
   ),
@@ -192,6 +215,20 @@ describe.skipIf(!integrationEnabled)(
             emailVerified: true,
           },
           {
+            id: ids.professionalA,
+            email: `professional-a-${runId}@example.test`,
+            fullName: "Profissional Exemplo A",
+            passwordHash: "integration-test-only",
+            emailVerified: true,
+          },
+          {
+            id: ids.suspendedReceptionistA,
+            email: `suspended-receptionist-a-${runId}@example.test`,
+            fullName: "Recepcionista Suspensa Exemplo A",
+            passwordHash: "integration-test-only",
+            emailVerified: true,
+          },
+          {
             id: ids.adminB,
             email: `admin-b-${runId}@example.test`,
             fullName: "Administrador Exemplo B",
@@ -231,6 +268,17 @@ describe.skipIf(!integrationEnabled)(
             role: "RECEPTIONIST",
           },
           {
+            userId: ids.professionalA,
+            organizationId: ids.organizationA,
+            role: "PROFESSIONAL",
+          },
+          {
+            userId: ids.suspendedReceptionistA,
+            organizationId: ids.organizationA,
+            role: "RECEPTIONIST",
+            status: "SUSPENDED",
+          },
+          {
             userId: ids.adminB,
             organizationId: ids.organizationB,
             role: "ADMIN",
@@ -248,6 +296,16 @@ describe.skipIf(!integrationEnabled)(
           {
             id: ids.sessionReceptionistA,
             userId: ids.receptionistA,
+            expiresAt: new Date(Date.now() + 3_600_000),
+          },
+          {
+            id: ids.sessionProfessionalA,
+            userId: ids.professionalA,
+            expiresAt: new Date(Date.now() + 3_600_000),
+          },
+          {
+            id: ids.sessionSuspendedReceptionistA,
+            userId: ids.suspendedReceptionistA,
             expiresAt: new Date(Date.now() + 3_600_000),
           },
           {
@@ -486,42 +544,137 @@ describe.skipIf(!integrationEnabled)(
       ).toBe(2);
     });
 
-    test("enforces administrative permissions before reading or writing", async () => {
+    test("allows active communications operators and rejects unauthorized access", async () => {
       const basePath = templatesPath(slugs.organizationA);
-      const deniedRead = await request("receptionistA", basePath);
-      expect(deniedRead.status).toBe(403);
-      expect(await deniedRead.json()).toMatchObject({
-        error: { code: "PERMISSION_DENIED" },
-      });
+      const original = "Consulta ficticia em {data} as {hora}.";
+      const updated = "Consulta ficticia atualizada em {data} as {hora}.";
 
-      const deniedWrite = await saveTemplate(
+      const created = await saveTemplate(
         "receptionistA",
         slugs.organizationA,
         "APPOINTMENT_CONFIRMATION",
-        "Consulta ficticia em {data} as {hora}.",
+        original,
         0,
       );
-      expect(deniedWrite.status).toBe(403);
+      expect(created.status).toBe(200);
+      expect(await created.json()).toMatchObject({
+        content: original,
+        version: 1,
+        approvedById: ids.receptionistA,
+        approvedAt: expect.any(String),
+      });
 
-      const deniedHistory = await request(
+      const changed = await saveTemplate(
+        "receptionistA",
+        slugs.organizationA,
+        "APPOINTMENT_CONFIRMATION",
+        updated,
+        1,
+      );
+      expect(changed.status).toBe(200);
+      expect(await changed.json()).toMatchObject({
+        content: updated,
+        version: 2,
+        approvedById: ids.receptionistA,
+      });
+
+      const list = await request("receptionistA", basePath);
+      expect(list.status).toBe(200);
+      expect(await list.json()).toMatchObject({
+        data: [{ content: updated, version: 2 }],
+      });
+
+      const history = await request(
         "receptionistA",
         `${basePath}/APPOINTMENT_CONFIRMATION/versions`,
       );
-      expect(deniedHistory.status).toBe(403);
+      expect(history.status).toBe(200);
+      expect(await history.json()).toMatchObject({
+        data: [
+          { content: original, version: 1 },
+          { content: updated, version: 2 },
+        ],
+      });
 
-      const deniedHistoricalVersion = await request(
+      const historicalVersion = await request(
         "receptionistA",
         `${basePath}/APPOINTMENT_CONFIRMATION/versions/1`,
       );
-      expect(deniedHistoricalVersion.status).toBe(403);
+      expect(historicalVersion.status).toBe(200);
+      expect(await historicalVersion.json()).toMatchObject({
+        content: original,
+        version: 1,
+        approvedById: ids.receptionistA,
+      });
 
-      const deniedPreview = await request(
+      const preview = await request(
         "receptionistA",
         `${basePath}/APPOINTMENT_CONFIRMATION/preview`,
         "POST",
         { content: "Consulta ficticia em {data} as {hora}." },
       );
-      expect(deniedPreview.status).toBe(403);
+      expect(preview.status).toBe(200);
+      expect(await preview.json()).toMatchObject({
+        isExample: true,
+        content: "Consulta ficticia em 20/10/2026 as 14:30.",
+      });
+
+      const auditEvents = await prisma.auditLog.findMany({
+        where: {
+          organizationId: ids.organizationA,
+          targetType: "WHATSAPP_TEMPLATE",
+        },
+        orderBy: { createdAt: "asc" },
+      });
+      expect(auditEvents).toHaveLength(2);
+      expect(
+        auditEvents.every((event) => {
+          const metadata = event.metadata as Record<string, unknown>;
+          return (
+            event.actorUserId === ids.receptionistA &&
+            metadata.approvalMethod === "SAVE_AND_ACTIVATE" &&
+            typeof metadata.approvedAt === "string" &&
+            !("content" in metadata)
+          );
+        }),
+      ).toBe(true);
+
+      const adminRead = await request("adminA", basePath);
+      expect(adminRead.status).toBe(200);
+
+      const professionalRead = await request("professionalA", basePath);
+      expect(professionalRead.status).toBe(403);
+      expect(await professionalRead.json()).toMatchObject({
+        error: { code: "PERMISSION_DENIED" },
+      });
+
+      const professionalWrite = await saveTemplate(
+        "professionalA",
+        slugs.organizationA,
+        "APPOINTMENT_CANCELLATION",
+        "Cancelamento ficticio em {data} as {hora}.",
+        0,
+      );
+      expect(professionalWrite.status).toBe(403);
+
+      const suspendedRead = await request("suspendedReceptionistA", basePath);
+      expect(suspendedRead.status).toBe(403);
+      expect(await suspendedRead.json()).toMatchObject({
+        error: { code: "MEMBERSHIP_INACTIVE" },
+      });
+
+      const foreignOrganization = await request(
+        "receptionistA",
+        templatesPath(slugs.organizationB),
+      );
+      expect(foreignOrganization.status).toBe(404);
+
+      const deniedReconnect = await request(
+        "receptionistA",
+        `/organizations/${slugs.organizationA}/communications/whatsapp/reconnect`,
+        "POST",
+      );
+      expect(deniedReconnect.status).toBe(403);
 
       const unauthenticated = await request(null, basePath);
       expect(unauthenticated.status).toBe(401);
@@ -529,7 +682,7 @@ describe.skipIf(!integrationEnabled)(
         await prisma.whatsAppTemplate.count({
           where: { organizationId: ids.organizationA },
         }),
-      ).toBe(0);
+      ).toBe(1);
     });
 
     test("records sanitized audit events in the owning organization", async () => {
