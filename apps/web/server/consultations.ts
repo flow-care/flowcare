@@ -1,6 +1,7 @@
 import "server-only";
 
 import { z } from "zod";
+import { extractTopicsFromDraft } from "@/components/flowcare/consultations/anamnesis-review-utils";
 import { getServerConfig } from "./config";
 import { getSessionToken } from "./session";
 
@@ -67,7 +68,9 @@ export class ConsultationsApiError extends Error {
       | "UNAUTHENTICATED"
       | "FORBIDDEN"
       | "NOT_FOUND"
-      | "UNAVAILABLE",
+      | "UNAVAILABLE"
+      | "CONFLICT"
+      | "VALIDATION_ERROR",
     message: string,
   ) {
     super(message);
@@ -736,4 +739,362 @@ export async function getTranscriptionStatus(
     jobId: details.id,
     status: "PROCESSING",
   };
+}
+
+export const anamnesisDraftDataSchema = z.object({
+  consultationId: z.string(),
+  version: z.number(),
+  status: consultationStatusSchema,
+  anamnesisStatus: anamnesisStatusSchema,
+  chiefComplaint: z.string().nullable().optional(),
+  clinicalNotes: z.string().nullable().optional(),
+  topics: z.record(z.string(), z.string()),
+  draftSavedAt: z.string().nullable().optional(),
+  draftSavedById: z.string().nullable().optional(),
+  approvedAt: z.string().nullable().optional(),
+  approvedById: z.string().nullable().optional(),
+  signedBy: z.string().nullable().optional(),
+  snapshotHash: z.string().nullable().optional(),
+  anamnesisSnapshot: z.unknown().optional(),
+  patient: consultationPatientSchema.optional(),
+  professional: consultationProfessionalSchema.optional(),
+});
+export type AnamnesisDraftData = z.infer<typeof anamnesisDraftDataSchema>;
+
+export { extractTopicsFromDraft };
+
+export async function getAnamnesisDraft(
+  orgSlug: string,
+  consultationId: string,
+): Promise<AnamnesisDraftData> {
+  const details = await getConsultationDetails(orgSlug, consultationId);
+  const topics = extractTopicsFromDraft(
+    details.anamnesisDraft,
+    details.anamnesisSnapshot,
+    details.chiefComplaint,
+    details.clinicalNotes,
+  );
+
+  return {
+    consultationId: details.id,
+    version: details.version ?? 0,
+    status: details.status,
+    anamnesisStatus: details.anamnesisStatus,
+    chiefComplaint: details.chiefComplaint ?? null,
+    clinicalNotes: details.clinicalNotes ?? null,
+    topics,
+    draftSavedAt: details.draftSavedAt ?? null,
+    draftSavedById: details.draftSavedById ?? null,
+    approvedAt: details.approvedAt ?? null,
+    approvedById: details.approvedById ?? null,
+    signedBy: details.signedBy ?? null,
+    snapshotHash: details.snapshotHash ?? null,
+    anamnesisSnapshot: details.anamnesisSnapshot ?? null,
+    patient: details.patient,
+    professional: details.professional,
+  };
+}
+
+export interface UpdateAnamnesisDraftPayload {
+  content: Record<string, string> | string;
+  version: number;
+  chiefComplaint?: string;
+  clinicalNotes?: string;
+}
+
+export async function updateAnamnesisDraft(
+  orgSlug: string,
+  consultationId: string,
+  payload: UpdateAnamnesisDraftPayload,
+): Promise<ConsultationDetail> {
+  const token = await getSessionToken();
+  if (!token) {
+    throw new ConsultationsApiError(
+      "UNAUTHENTICATED",
+      "Sessão expirada. Faça login novamente.",
+    );
+  }
+
+  const { apiBaseUrl } = getServerConfig();
+  const url = `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/consultations/${encodeURIComponent(consultationId)}/anamnesis/draft`;
+
+  let topics: Record<string, string | null> = {};
+  let chiefComplaint = payload.chiefComplaint;
+  let clinicalNotes = payload.clinicalNotes;
+
+  if (typeof payload.content === "string") {
+    topics = { content: payload.content };
+  } else if (payload.content && typeof payload.content === "object") {
+    topics = { ...payload.content };
+    if (
+      !chiefComplaint &&
+      (payload.content.chief_complaint ||
+        payload.content.chiefComplaint ||
+        payload.content.queixa_principal)
+    ) {
+      chiefComplaint =
+        payload.content.chief_complaint ||
+        payload.content.chiefComplaint ||
+        payload.content.queixa_principal;
+    }
+    if (
+      !clinicalNotes &&
+      (payload.content.conduct ||
+        payload.content.conduta ||
+        payload.content.clinical_notes ||
+        payload.content.clinicalNotes)
+    ) {
+      clinicalNotes =
+        payload.content.conduct ||
+        payload.content.conduta ||
+        payload.content.clinical_notes ||
+        payload.content.clinicalNotes;
+    }
+  }
+
+  const requestBody = {
+    version: payload.version,
+    topics,
+    ...(chiefComplaint !== undefined ? { chiefComplaint } : {}),
+    ...(clinicalNotes !== undefined ? { clinicalNotes } : {}),
+  };
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(requestBody),
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    throw new ConsultationsApiError(
+      "UNAVAILABLE",
+      "Não foi possível conectar ao servidor para salvar o rascunho da anamnese.",
+    );
+  }
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      throw new ConsultationsApiError(
+        "UNAUTHENTICATED",
+        "Sessão expirada. Faça login novamente.",
+      );
+    }
+    if (response.status === 403) {
+      throw new ConsultationsApiError(
+        "FORBIDDEN",
+        "Acesso restrito à equipe clínica autorizada.",
+      );
+    }
+    if (response.status === 404) {
+      throw new ConsultationsApiError(
+        "NOT_FOUND",
+        "Atendimento não encontrado.",
+      );
+    }
+    if (response.status === 409) {
+      let errorMsg =
+        "O rascunho da anamnese foi alterado por outra sessão. Recarregue antes de salvar.";
+      try {
+        const errJson = (await response.json()) as { message?: string };
+        if (errJson?.message) errorMsg = errJson.message;
+      } catch {}
+      throw new ConsultationsApiError("CONFLICT", errorMsg);
+    }
+    if (response.status === 400) {
+      let errorMsg = "Dados inválidos para o rascunho da anamnese.";
+      try {
+        const errJson = (await response.json()) as { message?: string };
+        if (errJson?.message) errorMsg = errJson.message;
+      } catch {}
+      throw new ConsultationsApiError("VALIDATION_ERROR", errorMsg);
+    }
+    let errorMsg = "Não foi possível salvar o rascunho da anamnese.";
+    try {
+      const errJson = (await response.json()) as { message?: string };
+      if (errJson?.message) errorMsg = errJson.message;
+    } catch {}
+    throw new ConsultationsApiError("UNAVAILABLE", errorMsg);
+  }
+
+  const data: unknown = await response.json();
+  const raw =
+    data &&
+    typeof data === "object" &&
+    "consultation" in data &&
+    data.consultation
+      ? data.consultation
+      : data;
+  const parsed = consultationDetailSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new ConsultationsApiError(
+      "UNAVAILABLE",
+      "Resposta inválida do servidor ao salvar rascunho.",
+    );
+  }
+  return parsed.data;
+}
+
+export interface ApproveAnamnesisPayload {
+  version: number;
+  content?: Record<string, string> | string;
+  chiefComplaint?: string;
+  clinicalNotes?: string;
+}
+
+export const approveAnamnesisResponseSchema = z.object({
+  status: z.literal("APPROVED"),
+  signedBy: z.string(),
+  approvedAt: z.string(),
+  consultationId: z.string(),
+  version: z.number(),
+  snapshotHash: z.string(),
+  snapshot: z.unknown().optional(),
+  consultation: consultationDetailSchema.optional(),
+});
+export type ApproveAnamnesisResponse = z.infer<
+  typeof approveAnamnesisResponseSchema
+>;
+
+export async function approveAnamnesis(
+  orgSlug: string,
+  consultationId: string,
+  payload: ApproveAnamnesisPayload,
+): Promise<ApproveAnamnesisResponse> {
+  const token = await getSessionToken();
+  if (!token) {
+    throw new ConsultationsApiError(
+      "UNAUTHENTICATED",
+      "Sessão expirada. Faça login novamente.",
+    );
+  }
+
+  const { apiBaseUrl } = getServerConfig();
+  const url = `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/consultations/${encodeURIComponent(consultationId)}/anamnesis/approve`;
+
+  let topics: Record<string, string | null> | undefined;
+  let chiefComplaint = payload.chiefComplaint;
+  let clinicalNotes = payload.clinicalNotes;
+
+  if (payload.content) {
+    if (typeof payload.content === "string") {
+      topics = { content: payload.content };
+    } else if (typeof payload.content === "object") {
+      topics = { ...payload.content };
+      if (
+        !chiefComplaint &&
+        (payload.content.chief_complaint ||
+          payload.content.chiefComplaint ||
+          payload.content.queixa_principal)
+      ) {
+        chiefComplaint =
+          payload.content.chief_complaint ||
+          payload.content.chiefComplaint ||
+          payload.content.queixa_principal;
+      }
+      if (
+        !clinicalNotes &&
+        (payload.content.conduct ||
+          payload.content.conduta ||
+          payload.content.clinical_notes ||
+          payload.content.clinicalNotes)
+      ) {
+        clinicalNotes =
+          payload.content.conduct ||
+          payload.content.conduta ||
+          payload.content.clinical_notes ||
+          payload.content.clinicalNotes;
+      }
+    }
+  }
+
+  const requestBody = {
+    version: payload.version,
+    ...(topics !== undefined ? { topics } : {}),
+    ...(chiefComplaint !== undefined ? { chiefComplaint } : {}),
+    ...(clinicalNotes !== undefined ? { clinicalNotes } : {}),
+  };
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(requestBody),
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    throw new ConsultationsApiError(
+      "UNAVAILABLE",
+      "Não foi possível conectar ao servidor para aprovar a anamnese.",
+    );
+  }
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      throw new ConsultationsApiError(
+        "UNAUTHENTICATED",
+        "Sessão expirada. Faça login novamente.",
+      );
+    }
+    if (response.status === 403) {
+      throw new ConsultationsApiError(
+        "FORBIDDEN",
+        "Acesso restrito à equipe clínica autorizada.",
+      );
+    }
+    if (response.status === 404) {
+      throw new ConsultationsApiError(
+        "NOT_FOUND",
+        "Atendimento não encontrado.",
+      );
+    }
+    if (response.status === 409) {
+      let errorMsg =
+        "A consulta foi alterada por outra sessão. Recarregue antes de aprovar.";
+      try {
+        const errJson = (await response.json()) as { message?: string };
+        if (errJson?.message) errorMsg = errJson.message;
+      } catch {}
+      throw new ConsultationsApiError("CONFLICT", errorMsg);
+    }
+    if (response.status === 400) {
+      let errorMsg =
+        "Tópicos obrigatórios da anamnese devem estar preenchidos antes da aprovação.";
+      try {
+        const errJson = (await response.json()) as { message?: string };
+        if (errJson?.message) errorMsg = errJson.message;
+      } catch {}
+      throw new ConsultationsApiError("VALIDATION_ERROR", errorMsg);
+    }
+    let errorMsg = "Não foi possível aprovar a anamnese.";
+    try {
+      const errJson = (await response.json()) as { message?: string };
+      if (errJson?.message) errorMsg = errJson.message;
+    } catch {}
+    throw new ConsultationsApiError("UNAVAILABLE", errorMsg);
+  }
+
+  const data: unknown = await response.json();
+  const parsed = approveAnamnesisResponseSchema.safeParse(data);
+  if (!parsed.success) {
+    throw new ConsultationsApiError(
+      "UNAVAILABLE",
+      "Resposta inválida do servidor ao aprovar a anamnese.",
+    );
+  }
+  return parsed.data;
 }

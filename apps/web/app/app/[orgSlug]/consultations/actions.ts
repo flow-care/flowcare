@@ -2,7 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import {
+  type ApproveAnamnesisResponse,
   type AudioPresignedUrlResponse,
+  approveAnamnesis,
+  type ConsultationDetail,
   ConsultationsApiError,
   completeAudioUpload,
   getAudioPresignedUrl,
@@ -10,6 +13,7 @@ import {
   startTranscriptionJob,
   type TranscriptionJobResponse,
   type TranscriptionStatusResult,
+  updateAnamnesisDraft,
 } from "@/server/consultations";
 
 export interface StartTranscriptionActionResult {
@@ -161,6 +165,90 @@ export async function getTranscriptionStatusAction(
         error instanceof Error
           ? error.message
           : "Não foi possível verificar o status da transcrição.",
+    };
+  }
+}
+
+export interface UpdateAnamnesisDraftActionResult {
+  success: boolean;
+  data?: ConsultationDetail;
+  error?: string;
+  code?: string;
+}
+
+export async function updateAnamnesisDraftAction(
+  orgSlug: string,
+  consultationId: string,
+  payload: {
+    content: Record<string, string> | string;
+    version: number;
+    chiefComplaint?: string;
+    clinicalNotes?: string;
+  },
+): Promise<UpdateAnamnesisDraftActionResult> {
+  try {
+    const result = await updateAnamnesisDraft(orgSlug, consultationId, payload);
+    revalidatePath(`/app/${orgSlug}/consultations/${consultationId}`);
+    return {
+      success: true,
+      data: result,
+    };
+  } catch (error) {
+    if (error instanceof ConsultationsApiError) {
+      return {
+        success: false,
+        error: error.message,
+        code: error.code,
+      };
+    }
+    return {
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Não foi possível salvar o rascunho da anamnese.",
+    };
+  }
+}
+
+export interface ApproveAnamnesisActionResult {
+  success: boolean;
+  data?: ApproveAnamnesisResponse;
+  error?: string;
+  code?: string;
+}
+
+export async function approveAnamnesisAction(
+  orgSlug: string,
+  consultationId: string,
+  payload: {
+    version: number;
+    content?: Record<string, string> | string;
+    chiefComplaint?: string;
+    clinicalNotes?: string;
+  },
+): Promise<ApproveAnamnesisActionResult> {
+  try {
+    const result = await approveAnamnesis(orgSlug, consultationId, payload);
+    revalidatePath(`/app/${orgSlug}/consultations/${consultationId}`);
+    return {
+      success: true,
+      data: result,
+    };
+  } catch (error) {
+    if (error instanceof ConsultationsApiError) {
+      return {
+        success: false,
+        error: error.message,
+        code: error.code,
+      };
+    }
+    return {
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Não foi possível aprovar a anamnese.",
     };
   }
 }

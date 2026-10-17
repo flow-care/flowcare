@@ -74,6 +74,7 @@ export default async function ConsultationDetailPage({
       consultation={consultation}
       patientOverview={patientOverview}
       activeTab={tab}
+      userRole={current.role}
     />
   );
 }
