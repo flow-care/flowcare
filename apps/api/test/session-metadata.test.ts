@@ -66,6 +66,10 @@ test("login persiste IP validado e navegador sem versão ou modelo", async () =>
   const app = createApp(testEnv, {
     prisma,
     mailer: { send: async () => {} },
+    authRateLimiter: {
+      consume: async () => ({ allowed: true, count: 1 }),
+      reset: async () => {},
+    },
   });
 
   const response = await app.handle(
