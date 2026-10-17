@@ -5,6 +5,13 @@ import {
   type ChangePasswordResult,
   changeAccountPassword,
 } from "@/server/account-password";
+import {
+  listAccountSessions,
+  type ListSessionsResult,
+  revokeAccountSession,
+  revokeOtherAccountSessions,
+  type RevokeSessionResult,
+} from "@/server/account-sessions";
 
 export async function changePasswordAction(values: {
   currentPassword: string;
@@ -17,4 +24,18 @@ export async function changePasswordAction(values: {
     currentPassword: values.currentPassword,
     newPassword: values.newPassword,
   });
+}
+
+export async function getActiveSessionsAction(): Promise<ListSessionsResult> {
+  return listAccountSessions();
+}
+
+export async function revokeSessionAction(
+  sessionId: string,
+): Promise<RevokeSessionResult> {
+  return revokeAccountSession(sessionId);
+}
+
+export async function revokeOtherSessionsAction(): Promise<RevokeSessionResult> {
+  return revokeOtherAccountSessions();
 }
