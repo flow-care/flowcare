@@ -60,6 +60,7 @@ const settingsIcons: Record<SettingsSection, typeof Settings> = {
   hours: Clock3,
   team: Users,
   roles: ShieldCheck,
+  anamnesis: Stethoscope,
   usage: ChartNoAxesCombined,
   audit: ScrollText,
 };
