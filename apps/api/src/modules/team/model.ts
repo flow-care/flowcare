@@ -47,6 +47,8 @@ export const memberItem = t.Object({
   email: t.String(),
   role: membershipRoleSchema,
   status: t.UnionEnum(["ACTIVE", "SUSPENDED", "INVITED"]),
+  version: t.Integer(),
+  createdAt: t.String(),
 });
 
 export const listMembersResponse = t.Object({

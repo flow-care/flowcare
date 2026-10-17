@@ -6,12 +6,17 @@ import {
   createInviteSchema,
   type InviteMembershipRole,
 } from "@/lib/team-invites";
+import { updateMemberRoleSchema } from "@/lib/team-members";
 import {
   createInvite,
+  type RemoveMemberResponse,
   type ResendInviteResponse,
+  removeMember,
   resendInvite,
   revokeInvite,
   TeamApiError,
+  type UpdateMemberRoleResponse,
+  updateMemberRole,
 } from "@/server/team";
 
 export interface CreateInviteActionResult {
@@ -19,6 +24,41 @@ export interface CreateInviteActionResult {
   email: string;
   role: InviteMembershipRole;
   expiresAt: string;
+}
+
+export async function removeMemberAction(
+  orgSlug: string,
+  memberId: string,
+): Promise<ActionResult<RemoveMemberResponse>> {
+  if (!orgSlug?.trim() || !memberId?.trim()) {
+    return {
+      ok: false,
+      error: {
+        code: "VALIDATION_ERROR",
+        message: "Identificador do membro ou da clínica inválido.",
+      },
+    };
+  }
+
+  try {
+    const result = await removeMember(orgSlug, memberId);
+    revalidatePath(`/app/${orgSlug}/settings/team`);
+    return { ok: true, data: result };
+  } catch (error) {
+    if (error instanceof TeamApiError) {
+      return {
+        ok: false,
+        error: { code: error.code, message: error.message },
+      };
+    }
+    return {
+      ok: false,
+      error: {
+        code: "UNAVAILABLE",
+        message: "Não foi possível remover o membro da clínica.",
+      },
+    };
+  }
 }
 
 export async function createInviteAction(
@@ -155,6 +195,62 @@ export async function revokeInviteAction(
           error instanceof Error
             ? error.message
             : "Não foi possível revogar o convite.",
+      },
+    };
+  }
+}
+
+export async function updateMemberRoleAction(
+  orgSlug: string,
+  memberId: string,
+  payload: { role: string; version: number },
+): Promise<ActionResult<UpdateMemberRoleResponse>> {
+  if (!orgSlug?.trim() || !memberId?.trim()) {
+    return {
+      ok: false,
+      error: {
+        code: "VALIDATION_ERROR",
+        message: "Identificador da clínica ou do colaborador inválido.",
+      },
+    };
+  }
+
+  const parsed = updateMemberRoleSchema.safeParse(payload);
+  if (!parsed.success) {
+    const message =
+      parsed.error.issues[0]?.message ||
+      "Dados inválidos para alteração de papel.";
+    return {
+      ok: false,
+      error: {
+        code: "VALIDATION_ERROR",
+        message,
+      },
+    };
+  }
+
+  try {
+    const result = await updateMemberRole(orgSlug, memberId, {
+      role: parsed.data.role,
+      version: parsed.data.version,
+    });
+    revalidatePath(`/app/${orgSlug}/settings/team`);
+    return { ok: true, data: result };
+  } catch (error) {
+    if (error instanceof TeamApiError) {
+      return {
+        ok: false,
+        error: { code: error.code, message: error.message },
+      };
+    }
+    return {
+      ok: false,
+      error: {
+        code: "UNAVAILABLE",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Não foi possível atualizar o papel do colaborador.",
       },
     };
   }

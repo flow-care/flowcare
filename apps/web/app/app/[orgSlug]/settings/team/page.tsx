@@ -81,7 +81,11 @@ export default async function TeamSettingsPage({
   searchParams,
 }: {
   params: Promise<{ orgSlug: string }>;
-  searchParams?: Promise<{ sheet?: string; tab?: string }>;
+  searchParams?: Promise<{
+    sheet?: string;
+    tab?: string;
+    memberId?: string;
+  }>;
 }) {
   const { orgSlug } = await params;
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
@@ -124,6 +128,7 @@ export default async function TeamSettingsPage({
       initialMembers={teamData.members}
       initialInvites={teamData.invites}
       initialSheet={resolvedSearchParams?.sheet}
+      initialMemberId={resolvedSearchParams?.memberId}
       defaultTab={
         resolvedSearchParams?.tab === "invites" ? "invites" : "members"
       }

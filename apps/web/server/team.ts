@@ -21,7 +21,8 @@ export const teamMemberSchema = z.object({
   email: z.string(),
   role: membershipRoleSchema,
   status: z.enum(["ACTIVE", "SUSPENDED", "INVITED"]).default("ACTIVE"),
-  createdAt: z.string().optional(),
+  createdAt: z.string(),
+  version: z.number().int(),
 });
 
 export type TeamMember = z.infer<typeof teamMemberSchema>;
@@ -391,6 +392,215 @@ export async function createInvite(
     throw new TeamApiError(
       "INVALID_RESPONSE",
       "Resposta inválida do servidor ao criar convite.",
+    );
+  }
+
+  return parsed.data;
+}
+
+export const updateMemberRoleResponseSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  organizationId: z.string().optional(),
+  role: membershipRoleSchema,
+  status: z.string().optional(),
+  version: z.number().int(),
+  createdAt: z.string().optional(),
+  updatedAt: z.string().optional(),
+  user: z
+    .object({
+      id: z.string(),
+      fullName: z.string(),
+      email: z.string(),
+      professionalRole: z.string().nullable().optional(),
+      professionalTitle: z.string().nullable().optional(),
+      registrationNumber: z.string().nullable().optional(),
+    })
+    .optional(),
+  member: z
+    .object({
+      id: z.string(),
+      userId: z.string(),
+      organizationId: z.string(),
+      role: membershipRoleSchema,
+      status: z.string(),
+      version: z.number().int(),
+      createdAt: z.string().optional(),
+      updatedAt: z.string().optional(),
+    })
+    .optional(),
+});
+
+export type UpdateMemberRoleResponse = z.infer<
+  typeof updateMemberRoleResponseSchema
+>;
+
+export async function updateMemberRole(
+  orgSlug: string,
+  memberId: string,
+  payload: { role: string; version: number },
+): Promise<UpdateMemberRoleResponse> {
+  const token = await getSessionToken();
+  if (!token) {
+    throw new TeamApiError(
+      "UNAUTHENTICATED",
+      "Entre novamente para continuar.",
+    );
+  }
+
+  const { apiBaseUrl } = getServerConfig();
+  let response: Response;
+  try {
+    response = await fetch(
+      `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/members/${encodeURIComponent(memberId)}/role`,
+      {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          role: payload.role,
+          version: payload.version,
+        }),
+        cache: "no-store",
+        redirect: "error",
+        signal: AbortSignal.timeout(10_000),
+      },
+    );
+  } catch {
+    throw new TeamApiError(
+      "UNAVAILABLE",
+      "Não foi possível atualizar o papel do colaborador. Tente novamente.",
+    );
+  }
+
+  const data: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const errorData =
+      data && typeof data === "object" && "error" in data
+        ? (data as { error?: { code?: string; message?: string } }).error
+        : null;
+    const code =
+      errorData?.code ??
+      (response.status === 401
+        ? "UNAUTHENTICATED"
+        : response.status === 403
+          ? "FORBIDDEN"
+          : response.status === 404
+            ? "NOT_FOUND"
+            : response.status === 409
+              ? "VERSION_CONFLICT"
+              : response.status === 422
+                ? "CLINICAL_QUALIFICATION_REQUIRED"
+                : "UNAVAILABLE");
+    const message =
+      errorData?.message ??
+      (code === "VERSION_CONFLICT"
+        ? "O membro foi modificado por outro usuário. Recarregue os dados e tente novamente."
+        : code === "LAST_ADMIN_REQUIRED"
+          ? "A clínica deve manter ao menos um administrador ativo."
+          : code === "FORBIDDEN"
+            ? "Não é permitido alterar o próprio papel por esta rota."
+            : code === "CLINICAL_QUALIFICATION_REQUIRED"
+              ? "Dados profissionais exigidos para atribuição de papel clínico."
+              : code === "NOT_FOUND"
+                ? "Membro não encontrado."
+                : code === "UNAUTHENTICATED"
+                  ? "Entre novamente para continuar."
+                  : "Não foi possível atualizar o papel do colaborador.");
+    throw new TeamApiError(code, message);
+  }
+
+  const parsed = updateMemberRoleResponseSchema.safeParse(data);
+  if (!parsed.success) {
+    throw new TeamApiError(
+      "INVALID_RESPONSE",
+      "Resposta inválida do servidor ao atualizar papel do membro.",
+    );
+  }
+
+  return parsed.data;
+}
+
+export const removeMemberResponseSchema = z.object({
+  success: z.literal(true),
+  message: z.string(),
+  memberId: z.string(),
+});
+
+export type RemoveMemberResponse = z.infer<typeof removeMemberResponseSchema>;
+
+export async function removeMember(
+  orgSlug: string,
+  memberId: string,
+): Promise<RemoveMemberResponse> {
+  const token = await getSessionToken();
+  if (!token) {
+    throw new TeamApiError(
+      "UNAUTHENTICATED",
+      "Entre novamente para continuar.",
+    );
+  }
+
+  const { apiBaseUrl } = getServerConfig();
+  let response: Response;
+  try {
+    response = await fetch(
+      `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/members/${encodeURIComponent(memberId)}`,
+      {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json",
+        },
+        cache: "no-store",
+        redirect: "error",
+        signal: AbortSignal.timeout(10_000),
+      },
+    );
+  } catch {
+    throw new TeamApiError(
+      "UNAVAILABLE",
+      "Não foi possível remover o membro da clínica. Tente novamente.",
+    );
+  }
+
+  const data: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const errorData =
+      data && typeof data === "object" && "error" in data
+        ? (data as { error?: { code?: string; message?: string } }).error
+        : null;
+    const code =
+      errorData?.code ??
+      (response.status === 401
+        ? "UNAUTHENTICATED"
+        : response.status === 403
+          ? "FORBIDDEN"
+          : response.status === 404
+            ? "NOT_FOUND"
+            : response.status === 409
+              ? "LAST_ADMIN_REQUIRED"
+              : "UNAVAILABLE");
+    const message =
+      errorData?.message ??
+      (code === "LAST_ADMIN_REQUIRED"
+        ? "Não é possível remover o único administrador remanescente da organização."
+        : code === "NOT_FOUND"
+          ? "Membro não encontrado."
+          : code === "FORBIDDEN" || code === "PERMISSION_DENIED"
+            ? "Você não possui permissão para realizar esta ação."
+            : "Não foi possível remover o membro da clínica.");
+    throw new TeamApiError(code, message);
+  }
+
+  const parsed = removeMemberResponseSchema.safeParse(data);
+  if (!parsed.success) {
+    throw new TeamApiError(
+      "INVALID_RESPONSE",
+      "Resposta inválida ao remover membro.",
     );
   }
 

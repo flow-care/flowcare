@@ -355,7 +355,7 @@ O fluxo obrigatório é:
 #### `GET /organizations/:orgSlug/members`
 * **Descrição:** Lista os membros da equipe da clínica com seus respectivos papéis.
 * **Permissão:** `team:read`.
-* **Respostas:** `200 OK` (`{ "data": [ { "id": "mem_1", "userName": "Dra. Maria", "role": "ADMIN", "status": "ACTIVE" } ] }`).
+* **Respostas:** `200 OK` (`{ "data": [ { "id": "mem_1", "userId": "user_1", "userName": "Dra. Maria", "email": "maria@exemplo.com", "role": "ADMIN", "status": "ACTIVE", "version": 1, "createdAt": "2026-10-17T12:00:00.000Z" } ] }`). `version` deve ser enviado na alteração de papel e `createdAt` representa o ingresso na clínica.
 
 #### `POST /organizations/:orgSlug/invites`
 * **Descrição:** Envia convite por e-mail para integrar uma pessoa à equipe com um papel específico.

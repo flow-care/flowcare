@@ -60,6 +60,7 @@ interface MembershipRecord {
   role: MembershipRole;
   status: MembershipStatus;
   createdAt: Date;
+  version: number;
 }
 
 interface AuditRecord {
@@ -210,6 +211,7 @@ function createFixture() {
       organizationId: "org-a",
       role: "ADMIN",
       status: "ACTIVE",
+      version: 1,
       createdAt: new Date("2026-01-01T00:00:00Z"),
     },
     {
@@ -218,6 +220,7 @@ function createFixture() {
       organizationId: "org-a",
       role: "ADMIN",
       status: "ACTIVE",
+      version: 1,
       createdAt: new Date("2026-01-02T00:00:00Z"),
     },
     {
@@ -226,6 +229,7 @@ function createFixture() {
       organizationId: "org-a",
       role: "ADMIN_PROFESSIONAL",
       status: "ACTIVE",
+      version: 1,
       createdAt: new Date("2026-01-03T00:00:00Z"),
     },
     {
@@ -234,6 +238,7 @@ function createFixture() {
       organizationId: "org-a",
       role: "PROFESSIONAL",
       status: "ACTIVE",
+      version: 1,
       createdAt: new Date("2026-01-04T00:00:00Z"),
     },
     {
@@ -242,6 +247,7 @@ function createFixture() {
       organizationId: "org-a",
       role: "RECEPTIONIST",
       status: "ACTIVE",
+      version: 1,
       createdAt: new Date("2026-01-05T00:00:00Z"),
     },
     {
@@ -250,6 +256,7 @@ function createFixture() {
       organizationId: "org-b",
       role: "PROFESSIONAL",
       status: "ACTIVE",
+      version: 1,
       createdAt: new Date("2026-01-06T00:00:00Z"),
     },
     {
@@ -258,6 +265,7 @@ function createFixture() {
       organizationId: "org-b",
       role: "ADMIN",
       status: "ACTIVE",
+      version: 1,
       createdAt: new Date("2026-01-07T00:00:00Z"),
     },
   ];
@@ -940,13 +948,21 @@ describe("Team Member Removal (#318)", () => {
       }),
     );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { data: Array<{ id: string }> };
+    const body = (await res.json()) as {
+      data: Array<{ id: string; version: number; createdAt: string }>;
+    };
     expect(body.data).toBeDefined();
     expect(Array.isArray(body.data)).toBe(true);
 
     const ids = body.data.map((m) => m.id);
     expect(ids).toContain("mem-admin");
     expect(ids).toContain("mem-doctor");
+    expect(
+      body.data.find((member) => member.id === "mem-doctor"),
+    ).toMatchObject({
+      version: 1,
+      createdAt: "2026-01-04T00:00:00.000Z",
+    });
     expect(ids).toContain("mem-receptionist");
     // Does NOT contain members from other clinics
     expect(ids).not.toContain("mem-foreign-admin");

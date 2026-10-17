@@ -63,6 +63,8 @@ export class TeamService {
         email: membership.user.email,
         role: membership.role,
         status: membership.status,
+        version: membership.version,
+        createdAt: membership.createdAt.toISOString(),
       })),
     };
   }

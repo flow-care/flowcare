@@ -29,6 +29,14 @@ mock.module("next/navigation", () => ({
   },
 }));
 
+mock.module("../app/app/[orgSlug]/settings/team/team-navigation", () => ({
+  useTeamNavigation: () => ({
+    router: { push: mockPush, replace: mockPush },
+    pathname: "/app/clinica-vida/settings/team",
+    searchParams: new URLSearchParams(),
+  }),
+}));
+
 const {
   getTeamMembersAndInvites,
   resendInvite,
@@ -90,6 +98,7 @@ describe("Team Settings - Server Layer (#320)", () => {
               email: "ana@clinica.com",
               role: "ADMIN",
               status: "ACTIVE",
+              version: 1,
               createdAt: "2026-01-10T10:00:00.000Z",
             },
           ],
@@ -119,6 +128,7 @@ describe("Team Settings - Server Layer (#320)", () => {
     expect(data.members).toHaveLength(1);
     expect(data.members[0].userName).toBe("Dra. Ana Silva");
     expect(data.members[0].role).toBe("ADMIN");
+    expect(data.members[0].version).toBe(1);
 
     expect(data.invites).toHaveLength(1);
     expect(data.invites[0].email).toBe("carlos@clinica.com");
