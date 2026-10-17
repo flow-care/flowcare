@@ -26,6 +26,9 @@ export default async function SettingsPage({
   if (section[0] === "audit") {
     redirect(`/app/${encodeURIComponent(orgSlug)}/settings/audit`);
   }
+  if (section[0] === "hours" || section[0] === "schedules") {
+    redirect(`/app/${encodeURIComponent(orgSlug)}/settings/schedules`);
+  }
   if (section[0] === "usage") {
     redirect(`/app/${encodeURIComponent(orgSlug)}/settings/usage`);
   }
