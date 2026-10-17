@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronsUpDown, LogOut, Settings } from "lucide-react";
+import { ChevronsUpDown, LogOut, Settings, User } from "lucide-react";
 import Link from "next/link";
 import { logoutAction } from "@/app/app/actions";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -24,6 +24,12 @@ export function ProfileMenu({
   settingsHref?: string;
   onNavigate?: () => void;
 }) {
+  const avatarUrl =
+    (user as { profilePhotoUrl?: string | null; photoUrl?: string | null })
+      ?.profilePhotoUrl ||
+    user?.photoUrl ||
+    `https://api.dicebear.com/10.x/initials/svg?seed=${encodeURIComponent(user?.fullName.trim() || "Flowcare")}&lettersVariant=single`;
+
   return (
     <SidebarMenuItem>
       <DropdownMenu>
@@ -34,8 +40,8 @@ export function ProfileMenu({
           >
             <Avatar className="after:hidden">
               <AvatarImage
-                src={`https://api.dicebear.com/10.x/initials/svg?seed=${encodeURIComponent(user?.fullName.trim() || "Flowcare")}&lettersVariant=single`}
-                alt=""
+                src={avatarUrl}
+                alt={user?.fullName || ""}
                 referrerPolicy="no-referrer"
               />
               <AvatarFallback>
@@ -51,6 +57,12 @@ export function ProfileMenu({
           </SidebarMenuButton>
         </DropdownMenuTrigger>
         <DropdownMenuContent side="top" align="start" className="min-w-56">
+          <DropdownMenuItem asChild>
+            <Link href="/account/profile" onClick={onNavigate}>
+              <User /> Meu Perfil
+            </Link>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator className="h-0 border-t border-dashed border-border bg-transparent" />
           {settingsHref && (
             <>
               <DropdownMenuItem asChild>
