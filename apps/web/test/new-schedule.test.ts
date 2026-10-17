@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -21,33 +21,28 @@ mock.module("next/cache", () => ({
 const mockPush = mock(() => {});
 const mockReplace = mock(() => {});
 mock.module("next/navigation", () => ({
-  useRouter: () => ({ push: mockPush, replace: mockReplace, refresh: () => {} }),
+  useRouter: () => ({
+    push: mockPush,
+    replace: mockReplace,
+    refresh: () => {},
+  }),
   useSearchParams: () => new URLSearchParams("sheet=new"),
   notFound: () => {
     throw new Error("NEXT_NOT_FOUND");
   },
   redirect: (url: string) => {
-    throw new Error(`NEXT_REDIRECT:${url}`);
+    throw new Error("NEXT_REDIRECT:" + url);
   },
 }));
 
-const {
-  validateWeeklyRule,
-  checkNewRuleConflict,
-  validateExceptionInput,
-} = await import("../lib/schedules");
+const { validateWeeklyRule, checkNewRuleConflict, validateExceptionInput } =
+  await import("../lib/schedules");
 
-const {
-  replaceWeeklySchedule,
-  createScheduleException,
-} = await import("../server/schedules");
+const { replaceWeeklySchedule, createScheduleException } = await import(
+  "../server/schedules"
+);
 
-const {
-  addWeeklyRuleAction,
-  createScheduleExceptionAction,
-} = await import("../app/app/[orgSlug]/settings/schedules/actions");
-
-const { NewScheduleSheet, NewScheduleForm } = await import(
+const { NewScheduleForm } = await import(
   "../app/app/[orgSlug]/settings/schedules/new-schedule-sheet"
 );
 

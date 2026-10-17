@@ -22,7 +22,6 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -41,9 +40,8 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import {
-  checkIntervalOverlap,
-  DAYS_OF_WEEK,
   DAY_OF_WEEK_LABELS,
+  DAYS_OF_WEEK,
   type DayOfWeek,
   formatExceptionDateRange,
   type ScheduleExceptionsResponse,
@@ -81,7 +79,8 @@ export function EditScheduleForm({
   const slotDurationId = useId();
 
   // 1. Check if scheduleId is a DayOfWeek
-  const isDayOfWeek = scheduleId && (DAYS_OF_WEEK as readonly string[]).includes(scheduleId);
+  const isDayOfWeek =
+    scheduleId && (DAYS_OF_WEEK as readonly string[]).includes(scheduleId);
   const matchedDay = isDayOfWeek ? (scheduleId as DayOfWeek) : null;
 
   // 2. Check if scheduleId matches an exception
@@ -156,7 +155,9 @@ export function EditScheduleForm({
         slotDurationMinutes: Number(slotDuration) || 30,
       };
 
-      const res = await updateDayRulesAction(orgSlug, matchedDay, [updatedRule]);
+      const res = await updateDayRulesAction(orgSlug, matchedDay, [
+        updatedRule,
+      ]);
       if (res.ok) {
         toast.success(
           `Horário de ${DAY_OF_WEEK_LABELS[matchedDay]} atualizado com sucesso!`,
@@ -200,7 +201,10 @@ export function EditScheduleForm({
     if (!matchedException) return;
     setIsDeleting(true);
     try {
-      const res = await deleteScheduleExceptionAction(orgSlug, matchedException.id);
+      const res = await deleteScheduleExceptionAction(
+        orgSlug,
+        matchedException.id,
+      );
       if (res.ok) {
         toast.success("Bloqueio de agenda excluído com sucesso.");
         onClose();
@@ -297,8 +301,8 @@ export function EditScheduleForm({
               Zona de Exclusão
             </h3>
             <p className="text-xs text-muted-foreground">
-              Remover este bloqueio liberará imediatamente os horários na
-              agenda para novos agendamentos de pacientes.
+              Remover este bloqueio liberará imediatamente os horários na agenda
+              para novos agendamentos de pacientes.
             </p>
           </div>
 
@@ -383,9 +387,7 @@ export function EditScheduleForm({
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor={slotDurationId}>
-            Duração da consulta (minutos)
-          </Label>
+          <Label htmlFor={slotDurationId}>Duração da consulta (minutos)</Label>
           <Select
             value={slotDuration}
             onValueChange={(v) => setSlotDuration(v)}
@@ -449,7 +451,8 @@ export function EditScheduleForm({
             <AlertDialogContent>
               <AlertDialogHeader>
                 <AlertDialogTitle>
-                  Desativar atendimento em {matchedDay && DAY_OF_WEEK_LABELS[matchedDay]}?
+                  Desativar atendimento em{" "}
+                  {matchedDay && DAY_OF_WEEK_LABELS[matchedDay]}?
                 </AlertDialogTitle>
                 <AlertDialogDescription>
                   Todos os horários de atendimento deste dia serão removidos.

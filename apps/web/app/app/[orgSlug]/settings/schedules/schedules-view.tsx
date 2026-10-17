@@ -33,16 +33,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { NewScheduleSheet } from "./new-schedule-sheet";
-import { EditScheduleSheet } from "./edit-schedule-sheet";
 import {
   type DayScheduleGroup,
   filterExceptions,
@@ -53,6 +44,8 @@ import {
   type ScheduleProfessional,
   type WeeklyScheduleResponse,
 } from "@/lib/schedules";
+import { EditScheduleSheet } from "./edit-schedule-sheet";
+import { NewScheduleSheet } from "./new-schedule-sheet";
 
 export interface SchedulesViewProps {
   orgSlug: string;
@@ -152,8 +145,6 @@ export function SchedulesView({
   const closeSheet = () => {
     updateQuery({ sheet: null, scheduleId: null });
   };
-
-  const isSheetOpen = Boolean(currentSheetParam);
 
   return (
     <div className="flex flex-col gap-6 p-6 max-w-7xl mx-auto w-full">

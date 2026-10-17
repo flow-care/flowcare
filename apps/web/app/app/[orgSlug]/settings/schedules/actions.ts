@@ -109,4 +109,3 @@ export async function deleteDayRulesAction(
 ): Promise<{ ok: true } | { ok: false; code: string; message: string }> {
   return updateDayRulesAction(orgSlug, dayOfWeek, []);
 }
-

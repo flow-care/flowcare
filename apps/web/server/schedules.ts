@@ -441,4 +441,3 @@ export async function deleteScheduleException(
 
   return true;
 }
-

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -21,13 +21,17 @@ mock.module("next/cache", () => ({
 const mockPush = mock(() => {});
 const mockReplace = mock(() => {});
 mock.module("next/navigation", () => ({
-  useRouter: () => ({ push: mockPush, replace: mockReplace, refresh: () => {} }),
+  useRouter: () => ({
+    push: mockPush,
+    replace: mockReplace,
+    refresh: () => {},
+  }),
   useSearchParams: () => new URLSearchParams("sheet=edit&scheduleId=MONDAY"),
   notFound: () => {
     throw new Error("NEXT_NOT_FOUND");
   },
   redirect: (url: string) => {
-    throw new Error(`NEXT_REDIRECT:${url}`);
+    throw new Error("NEXT_REDIRECT:" + url);
   },
 }));
 
@@ -82,9 +86,7 @@ describe("EditScheduleSheet (#310) - UI Form Component", () => {
     ],
   };
 
-  const dummyProfessionals = [
-    { id: "prof-1", name: "Dr. Marcelo Ramos" },
-  ];
+  const dummyProfessionals = [{ id: "prof-1", name: "Dr. Marcelo Ramos" }];
 
   test("renders weekly rule editor for valid day with affected appointments alert", () => {
     const html = renderToStaticMarkup(
@@ -140,7 +142,9 @@ describe("EditScheduleSheet (#310) - UI Form Component", () => {
     );
 
     expect(html).toContain("Item não encontrado");
-    expect(html).toContain("não corresponde a uma regra de horário ou bloqueio");
+    expect(html).toContain(
+      "não corresponde a uma regra de horário ou bloqueio",
+    );
     expect(html).toContain("Fechar");
   });
 });
@@ -205,7 +209,9 @@ describe("EditScheduleSheet (#310) - Server Actions", () => {
 
     expect(res.ok).toBe(true);
     expect(getCalled).toBe(true);
-    const rules = (capturedBody as { rules: Array<{ dayOfWeek: string; endTime: string }> }).rules;
+    const rules = (
+      capturedBody as { rules: Array<{ dayOfWeek: string; endTime: string }> }
+    ).rules;
     expect(rules.length).toBe(2);
     // Tuesday is preserved
     expect(rules.find((r) => r.dayOfWeek === "TUESDAY")?.endTime).toBe("17:00");
@@ -255,7 +261,8 @@ describe("EditScheduleSheet (#310) - Server Actions", () => {
     const res = await deleteDayRulesAction("clinica-central", "MONDAY");
 
     expect(res.ok).toBe(true);
-    const rules = (capturedBody as { rules: Array<{ dayOfWeek: string }> }).rules;
+    const rules = (capturedBody as { rules: Array<{ dayOfWeek: string }> })
+      .rules;
     expect(rules.length).toBe(1);
     expect(rules[0].dayOfWeek).toBe("TUESDAY");
   });
@@ -271,7 +278,10 @@ describe("EditScheduleSheet (#310) - Server Actions", () => {
       });
     });
 
-    const res = await deleteScheduleExceptionAction("clinica-central", "exc-natal");
+    const res = await deleteScheduleExceptionAction(
+      "clinica-central",
+      "exc-natal",
+    );
     expect(res.ok).toBe(true);
     expect(deleteMethod).toBe("DELETE");
   });
