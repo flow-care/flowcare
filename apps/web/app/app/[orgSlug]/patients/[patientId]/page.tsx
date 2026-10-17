@@ -22,13 +22,20 @@ export default async function PatientDetailPage({
   params: Promise<{ orgSlug: string; patientId: string }>;
   searchParams: Promise<{
     tab?: string;
+    sheet?: string;
     type?: string;
     startDate?: string;
     endDate?: string;
   }>;
 }) {
   const { orgSlug, patientId } = await params;
-  const { tab = "overview", type, startDate, endDate } = await searchParams;
+  const {
+    tab = "overview",
+    sheet,
+    type,
+    startDate,
+    endDate,
+  } = await searchParams;
 
   const organizations = await getAvailableOrganizations();
   const current = organizations?.find((org) => org.slug === orgSlug);
@@ -81,6 +88,7 @@ export default async function PatientDetailPage({
       timeline={timeline}
       attachments={attachments}
       initialTab={tab}
+      initialSheet={sheet}
     />
   );
 }

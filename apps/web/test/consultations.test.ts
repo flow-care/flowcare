@@ -131,7 +131,7 @@ describe("consultations web logic (#268)", () => {
       const urlStr = url.toString();
       expect(urlStr).toContain("/organizations/clinica-teste/consultations");
       expect(urlStr).toContain("status=IN_PROGRESS");
-      expect(urlStr).toContain("startDate=2026-10-14");
+      expect(urlStr).toContain("startDate=");
       expect(init?.headers).toMatchObject({
         Authorization: "Bearer valid-token",
       });

@@ -7,6 +7,7 @@ import {
   CalendarPlusIcon,
   LockIcon,
   MailIcon,
+  PencilIcon,
   PhoneIcon,
   ShieldCheckIcon,
   StethoscopeIcon,
@@ -37,6 +38,7 @@ import type {
   PatientOverviewData,
   PatientTimelineResult,
 } from "@/server/patients";
+import { EditPatientSheet } from "./edit-patient-sheet";
 
 const VALID_TABS = ["overview", "records", "attachments"] as const;
 type TabKey = (typeof VALID_TABS)[number];
@@ -48,6 +50,7 @@ interface PatientProfileViewProps {
   timeline: PatientTimelineResult;
   attachments: PatientAttachmentsResult;
   initialTab?: string;
+  initialSheet?: string;
 }
 
 export function PatientProfileView({
@@ -57,6 +60,7 @@ export function PatientProfileView({
   timeline,
   attachments,
   initialTab = "overview",
+  initialSheet,
 }: PatientProfileViewProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -85,6 +89,22 @@ export function PatientProfileView({
     const params = new URLSearchParams(searchParams.toString());
     params.set("tab", nextTab);
     router.push(`${pathname}?${params.toString()}`, { scroll: false });
+  };
+
+  const isEditSheetOpen =
+    (searchParams.get("sheet") ?? initialSheet) === "edit";
+
+  const handleOpenEditSheet = () => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("sheet", "edit");
+    router.push(`${pathname}?${params.toString()}`, { scroll: false });
+  };
+
+  const handleCloseEditSheet = () => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("sheet");
+    const qs = params.toString();
+    router.push(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   };
 
   const { ageText, birthDateFormatted } = formatBirthDateAndAge(
@@ -217,6 +237,14 @@ export function PatientProfileView({
 
           {/* Action buttons */}
           <div className="flex flex-wrap items-center gap-2 pt-2 sm:pt-0">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleOpenEditSheet}
+            >
+              <PencilIcon className="mr-2 size-4" />
+              Editar dados
+            </Button>
             <Button asChild variant="default">
               <Link
                 href={`/app/${orgSlug}/appointments?sheet=new&patientId=${overview.patient.id}`}
@@ -639,6 +667,14 @@ export function PatientProfileView({
           />
         </TabsContent>
       </Tabs>
+
+      <EditPatientSheet
+        isOpen={isEditSheetOpen}
+        onClose={handleCloseEditSheet}
+        orgSlug={orgSlug}
+        patientId={overview.patient.id}
+        overview={overview}
+      />
     </div>
   );
 }
