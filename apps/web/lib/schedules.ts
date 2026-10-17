@@ -246,3 +246,92 @@ export function filterExceptions(
     (item) => item.professionalId === filterProfessionalId,
   );
 }
+
+/**
+ * Validates a weekly rule time interval and slot duration.
+ */
+export function validateWeeklyRule(rule: WeeklyScheduleRule): {
+  valid: boolean;
+  error?: string;
+} {
+  const start = timeToMinutes(rule.startTime);
+  const end = timeToMinutes(rule.endTime);
+
+  if (start >= end) {
+    return {
+      valid: false,
+      error: "O horário de término deve ser posterior ao horário de início.",
+    };
+  }
+
+  if (rule.slotDurationMinutes < 1) {
+    return {
+      valid: false,
+      error: "A duração da consulta deve ser de pelo menos 1 minuto.",
+    };
+  }
+
+  if (rule.slotDurationMinutes > end - start) {
+    return {
+      valid: false,
+      error:
+        "A duração da consulta não pode ser maior que o intervalo de atendimento.",
+    };
+  }
+
+  return { valid: true };
+}
+
+/**
+ * Checks if a new weekly rule conflicts (overlaps) with any existing rule for the same day.
+ */
+export function checkNewRuleConflict(
+  existingRules: WeeklyScheduleRule[],
+  newRule: WeeklyScheduleRule,
+): boolean {
+  const startNew = timeToMinutes(newRule.startTime);
+  const endNew = timeToMinutes(newRule.endTime);
+
+  const sameDayRules = (existingRules || []).filter(
+    (r) => r.dayOfWeek === newRule.dayOfWeek,
+  );
+
+  for (const rule of sameDayRules) {
+    const startExisting = timeToMinutes(rule.startTime);
+    const endExisting = timeToMinutes(rule.endTime);
+
+    if (startNew < endExisting && startExisting < endNew) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Validates an exception datetime interval.
+ */
+export function validateExceptionInput(input: {
+  startsAt: string;
+  endsAt: string;
+}): { valid: boolean; error?: string } {
+  if (!input.startsAt || !input.endsAt) {
+    return { valid: false, error: "Informe o início e o fim do bloqueio." };
+  }
+
+  const start = new Date(input.startsAt);
+  const end = new Date(input.endsAt);
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    return { valid: false, error: "Data ou horário inválidos." };
+  }
+
+  if (start.getTime() >= end.getTime()) {
+    return {
+      valid: false,
+      error: "A data/hora final deve ser posterior à data/hora inicial.",
+    };
+  }
+
+  return { valid: true };
+}

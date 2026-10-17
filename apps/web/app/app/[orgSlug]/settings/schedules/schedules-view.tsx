@@ -51,6 +51,7 @@ import {
   type ScheduleProfessional,
   type WeeklyScheduleResponse,
 } from "@/lib/schedules";
+import { NewScheduleSheet } from "./new-schedule-sheet";
 
 export interface SchedulesViewProps {
   orgSlug: string;
@@ -150,8 +151,6 @@ export function SchedulesView({
   const closeSheet = () => {
     updateQuery({ sheet: null, scheduleId: null });
   };
-
-  const isSheetOpen = Boolean(currentSheetParam);
 
   return (
     <div className="flex flex-col gap-6 p-6 max-w-7xl mx-auto w-full">
@@ -491,69 +490,45 @@ export function SchedulesView({
         </TabsContent>
       </Tabs>
 
-      {/* Sheet Modal for New or Edit (?sheet=new | ?sheet=edit&scheduleId=...) */}
-      <Sheet open={isSheetOpen} onOpenChange={(open) => !open && closeSheet()}>
+      {/* Interactive Sheet for New Schedule/Exception (?sheet=new) */}
+      <NewScheduleSheet
+        orgSlug={orgSlug}
+        isOpen={currentSheetParam === "new"}
+        onClose={closeSheet}
+        weeklySchedule={weeklySchedule}
+        professionals={professionals}
+      />
+
+      {/* Sheet Modal for Edit (?sheet=edit&scheduleId=...) */}
+      <Sheet
+        open={currentSheetParam === "edit"}
+        onOpenChange={(open) => !open && closeSheet()}
+      >
         <SheetContent side="right" className="sm:max-w-md w-full">
           <SheetHeader className="space-y-1">
-            <SheetTitle>
-              {currentSheetParam === "new"
-                ? "Novo Horário / Bloqueio"
-                : "Editar Horário / Bloqueio"}
-            </SheetTitle>
+            <SheetTitle>Editar Horário / Bloqueio</SheetTitle>
             <SheetDescription>
-              {currentSheetParam === "new"
-                ? "Configure um novo intervalo semanal de atendimento ou cadastre um bloqueio pontual para a clínica ou profissional."
-                : `Gerenciamento do item selecionado (${currentScheduleId || "configuração"}).`}
+              Gerenciamento do item selecionado (
+              {currentScheduleId || "configuração"}).
             </SheetDescription>
           </SheetHeader>
 
           <div className="mt-6 space-y-4 text-sm text-foreground">
-            {currentSheetParam === "new" ? (
-              <div className="space-y-4 rounded-lg border border-border bg-muted/30 p-4">
-                <p className="text-xs text-muted-foreground">
-                  Selecione o tipo de registro que deseja criar na agenda:
-                </p>
-                <div className="space-y-2">
-                  <div className="rounded-md border border-border bg-card p-3 space-y-1">
-                    <p className="font-medium text-foreground text-sm flex items-center gap-2">
-                      <Clock3 className="size-4 text-primary" />
-                      Horário Recorrente da Grade
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Ajuste os dias da semana (Segunda a Domingo), intervalos
-                      de início e fim e tempo padrão da consulta.
-                    </p>
-                  </div>
-
-                  <div className="rounded-md border border-border bg-card p-3 space-y-1">
-                    <p className="font-medium text-foreground text-sm flex items-center gap-2">
-                      <CalendarOff className="size-4 text-amber-600" />
-                      Bloqueio Pontual ou Recesso
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Defina datas de férias, feriados ou ausências programadas
-                      com motivo e profissional afetado.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-3 rounded-lg border border-border bg-muted/30 p-4">
-                <div className="space-y-1">
-                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                    Identificador do item
-                  </span>
-                  <p className="font-mono text-xs bg-muted px-2 py-1 rounded text-foreground">
-                    {currentScheduleId || "—"}
-                  </p>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Para alterar este registro, utilize os fluxos dedicados de
-                  gerenciamento ou entre em contato com o suporte caso precise
-                  de uma auditoria avançada.
+            <div className="space-y-3 rounded-lg border border-border bg-muted/30 p-4">
+              <div className="space-y-1">
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                  Identificador do item
+                </span>
+                <p className="font-mono text-xs bg-muted px-2 py-1 rounded text-foreground">
+                  {currentScheduleId || "—"}
                 </p>
               </div>
-            )}
+              <p className="text-xs text-muted-foreground">
+                Para alterar este registro, utilize os fluxos dedicados de
+                gerenciamento ou entre em contato com o suporte caso precise de
+                uma auditoria avançada.
+              </p>
+            </div>
 
             <div className="pt-4 flex justify-end gap-2 border-t border-border">
               <Button variant="outline" onClick={closeSheet}>
