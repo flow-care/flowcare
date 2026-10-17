@@ -19,7 +19,7 @@ export type AuditEventCategory =
 
 export interface RecordAuditEventInput {
   organizationId?: string | null;
-  actorUserId: string;
+  actorUserId: string | null;
   action: string;
   targetType: string;
   targetId: string;
@@ -29,7 +29,7 @@ export interface RecordAuditEventInput {
 export interface RecordedAuditEvent {
   id?: string;
   organizationId: string | null;
-  actorUserId: string;
+  actorUserId: string | null;
   action: string;
   targetType: string;
   targetId: string;
@@ -325,16 +325,16 @@ export function computeAuditRetentionUntil(baseDate = new Date()): Date {
 }
 
 function validateAuditInput(input: RecordAuditEventInput) {
-  const actorUserId = input.actorUserId?.trim();
+  const actorUserId = input.actorUserId?.trim() || null;
   const action = input.action?.trim();
   const targetType = input.targetType?.trim();
   const targetId = input.targetId?.trim();
 
-  if (!actorUserId || !action || !targetType || !targetId) {
+  if (!action || !targetType || !targetId) {
     throw new ApiError(
       "VALIDATION_ERROR",
       400,
-      "Evento de auditoria inválido: ator, ação e alvo são obrigatórios.",
+      "Evento de auditoria inválido: ação e alvo são obrigatórios.",
     );
   }
 

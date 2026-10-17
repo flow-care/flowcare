@@ -1,15 +1,18 @@
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 import { NextRequest } from "next/server";
+import { z } from "zod";
 import { destinationAfterLogin, safeReturnPath } from "../lib/auth";
 import { proxy } from "../proxy";
 
 // Next impõe server-only no build. Aqui substituímos apenas as fronteiras do runtime.
 mock.module("server-only", () => ({}));
 const cookieWrites: Array<Record<string, unknown>> = [];
+let incomingHeaders = new Headers();
 mock.module("next/headers", () => ({
   cookies: async () => ({
     set: (options: Record<string, unknown>) => cookieWrites.push(options),
   }),
+  headers: async () => incomingHeaders,
 }));
 
 const {
@@ -20,10 +23,12 @@ const {
   forgotPasswordAction,
   resetPasswordAction,
 } = await import("../app/(auth)/actions");
+const { postApi } = await import("../server/api-client");
 
 const originalFetch = globalThis.fetch;
 const originalApiUrl = process.env.API_INTERNAL_URL;
 const originalNodeEnv = process.env.NODE_ENV;
+const originalTrustProxy = process.env.TRUST_PROXY;
 const credentials = { email: "ana@example.com", password: "senha12345" };
 const session = {
   user: { id: "u1", email: credentials.email, fullName: "Ana" },
@@ -44,7 +49,9 @@ const session = {
 beforeEach(() => {
   process.env.API_INTERNAL_URL = "http://api.test/api";
   process.env.NODE_ENV = "production";
+  process.env.TRUST_PROXY = "false";
   cookieWrites.length = 0;
+  incomingHeaders = new Headers();
 });
 
 afterEach(() => {
@@ -53,6 +60,8 @@ afterEach(() => {
   else process.env.API_INTERNAL_URL = originalApiUrl;
   if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
   else process.env.NODE_ENV = originalNodeEnv;
+  if (originalTrustProxy === undefined) delete process.env.TRUST_PROXY;
+  else process.env.TRUST_PROXY = originalTrustProxy;
 });
 
 function respondWith(body: unknown, status = 200) {
@@ -247,6 +256,51 @@ test("falhas de transporte não vazam detalhes", async () => {
     error: { code: "UPSTREAM_UNAVAILABLE" },
   });
   expect(JSON.stringify(result)).not.toContain("server-secret");
+});
+
+test("encaminha ao backend somente o último IP válido recebido do proxy", async () => {
+  process.env.TRUST_PROXY = "true";
+  incomingHeaders = new Headers({
+    "x-forwarded-for": "198.51.100.99, 203.0.113.25",
+  });
+  globalThis.fetch = (async (
+    _url: string | URL | Request,
+    init?: RequestInit,
+  ) => {
+    const forwardedFor = new Headers(init?.headers).get("x-forwarded-for");
+    expect(forwardedFor).toBe("203.0.113.25");
+    expect(forwardedFor).not.toContain("198.51.100.99");
+    return Response.json({ message: "OK" });
+  }) as typeof fetch;
+
+  expect(
+    await postApi(
+      "/auth/forgot-password",
+      { email: credentials.email },
+      z.object({ message: z.string() }),
+      { requestHeaders: incomingHeaders },
+    ),
+  ).toEqual({ message: "OK" });
+});
+
+test("não encaminha IP informado pelo cliente quando o proxy não é confiável", async () => {
+  incomingHeaders = new Headers({ "x-forwarded-for": "198.51.100.99" });
+  globalThis.fetch = (async (
+    _url: string | URL | Request,
+    init?: RequestInit,
+  ) => {
+    expect(new Headers(init?.headers).has("x-forwarded-for")).toBe(false);
+    return Response.json({ message: "OK" });
+  }) as typeof fetch;
+
+  expect(
+    await postApi(
+      "/auth/forgot-password",
+      { email: credentials.email },
+      z.object({ message: z.string() }),
+      { requestHeaders: incomingHeaders },
+    ),
+  ).toEqual({ message: "OK" });
 });
 
 test("cadastro, confirmação, reenvio e recuperação chamam os endpoints Elysia", async () => {

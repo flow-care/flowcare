@@ -7,6 +7,13 @@ import { generateToken, hashToken } from "../../lib/tokens";
 import { recordAuditEvent } from "../../services/audit-logger";
 import { actionEmailHtml } from "../../services/mail-templates";
 import type { Mailer } from "../../services/mailer";
+import {
+  createPrismaRateLimiter,
+  privateIdentifierDigest,
+  type RateLimiter,
+  type RateLimitResult,
+  type RateLimitRule,
+} from "../../services/rate-limiter";
 import { signSessionToken } from "../../services/session-token";
 import { resolveOnboardingState } from "../onboarding/steps";
 import {
@@ -35,6 +42,7 @@ export interface AuthConfig {
   emailVerificationTtlHours: number;
   passwordResetTtlMinutes: number;
   verificationResendPerHour: number;
+  enumerationProtectionMinMs: number;
   webAppUrl: string;
   trustProxy: boolean;
 }
@@ -43,6 +51,11 @@ export interface AuthDeps {
   prisma: PrismaClient;
   mailer: Mailer;
   config: AuthConfig;
+  rateLimiter?: RateLimiter;
+  clock?: () => number;
+  sleep?: (milliseconds: number) => Promise<void>;
+  hashPassword?: (password: string) => Promise<string>;
+  verifyPassword?: (passwordHash: string, password: string) => Promise<boolean>;
 }
 
 export const SESSION_REVOKED_ON_RESET = "reset-password";
@@ -52,53 +65,171 @@ const GENERIC_REGISTER_MESSAGE =
 const GENERIC_RESET_MESSAGE =
   "Se o e-mail estiver cadastrado, as instruções serão enviadas.";
 
+const DUMMY_PASSWORD_HASH =
+  "$argon2id$v=19$m=65536,p=4,t=3$6imSk77qu5HIFcIHxL5K6A$2Xid/Wj/iz44EBZUmbmcsojO2lH8TNg40jZPEsBUSus";
+const UNKNOWN_ORIGIN = "unknown";
+
+const minutes = (value: number) => value * 60;
+const hours = (value: number) => minutes(value * 60);
+
+export const AUTH_RATE_LIMITS = {
+  login: {
+    origin: { scope: "login:origin", limit: 20, windowSeconds: minutes(15) },
+    account: {
+      scope: "login:account",
+      limit: 5,
+      windowSeconds: minutes(15),
+    },
+  },
+  verification: {
+    origin: {
+      scope: "verification-mail:origin",
+      limit: 10,
+      windowSeconds: hours(1),
+    },
+    account: {
+      scope: "verification-mail:account",
+      limit: 3,
+      windowSeconds: hours(1),
+    },
+  },
+  passwordResetRequest: {
+    origin: {
+      scope: "password-reset-request:origin",
+      limit: 10,
+      windowSeconds: hours(1),
+    },
+    account: {
+      scope: "password-reset-request:account",
+      limit: 3,
+      windowSeconds: hours(1),
+    },
+  },
+  verifyEmail: {
+    origin: {
+      scope: "verify-email:origin",
+      limit: 20,
+      windowSeconds: minutes(15),
+    },
+    token: {
+      scope: "verify-email:token",
+      limit: 5,
+      windowSeconds: minutes(15),
+    },
+  },
+  resetPassword: {
+    origin: {
+      scope: "reset-password:origin",
+      limit: 10,
+      windowSeconds: minutes(15),
+    },
+    token: {
+      scope: "reset-password:token",
+      limit: 5,
+      windowSeconds: minutes(15),
+    },
+  },
+} as const satisfies Record<string, Record<string, RateLimitRule>>;
+
 export class AuthService {
-  constructor(private readonly deps: AuthDeps) {}
+  private readonly rateLimiter: RateLimiter;
+  private readonly clock: () => number;
+  private readonly sleep: (milliseconds: number) => Promise<void>;
+  private readonly hashPassword: (password: string) => Promise<string>;
+  private readonly verifyPassword: (
+    passwordHash: string,
+    password: string,
+  ) => Promise<boolean>;
+
+  constructor(private readonly deps: AuthDeps) {
+    this.rateLimiter =
+      deps.rateLimiter ??
+      createPrismaRateLimiter(deps.prisma, deps.config.jwtSecret);
+    this.clock = deps.clock ?? Date.now;
+    this.sleep =
+      deps.sleep ??
+      ((milliseconds) =>
+        new Promise((resolve) => setTimeout(resolve, milliseconds)));
+    this.hashPassword = deps.hashPassword ?? hash;
+    this.verifyPassword = deps.verifyPassword ?? verifyHash;
+  }
 
   /** #207 — cadastro público; resposta nunca revela e-mail existente. */
-  async register(body: RegisterBody): Promise<{ message: string }> {
+  async register(
+    body: RegisterBody,
+    requestMetadata: SessionMetadata,
+  ): Promise<{ message: string }> {
     const email = normalizeEmail(body.email);
+    const origin = this.originIdentifier(requestMetadata);
+    await this.enforceRateLimit(
+      AUTH_RATE_LIMITS.verification.origin,
+      origin,
+      "/auth/register",
+    );
+    const startedAt = this.clock();
 
-    const existing = await this.deps.prisma.user.findUnique({
-      where: { email },
-    });
-    if (existing) {
-      if (!existing.emailVerified) {
-        try {
-          const token = await this.mintToken(existing.id, "EMAIL_VERIFICATION");
-          await this.deliver({
-            to: email,
-            subject: "Flowcare — confirmação de cadastro",
-            text: this.verificationText(token),
-            html: this.verificationHtml(token),
-          });
-        } catch (error) {
-          if (!(error instanceof ApiError && error.code === "RATE_LIMITED")) {
-            throw error;
+    try {
+      const accountLimit = await this.rateLimiter.consume(
+        AUTH_RATE_LIMITS.verification.account,
+        email,
+      );
+      if (!accountLimit.allowed) {
+        await this.auditRateLimitOnce(
+          AUTH_RATE_LIMITS.verification.account,
+          accountLimit,
+          email,
+          origin,
+          "/auth/register",
+        );
+        return { message: GENERIC_REGISTER_MESSAGE };
+      }
+
+      const [existing, passwordHash] = await Promise.all([
+        this.deps.prisma.user.findUnique({ where: { email } }),
+        this.hashPassword(body.password),
+      ]);
+      if (existing) {
+        if (!existing.emailVerified) {
+          try {
+            const token = await this.mintToken(
+              existing.id,
+              "EMAIL_VERIFICATION",
+            );
+            this.deliver({
+              to: email,
+              subject: "Flowcare — confirmação de cadastro",
+              text: this.verificationText(token),
+              html: this.verificationHtml(token),
+            });
+          } catch (error) {
+            if (!(error instanceof ApiError && error.code === "RATE_LIMITED")) {
+              throw error;
+            }
           }
         }
+        return { message: GENERIC_REGISTER_MESSAGE };
       }
+
+      const user = await this.deps.prisma.user.create({
+        data: {
+          email,
+          fullName: body.fullName.trim(),
+          passwordHash,
+        },
+      });
+
+      const token = await this.mintToken(user.id, "EMAIL_VERIFICATION");
+      this.deliver({
+        to: email,
+        subject: "Flowcare — confirmação de cadastro",
+        text: this.verificationText(token),
+        html: this.verificationHtml(token),
+      });
+
       return { message: GENERIC_REGISTER_MESSAGE };
+    } finally {
+      await this.equalizeEnumerationTiming(startedAt);
     }
-
-    const passwordHash = await hash(body.password);
-    const user = await this.deps.prisma.user.create({
-      data: {
-        email,
-        fullName: body.fullName.trim(),
-        passwordHash,
-      },
-    });
-
-    const token = await this.mintToken(user.id, "EMAIL_VERIFICATION");
-    await this.deliver({
-      to: email,
-      subject: "Flowcare — confirmação de cadastro",
-      text: this.verificationText(token),
-      html: this.verificationHtml(token),
-    });
-
-    return { message: GENERIC_REGISTER_MESSAGE };
   }
 
   /** #207 — confirmação de e-mail com token de uso único (hash no banco). */
@@ -106,6 +237,19 @@ export class AuthService {
     tokenValue: string,
     sessionMetadata: SessionMetadata,
   ): Promise<LoginResponse> {
+    const origin = this.originIdentifier(sessionMetadata);
+    await this.enforceRateLimit(
+      AUTH_RATE_LIMITS.verifyEmail.origin,
+      origin,
+      "/auth/verify-email",
+    );
+    await this.enforceRateLimit(
+      AUTH_RATE_LIMITS.verifyEmail.token,
+      tokenValue,
+      "/auth/verify-email",
+      origin,
+    );
+
     return this.deps.prisma.$transaction(async (tx) => {
       const record = await tx.verificationToken.findUnique({
         where: { tokenHash: hashToken(tokenValue) },
@@ -113,13 +257,15 @@ export class AuthService {
       if (!record || record.type !== "EMAIL_VERIFICATION") {
         throw InvalidToken();
       }
+      await this.lockUserForTokenMutation(tx, record.userId);
+      const now = new Date(this.clock());
       const consumed = await tx.verificationToken.updateMany({
         where: {
           id: record.id,
           usedAt: null,
-          expiresAt: { gt: new Date() },
+          expiresAt: { gt: now },
         },
-        data: { usedAt: new Date() },
+        data: { usedAt: now },
       });
       if (consumed.count !== 1) throw InvalidToken();
       await tx.user.update({
@@ -146,28 +292,60 @@ export class AuthService {
   }
 
   /** #207 — reenvio com resposta neutra para e-mail inexistente ou já verificado. */
-  async resendVerification(emailValue: string): Promise<{ message: string }> {
+  async resendVerification(
+    emailValue: string,
+    requestMetadata: SessionMetadata,
+  ): Promise<{ message: string }> {
     const email = normalizeEmail(emailValue);
-    const user = await this.deps.prisma.user.findUnique({ where: { email } });
-    if (user && !user.emailVerified) {
-      try {
-        const token = await this.mintToken(user.id, "EMAIL_VERIFICATION");
-        await this.deliver({
-          to: email,
-          subject: "Flowcare — confirmação de cadastro",
-          text: this.verificationText(token),
-          html: this.verificationHtml(token),
-        });
-      } catch (error) {
-        // O limite por conta não pode revelar se o endereço existe.
-        if (!(error instanceof ApiError && error.code === "RATE_LIMITED")) {
-          throw error;
+    const origin = this.originIdentifier(requestMetadata);
+    await this.enforceRateLimit(
+      AUTH_RATE_LIMITS.verification.origin,
+      origin,
+      "/auth/resend-verification",
+    );
+    const startedAt = this.clock();
+
+    try {
+      const accountLimit = await this.rateLimiter.consume(
+        AUTH_RATE_LIMITS.verification.account,
+        email,
+      );
+      if (!accountLimit.allowed) {
+        await this.auditRateLimitOnce(
+          AUTH_RATE_LIMITS.verification.account,
+          accountLimit,
+          email,
+          origin,
+          "/auth/resend-verification",
+        );
+        return {
+          message: "Se a conta estiver pendente, um novo link será enviado.",
+        };
+      }
+
+      const user = await this.deps.prisma.user.findUnique({ where: { email } });
+      if (user && !user.emailVerified) {
+        try {
+          const token = await this.mintToken(user.id, "EMAIL_VERIFICATION");
+          this.deliver({
+            to: email,
+            subject: "Flowcare — confirmação de cadastro",
+            text: this.verificationText(token),
+            html: this.verificationHtml(token),
+          });
+        } catch (error) {
+          // O limite por conta não pode revelar se o endereço existe.
+          if (!(error instanceof ApiError && error.code === "RATE_LIMITED")) {
+            throw error;
+          }
         }
       }
+      return {
+        message: "Se a conta estiver pendente, um novo link será enviado.",
+      };
+    } finally {
+      await this.equalizeEnumerationTiming(startedAt);
     }
-    return {
-      message: "Se a conta estiver pendente, um novo link será enviado.",
-    };
   }
 
   /** #208 — login; falhas indistinguíveis; pendente recebe estado claro. */
@@ -176,25 +354,50 @@ export class AuthService {
     sessionMetadata: SessionMetadata,
   ): Promise<LoginResponse> {
     const email = normalizeEmail(body.email);
-    const user = await this.deps.prisma.user.findUnique({
-      where: { email },
-      include: {
-        memberships: {
-          where: { status: "ACTIVE" },
-          include: { organization: true },
+    const origin = this.originIdentifier(sessionMetadata);
+    await this.enforceRateLimit(
+      AUTH_RATE_LIMITS.login.origin,
+      origin,
+      "/auth/login",
+    );
+    await this.enforceRateLimit(
+      AUTH_RATE_LIMITS.login.account,
+      email,
+      "/auth/login",
+      origin,
+    );
+    const startedAt = this.clock();
+
+    try {
+      const user = await this.deps.prisma.user.findUnique({
+        where: { email },
+        include: {
+          memberships: {
+            where: { status: "ACTIVE" },
+            include: { organization: true },
+          },
+          onboarding: true,
         },
-        onboarding: true,
-      },
-    });
+      });
 
-    if (!user || !(await verifyHash(user.passwordHash, body.password))) {
-      throw InvalidCredentials();
-    }
-    if (!user.emailVerified) {
-      throw AccountNotVerified();
-    }
+      const passwordMatches = await this.verifyPassword(
+        user?.passwordHash ?? DUMMY_PASSWORD_HASH,
+        body.password,
+      );
+      if (!user || !passwordMatches) {
+        await this.recordLoginFailure(email, origin);
+        throw InvalidCredentials();
+      }
+      if (!user.emailVerified) {
+        throw AccountNotVerified();
+      }
 
-    return this.createSession(user, sessionMetadata);
+      const response = await this.createSession(user, sessionMetadata);
+      await this.rateLimiter.reset(AUTH_RATE_LIMITS.login.account, email);
+      return response;
+    } finally {
+      await this.equalizeEnumerationTiming(startedAt);
+    }
   }
 
   private async createSession(
@@ -211,7 +414,7 @@ export class AuthService {
       | "AUTH_EMAIL_VERIFIED" = "AUTH_LOGIN_SUCCEEDED",
   ): Promise<LoginResponse> {
     const expiresAt = new Date(
-      Date.now() + this.deps.config.sessionTtlSeconds * 1000,
+      this.clock() + this.deps.config.sessionTtlSeconds * 1000,
     );
     const session = await db.session.create({
       data: {
@@ -231,7 +434,10 @@ export class AuthService {
       targetType: "SESSION",
       targetId: session.id,
       metadata: {
-        ipAddress: sessionMetadata.ipAddress,
+        originHash: this.privateSubjectId(
+          "origin",
+          this.originIdentifier(sessionMetadata),
+        ),
         userAgent: sessionMetadata.userAgent,
       },
     });
@@ -251,7 +457,7 @@ export class AuthService {
           email: user.email.toLowerCase(),
           acceptedAt: null,
           revokedAt: null,
-          expiresAt: { gt: new Date() },
+          expiresAt: { gt: new Date(this.clock()) },
         },
         orderBy: { createdAt: "desc" },
         select: { id: true },
@@ -281,27 +487,72 @@ export class AuthService {
   }
 
   /** #209 — solicitação de reset; resposta idêntica exista ou não o e-mail. */
-  async forgotPassword(body: ForgotPasswordBody): Promise<{ message: string }> {
+  async forgotPassword(
+    body: ForgotPasswordBody,
+    requestMetadata: SessionMetadata,
+  ): Promise<{ message: string }> {
     const email = normalizeEmail(body.email);
-    const user = await this.deps.prisma.user.findUnique({ where: { email } });
+    const origin = this.originIdentifier(requestMetadata);
+    await this.enforceRateLimit(
+      AUTH_RATE_LIMITS.passwordResetRequest.origin,
+      origin,
+      "/auth/forgot-password",
+    );
+    const startedAt = this.clock();
 
-    if (user) {
-      const token = await this.mintToken(user.id, "PASSWORD_RESET");
-      await this.deliver({
-        to: email,
-        subject: "Flowcare — redefinição de senha",
-        text: this.resetText(token),
-        html: this.resetHtml(token),
-      });
+    try {
+      const accountLimit = await this.rateLimiter.consume(
+        AUTH_RATE_LIMITS.passwordResetRequest.account,
+        email,
+      );
+      if (!accountLimit.allowed) {
+        await this.auditRateLimitOnce(
+          AUTH_RATE_LIMITS.passwordResetRequest.account,
+          accountLimit,
+          email,
+          origin,
+          "/auth/forgot-password",
+        );
+        return { message: GENERIC_RESET_MESSAGE };
+      }
+
+      const user = await this.deps.prisma.user.findUnique({ where: { email } });
+
+      if (user) {
+        const token = await this.mintToken(user.id, "PASSWORD_RESET");
+        this.deliver({
+          to: email,
+          subject: "Flowcare — redefinição de senha",
+          text: this.resetText(token),
+          html: this.resetHtml(token),
+        });
+      }
+      return { message: GENERIC_RESET_MESSAGE };
+    } finally {
+      await this.equalizeEnumerationTiming(startedAt);
     }
-    return { message: GENERIC_RESET_MESSAGE };
   }
 
   /**
    * #209 — redefine a senha e encerra todas as sessões anteriores.
    * Transação: consumo do token + troca de senha + revogação atômicos.
    */
-  async resetPassword(body: ResetPasswordBody): Promise<{ message: string }> {
+  async resetPassword(
+    body: ResetPasswordBody,
+    requestMetadata: SessionMetadata,
+  ): Promise<{ message: string }> {
+    const origin = this.originIdentifier(requestMetadata);
+    await this.enforceRateLimit(
+      AUTH_RATE_LIMITS.resetPassword.origin,
+      origin,
+      "/auth/reset-password",
+    );
+    await this.enforceRateLimit(
+      AUTH_RATE_LIMITS.resetPassword.token,
+      body.token,
+      "/auth/reset-password",
+      origin,
+    );
     const tokenHash = hashToken(body.token);
     const result = await this.deps.prisma.$transaction(
       async (tx: Prisma.TransactionClient) => {
@@ -311,22 +562,24 @@ export class AuthService {
         if (!record || record.type !== "PASSWORD_RESET") {
           return null;
         }
+        await this.lockUserForTokenMutation(tx, record.userId);
+        const now = new Date(this.clock());
         const consumed = await tx.verificationToken.updateMany({
           where: {
             id: record.id,
             usedAt: null,
-            expiresAt: { gt: new Date() },
+            expiresAt: { gt: now },
           },
-          data: { usedAt: new Date() },
+          data: { usedAt: now },
         });
         if (consumed.count !== 1) return null;
         await tx.user.update({
           where: { id: record.userId },
-          data: { passwordHash: await hash(body.newPassword) },
+          data: { passwordHash: await this.hashPassword(body.newPassword) },
         });
         await tx.session.updateMany({
           where: { userId: record.userId, revokedAt: null },
-          data: { revokedAt: new Date() },
+          data: { revokedAt: now },
         });
         await recordAuditEvent(tx, {
           actorUserId: record.userId,
@@ -356,31 +609,124 @@ export class AuthService {
     userId: string,
     type: "EMAIL_VERIFICATION" | "PASSWORD_RESET",
   ): Promise<string> {
-    if (type === "EMAIL_VERIFICATION") {
-      const windowStart = new Date(Date.now() - 60 * 60 * 1000);
-      const recent = await this.deps.prisma.verificationToken.count({
-        where: { userId, type, createdAt: { gt: windowStart } },
-      });
-      if (recent >= this.deps.config.verificationResendPerHour) {
-        throw RateLimited();
+    return this.deps.prisma.$transaction(async (tx) => {
+      await this.lockUserForTokenMutation(tx, userId);
+      const now = new Date(this.clock());
+
+      if (type === "EMAIL_VERIFICATION") {
+        const windowStart = new Date(now.getTime() - 60 * 60 * 1000);
+        const recent = await tx.verificationToken.count({
+          where: { userId, type, createdAt: { gt: windowStart } },
+        });
+        if (recent >= this.deps.config.verificationResendPerHour) {
+          throw RateLimited();
+        }
       }
-    }
 
-    const token = generateToken();
-    const ttl =
-      type === "EMAIL_VERIFICATION"
-        ? this.deps.config.emailVerificationTtlHours * 3600 * 1000
-        : this.deps.config.passwordResetTtlMinutes * 60 * 1000;
+      await tx.verificationToken.updateMany({
+        where: {
+          userId,
+          type,
+          usedAt: null,
+          expiresAt: { gt: now },
+        },
+        data: { usedAt: now },
+      });
 
-    await this.deps.prisma.verificationToken.create({
-      data: {
-        userId,
-        type,
-        tokenHash: hashToken(token),
-        expiresAt: new Date(Date.now() + ttl),
+      const token = generateToken();
+      const ttl =
+        type === "EMAIL_VERIFICATION"
+          ? this.deps.config.emailVerificationTtlHours * 3600 * 1000
+          : this.deps.config.passwordResetTtlMinutes * 60 * 1000;
+
+      await tx.verificationToken.create({
+        data: {
+          userId,
+          type,
+          tokenHash: hashToken(token),
+          expiresAt: new Date(now.getTime() + ttl),
+        },
+      });
+      return token;
+    });
+  }
+
+  private originIdentifier(metadata: SessionMetadata): string {
+    return metadata.ipAddress ?? UNKNOWN_ORIGIN;
+  }
+
+  private privateSubjectId(scope: string, value: string): string {
+    return privateIdentifierDigest(this.deps.config.jwtSecret, scope, value);
+  }
+
+  private async enforceRateLimit(
+    rule: RateLimitRule,
+    identifier: string,
+    route: string,
+    origin = identifier,
+  ): Promise<void> {
+    const result = await this.rateLimiter.consume(rule, identifier);
+    if (result.allowed) return;
+
+    await this.auditRateLimitOnce(rule, result, identifier, origin, route);
+    throw RateLimited();
+  }
+
+  private async auditRateLimitOnce(
+    rule: RateLimitRule,
+    result: RateLimitResult,
+    identifier: string,
+    origin: string,
+    route: string,
+  ): Promise<void> {
+    if (result.count !== rule.limit + 1) return;
+
+    await recordAuditEvent(this.deps.prisma, {
+      actorUserId: null,
+      action: "AUTH_RATE_LIMITED",
+      targetType: "AUTH_SUBJECT",
+      targetId: this.privateSubjectId(rule.scope, identifier),
+      metadata: {
+        route,
+        scope: rule.scope,
+        limit: rule.limit,
+        windowSeconds: rule.windowSeconds,
+        originHash: this.privateSubjectId("origin", origin),
       },
     });
-    return token;
+  }
+
+  private async recordLoginFailure(
+    email: string,
+    origin: string,
+  ): Promise<void> {
+    await recordAuditEvent(this.deps.prisma, {
+      actorUserId: null,
+      action: "AUTH_LOGIN_FAILED",
+      targetType: "AUTH_SUBJECT",
+      targetId: this.privateSubjectId("email", email),
+      metadata: {
+        originHash: this.privateSubjectId("origin", origin),
+      },
+    });
+  }
+
+  private async equalizeEnumerationTiming(startedAt: number): Promise<void> {
+    const remaining =
+      this.deps.config.enumerationProtectionMinMs - (this.clock() - startedAt);
+    if (remaining > 0) await this.sleep(remaining);
+  }
+
+  private async lockUserForTokenMutation(
+    tx: Prisma.TransactionClient,
+    userId: string,
+  ): Promise<void> {
+    await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT "id"
+      FROM "User"
+      WHERE "id" = ${userId}::uuid
+      FOR UPDATE
+    `;
   }
 
   private deliver(message: {

@@ -40,6 +40,7 @@ import {
   PROFILE_PHOTO_MAX_BYTES,
   type ProfilePhotoStore,
 } from "./services/profile-photo-store";
+import type { RateLimiter } from "./services/rate-limiter";
 import type { TranscriptionProvider } from "./services/transcription-provider";
 import { WahaClient, type WhatsAppProvider } from "./services/waha-client";
 
@@ -55,6 +56,7 @@ import { WahaClient, type WhatsAppProvider } from "./services/waha-client";
 export interface AppDeps {
   prisma: PrismaClient;
   mailer: Mailer;
+  authRateLimiter?: RateLimiter;
   profilePhotoStore?: ProfilePhotoStore | null;
   attachmentStore?: ProfilePhotoStore | null;
   consultationAudioStore?: ConsultationAudioStore | null;
@@ -92,6 +94,7 @@ export function createApp(env: Env, deps: AppDeps) {
   const authDeps: AuthDeps = {
     prisma: deps.prisma,
     mailer: deps.mailer,
+    rateLimiter: deps.authRateLimiter,
     config: {
       jwtSecret: env.jwtSecret,
       // TTL finito (#192 proíbe sessão sem expiração); MVP: 12h de sessão de trabalho.
@@ -99,6 +102,7 @@ export function createApp(env: Env, deps: AppDeps) {
       emailVerificationTtlHours: 24,
       passwordResetTtlMinutes: 30,
       verificationResendPerHour: 3,
+      enumerationProtectionMinMs: env.nodeEnv === "test" ? 0 : 500,
       webAppUrl: env.webAppUrl,
       trustProxy: env.trustProxy,
     },
