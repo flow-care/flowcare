@@ -29,6 +29,14 @@ mock.module("next/navigation", () => ({
   },
 }));
 
+mock.module("../app/app/[orgSlug]/settings/team/team-navigation", () => ({
+  useTeamNavigation: () => ({
+    router: { push: mockPush, replace: mockPush },
+    pathname: "/app/clinica-vida/settings/team",
+    searchParams: new URLSearchParams(),
+  }),
+}));
+
 const {
   getTeamMembersAndInvites,
   resendInvite,

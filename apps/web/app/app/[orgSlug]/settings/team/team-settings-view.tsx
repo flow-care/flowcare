@@ -14,7 +14,6 @@ import {
   Users,
 } from "lucide-react";
 import Link from "next/link";
-import * as navigation from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import {
@@ -71,6 +70,7 @@ import {
 } from "./actions";
 import { EditMemberSheet } from "./edit-member-sheet";
 import { InviteMemberSheet } from "./invite-member-sheet";
+import { useTeamNavigation } from "./team-navigation";
 
 export { formatTeamDate, getRoleBadgeConfig };
 
@@ -149,9 +149,7 @@ export function TeamSettingsView({
   initialSheet,
   initialMemberId,
 }: TeamSettingsViewProps) {
-  const router = navigation.useRouter();
-  const pathname = navigation.usePathname();
-  const searchParams = navigation.useSearchParams();
+  const { router, pathname, searchParams } = useTeamNavigation();
 
   const [members, setMembers] = useState<TeamMember[]>(initialMembers);
   const [invites, setInvites] = useState<TeamInvite[]>(initialInvites);
