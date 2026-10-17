@@ -61,12 +61,14 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import type { MembershipRole } from "@/lib/team-members";
 import type { TeamInvite, TeamMember } from "@/server/team";
 import {
   type CreateInviteActionResult,
   resendInviteAction,
   revokeInviteAction,
 } from "./actions";
+import { EditMemberSheet } from "./edit-member-sheet";
 import { InviteMemberSheet } from "./invite-member-sheet";
 
 export interface TeamSettingsViewProps {
@@ -75,6 +77,7 @@ export interface TeamSettingsViewProps {
   initialInvites: TeamInvite[];
   defaultTab?: "members" | "invites";
   initialSheet?: string;
+  initialMemberId?: string;
 }
 
 export function formatTeamDate(isoString?: string | null): string {
@@ -194,12 +197,13 @@ export function TeamSettingsView({
   initialInvites,
   defaultTab = "members",
   initialSheet,
+  initialMemberId,
 }: TeamSettingsViewProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  const [members] = useState<TeamMember[]>(initialMembers);
+  const [members, setMembers] = useState<TeamMember[]>(initialMembers);
   const [invites, setInvites] = useState<TeamInvite[]>(initialInvites);
   const [resendingId, setResendingId] = useState<string | null>(null);
   const [revokingInvite, setRevokingInvite] = useState<TeamInvite | null>(null);
@@ -211,6 +215,10 @@ export function TeamSettingsView({
 
   const isInviteSheetOpen =
     (searchParams?.get("sheet") ?? initialSheet) === "invite";
+  const isEditSheetOpen =
+    (searchParams?.get("sheet") ?? initialSheet) === "edit";
+  const editMemberId = searchParams?.get("memberId") ?? initialMemberId;
+  const activeEditMember = members.find((m) => m.id === editMemberId) ?? null;
 
   const handleCloseInviteSheet = () => {
     if (searchParams) {
@@ -221,6 +229,44 @@ export function TeamSettingsView({
     } else {
       router.push(`/app/${encodeURIComponent(orgSlug)}/settings/team`);
     }
+  };
+
+  const handleCloseEditSheet = () => {
+    if (searchParams) {
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete("sheet");
+      params.delete("memberId");
+      const query = params.toString();
+      router.push(query ? `${pathname}?${query}` : pathname);
+    } else {
+      router.push(`/app/${encodeURIComponent(orgSlug)}/settings/team`);
+    }
+  };
+
+  const handleMemberRoleUpdated = (updated: {
+    id: string;
+    role: MembershipRole;
+    version: number;
+    userName?: string;
+    email?: string;
+  }) => {
+    setMembers((prev) =>
+      prev.map((m) =>
+        m.id === updated.id
+          ? {
+              ...m,
+              role: updated.role,
+              version: updated.version,
+              userName: updated.userName ?? m.userName,
+              email: updated.email ?? m.email,
+            }
+          : m,
+      ),
+    );
+    const roleConfig = getRoleBadgeConfig(updated.role);
+    const successMsg = `Papel de ${updated.userName ?? "colaborador"} atualizado para ${roleConfig.label} com sucesso!`;
+    setFeedback({ type: "success", message: successMsg });
+    toast.success(successMsg);
   };
 
   const handleInviteSuccess = (newInvite: CreateInviteActionResult) => {
@@ -717,6 +763,16 @@ export function TeamSettingsView({
           existingInvites={invites}
           onSuccess={handleInviteSuccess}
           onResendSuccess={handleResendSuccess}
+        />
+
+        {/* Sheet for Editing Member Role */}
+        <EditMemberSheet
+          isOpen={isEditSheetOpen}
+          onClose={handleCloseEditSheet}
+          orgSlug={orgSlug}
+          member={activeEditMember}
+          activeAdminCount={adminMembers.length}
+          onSuccess={handleMemberRoleUpdated}
         />
       </div>
     </TooltipProvider>
