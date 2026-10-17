@@ -1,6 +1,7 @@
 import "server-only";
 
 import { z } from "zod";
+import { extractTopicsFromDraft } from "@/components/flowcare/consultations/anamnesis-review-utils";
 import { getServerConfig } from "./config";
 import { getSessionToken } from "./session";
 
@@ -760,70 +761,7 @@ export const anamnesisDraftDataSchema = z.object({
 });
 export type AnamnesisDraftData = z.infer<typeof anamnesisDraftDataSchema>;
 
-export function extractTopicsFromDraft(
-  draft: unknown,
-  snapshot?: unknown,
-  chiefComplaint?: string | null,
-  clinicalNotes?: string | null,
-): Record<string, string> {
-  const result: Record<string, string> = {};
-
-  const source =
-    snapshot && typeof snapshot === "object"
-      ? (snapshot as Record<string, unknown>)
-      : draft && typeof draft === "object"
-        ? (draft as Record<string, unknown>)
-        : null;
-
-  if (source) {
-    if (source.topics && typeof source.topics === "object") {
-      if (Array.isArray(source.topics)) {
-        for (const item of source.topics) {
-          if (
-            item &&
-            typeof item.key === "string" &&
-            typeof item.value === "string"
-          ) {
-            result[item.key] = item.value;
-          }
-        }
-      } else {
-        for (const [k, v] of Object.entries(source.topics)) {
-          if (typeof v === "string") {
-            result[k] = v;
-          }
-        }
-      }
-    }
-
-    for (const [k, v] of Object.entries(source)) {
-      if (k !== "topics" && typeof v === "string") {
-        result[k] = v;
-      }
-    }
-  }
-
-  if (
-    chiefComplaint &&
-    !result.chief_complaint &&
-    !result.chiefComplaint &&
-    !result.queixa_principal
-  ) {
-    result.chief_complaint = chiefComplaint;
-  }
-
-  if (
-    clinicalNotes &&
-    !result.conduct &&
-    !result.conduta &&
-    !result.clinicalNotes &&
-    !result.clinical_notes
-  ) {
-    result.conduct = clinicalNotes;
-  }
-
-  return result;
-}
+export { extractTopicsFromDraft };
 
 export async function getAnamnesisDraft(
   orgSlug: string,

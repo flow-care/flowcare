@@ -42,12 +42,10 @@ import {
 } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { isClinicalRole } from "@/lib/app-navigation";
-import {
-  type ConsultationDetail,
-  extractTopicsFromDraft,
-} from "@/server/consultations";
+import type { ConsultationDetail } from "@/server/consultations";
 import {
   CLINICAL_ANAMNESIS_TOPICS,
+  extractTopicsFromDraft,
   formatDoctorVerificationStamp,
   resolveTopicInitialValue,
   validateAnamnesisTopics,
