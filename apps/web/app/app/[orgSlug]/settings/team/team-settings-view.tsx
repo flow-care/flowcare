@@ -62,14 +62,17 @@ import {
 } from "@/components/ui/tooltip";
 import { formatTeamDate, getRoleBadgeConfig } from "@/lib/team-display";
 import type { MembershipRole } from "@/lib/team-members";
+import { isSoleAdminMember } from "@/lib/team-removal";
 import type { TeamInvite, TeamMember } from "@/server/team";
 import {
   type CreateInviteActionResult,
+  removeMemberAction,
   resendInviteAction,
   revokeInviteAction,
 } from "./actions";
 import { EditMemberSheet } from "./edit-member-sheet";
 import { InviteMemberSheet } from "./invite-member-sheet";
+import { RemoveMemberDialog } from "./remove-member-dialog";
 import { useTeamNavigation } from "./team-navigation";
 
 export { formatTeamDate, getRoleBadgeConfig };
@@ -156,6 +159,9 @@ export function TeamSettingsView({
   const [resendingId, setResendingId] = useState<string | null>(null);
   const [revokingInvite, setRevokingInvite] = useState<TeamInvite | null>(null);
   const [isRevoking, startRevokeTransition] = useTransition();
+  const [removingMember, setRemovingMember] = useState<TeamMember | null>(null);
+  const [isRemovingMember, startRemoveTransition] = useTransition();
+  const [removalError, setRemovalError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{
     type: "success" | "error";
     message: string;
@@ -215,6 +221,36 @@ export function TeamSettingsView({
     const successMsg = `Papel de ${updated.userName ?? "colaborador"} atualizado para ${roleConfig.label} com sucesso!`;
     setFeedback({ type: "success", message: successMsg });
     toast.success(successMsg);
+  };
+
+  const handleConfirmRemoveMember = () => {
+    if (!removingMember || isRemovingMember) return;
+    const target = removingMember;
+    if (isSoleAdminMember(target, members)) {
+      setRemovalError("A clínica deve manter ao menos um administrador ativo.");
+      return;
+    }
+    setRemovalError(null);
+    startRemoveTransition(async () => {
+      try {
+        const result = await removeMemberAction(orgSlug, target.id);
+        if (!result.ok) {
+          setRemovalError(result.error.message);
+          toast.error(result.error.message);
+          return;
+        }
+        setMembers((previous) =>
+          previous.filter((member) => member.id !== target.id),
+        );
+        setRemovingMember(null);
+        handleCloseEditSheet();
+        toast.success(`${target.userName} foi removido da clínica.`);
+      } catch {
+        const message = "Não foi possível remover o membro da clínica.";
+        setRemovalError(message);
+        toast.error(message);
+      }
+    });
   };
 
   const handleInviteSuccess = (newInvite: CreateInviteActionResult) => {
@@ -721,6 +757,25 @@ export function TeamSettingsView({
           member={activeEditMember}
           activeAdminCount={adminMembers.length}
           onSuccess={handleMemberRoleUpdated}
+          onInitiateRemoval={(member) => {
+            setRemovalError(null);
+            setRemovingMember(
+              members.find((item) => item.id === member.id) ?? null,
+            );
+          }}
+        />
+        <RemoveMemberDialog
+          member={removingMember}
+          open={Boolean(removingMember)}
+          isRemoving={isRemovingMember}
+          errorMessage={removalError}
+          onOpenChange={(open) => {
+            if (!open && !isRemovingMember) {
+              setRemovingMember(null);
+              setRemovalError(null);
+            }
+          }}
+          onConfirm={handleConfirmRemoveMember}
         />
       </div>
     </TooltipProvider>

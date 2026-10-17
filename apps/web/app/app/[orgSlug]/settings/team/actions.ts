@@ -9,7 +9,9 @@ import {
 import { updateMemberRoleSchema } from "@/lib/team-members";
 import {
   createInvite,
+  type RemoveMemberResponse,
   type ResendInviteResponse,
+  removeMember,
   resendInvite,
   revokeInvite,
   TeamApiError,
@@ -22,6 +24,41 @@ export interface CreateInviteActionResult {
   email: string;
   role: InviteMembershipRole;
   expiresAt: string;
+}
+
+export async function removeMemberAction(
+  orgSlug: string,
+  memberId: string,
+): Promise<ActionResult<RemoveMemberResponse>> {
+  if (!orgSlug?.trim() || !memberId?.trim()) {
+    return {
+      ok: false,
+      error: {
+        code: "VALIDATION_ERROR",
+        message: "Identificador do membro ou da clínica inválido.",
+      },
+    };
+  }
+
+  try {
+    const result = await removeMember(orgSlug, memberId);
+    revalidatePath(`/app/${orgSlug}/settings/team`);
+    return { ok: true, data: result };
+  } catch (error) {
+    if (error instanceof TeamApiError) {
+      return {
+        ok: false,
+        error: { code: error.code, message: error.message },
+      };
+    }
+    return {
+      ok: false,
+      error: {
+        code: "UNAVAILABLE",
+        message: "Não foi possível remover o membro da clínica.",
+      },
+    };
+  }
 }
 
 export async function createInviteAction(
