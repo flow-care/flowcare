@@ -17,6 +17,9 @@ export default async function SettingsPage({
   if (!section || section[0] === "clinic" || section[0] === "organization") {
     redirect(`/app/${encodeURIComponent(orgSlug)}/settings/organization`);
   }
+  if (section[0] === "audit") {
+    redirect(`/app/${encodeURIComponent(orgSlug)}/settings/audit`);
+  }
   const selected = settingsSections.find((item) => item.segment === section[0]);
   if (section.length !== 1 || !selected) notFound();
 
