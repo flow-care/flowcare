@@ -1,11 +1,6 @@
 "use client";
 
-import {
-  AlertTriangle,
-  CalendarOff,
-  Clock3,
-  Loader2,
-} from "lucide-react";
+import { AlertTriangle, CalendarOff, Clock3, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useId, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -29,8 +24,8 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   checkNewRuleConflict,
-  DAYS_OF_WEEK,
   DAY_OF_WEEK_LABELS,
+  DAYS_OF_WEEK,
   type DayOfWeek,
   type ScheduleProfessional,
   validateExceptionInput,
@@ -38,10 +33,7 @@ import {
   type WeeklyScheduleResponse,
   type WeeklyScheduleRule,
 } from "@/lib/schedules";
-import {
-  addWeeklyRuleAction,
-  createScheduleExceptionAction,
-} from "./actions";
+import { addWeeklyRuleAction, createScheduleExceptionAction } from "./actions";
 
 export interface NewScheduleFormProps {
   orgSlug: string;
@@ -82,7 +74,8 @@ export function NewScheduleForm({
   const [isSubmittingWeekly, setIsSubmittingWeekly] = useState(false);
 
   // Exception form state
-  const [exceptionProfessional, setExceptionProfessional] = useState<string>("clinic");
+  const [exceptionProfessional, setExceptionProfessional] =
+    useState<string>("clinic");
   const [exceptionStartsAt, setExceptionStartsAt] = useState("");
   const [exceptionEndsAt, setExceptionEndsAt] = useState("");
   const [exceptionReason, setExceptionReason] = useState("");
@@ -173,7 +166,9 @@ export function NewScheduleForm({
   return (
     <div className="space-y-6">
       <div className="space-y-1">
-        <h2 className="text-lg font-semibold text-foreground">Novo Horário ou Bloqueio</h2>
+        <h2 className="text-lg font-semibold text-foreground">
+          Novo Horário ou Bloqueio
+        </h2>
         <p className="text-xs text-muted-foreground">
           Adicione uma nova regra recorrente de atendimento ou configure um
           recesso pontual na agenda da clínica.
@@ -186,10 +181,7 @@ export function NewScheduleForm({
         className="w-full"
       >
         <TabsList className="grid w-full grid-cols-2 mb-6">
-          <TabsTrigger
-            value="weekly"
-            className="gap-1.5 text-xs font-medium"
-          >
+          <TabsTrigger value="weekly" className="gap-1.5 text-xs font-medium">
             <Clock3 className="size-3.5" />
             Horário Recorrente
           </TabsTrigger>
@@ -290,8 +282,8 @@ export function NewScheduleForm({
                   <p className="font-semibold">Conflito de horário detectado</p>
                   <p className="mt-0.5">
                     Já existe um intervalo de atendimento ativo em{" "}
-                    {DAY_OF_WEEK_LABELS[selectedDay]} que sobrepõe o período
-                    de {startTime} às {endTime}.
+                    {DAY_OF_WEEK_LABELS[selectedDay]} que sobrepõe o período de{" "}
+                    {startTime} às {endTime}.
                   </p>
                 </div>
               </div>
@@ -332,9 +324,7 @@ export function NewScheduleForm({
         <TabsContent value="exception">
           <form onSubmit={handleSubmitException} className="space-y-5">
             <div className="space-y-2">
-              <Label htmlFor={professionalSelectId}>
-                Profissional afetado
-              </Label>
+              <Label htmlFor={professionalSelectId}>Profissional afetado</Label>
               <Select
                 value={exceptionProfessional}
                 onValueChange={(val) => setExceptionProfessional(val)}

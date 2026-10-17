@@ -41,7 +41,6 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { NewScheduleSheet } from "./new-schedule-sheet";
 import {
   type DayScheduleGroup,
   filterExceptions,
@@ -52,6 +51,7 @@ import {
   type ScheduleProfessional,
   type WeeklyScheduleResponse,
 } from "@/lib/schedules";
+import { NewScheduleSheet } from "./new-schedule-sheet";
 
 export interface SchedulesViewProps {
   orgSlug: string;
@@ -151,8 +151,6 @@ export function SchedulesView({
   const closeSheet = () => {
     updateQuery({ sheet: null, scheduleId: null });
   };
-
-  const isSheetOpen = Boolean(currentSheetParam);
 
   return (
     <div className="flex flex-col gap-6 p-6 max-w-7xl mx-auto w-full">
@@ -527,8 +525,8 @@ export function SchedulesView({
               </div>
               <p className="text-xs text-muted-foreground">
                 Para alterar este registro, utilize os fluxos dedicados de
-                gerenciamento ou entre em contato com o suporte caso precise
-                de uma auditoria avançada.
+                gerenciamento ou entre em contato com o suporte caso precise de
+                uma auditoria avançada.
               </p>
             </div>
 
