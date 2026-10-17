@@ -56,6 +56,7 @@ export const settingsSections = [
   { segment: "hours", label: "Horários" },
   { segment: "team", label: "Equipe" },
   { segment: "roles", label: "Papéis" },
+  { segment: "anamnesis", label: "Anamnese" },
   { segment: "usage", label: "Consumo" },
   { segment: "audit", label: "Auditoria" },
 ] as const;
