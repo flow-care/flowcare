@@ -17,6 +17,12 @@ export default async function SettingsPage({
   if (!section || section[0] === "clinic" || section[0] === "organization") {
     redirect(`/app/${encodeURIComponent(orgSlug)}/settings/organization`);
   }
+  if (section[0] === "team") {
+    redirect(`/app/${encodeURIComponent(orgSlug)}/settings/team`);
+  }
+  if (section[0] === "roles") {
+    redirect(`/app/${encodeURIComponent(orgSlug)}/settings/roles`);
+  }
   if (section[0] === "audit") {
     redirect(`/app/${encodeURIComponent(orgSlug)}/settings/audit`);
   }
