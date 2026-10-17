@@ -20,6 +20,9 @@ export default async function SettingsPage({
   if (section[0] === "audit") {
     redirect(`/app/${encodeURIComponent(orgSlug)}/settings/audit`);
   }
+  if (section[0] === "hours" || section[0] === "schedules") {
+    redirect(`/app/${encodeURIComponent(orgSlug)}/settings/schedules`);
+  }
   const selected = settingsSections.find((item) => item.segment === section[0]);
   if (section.length !== 1 || !selected) notFound();
 
