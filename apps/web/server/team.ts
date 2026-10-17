@@ -53,6 +53,14 @@ export const resendInviteResponseSchema = z.object({
 
 export type ResendInviteResponse = z.infer<typeof resendInviteResponseSchema>;
 
+export const createInviteResponseSchema = z.object({
+  id: z.string(),
+  email: z.string(),
+  expiresAt: z.string(),
+});
+
+export type CreateInviteResponse = z.infer<typeof createInviteResponseSchema>;
+
 export interface TeamData {
   members: TeamMember[];
   invites: TeamInvite[];
@@ -307,4 +315,84 @@ export async function revokeInvite(
     success: true,
     message: "Convite revogado com sucesso.",
   };
+}
+
+export async function createInvite(
+  orgSlug: string,
+  payload: { email: string; role: string; expiresInDays?: number },
+): Promise<CreateInviteResponse> {
+  const token = await getSessionToken();
+  if (!token) {
+    throw new TeamApiError(
+      "UNAUTHENTICATED",
+      "Entre novamente para continuar.",
+    );
+  }
+
+  const { apiBaseUrl } = getServerConfig();
+  let response: Response;
+  try {
+    response = await fetch(
+      `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/invites`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          email: payload.email.trim().toLowerCase(),
+          role: payload.role,
+        }),
+        cache: "no-store",
+        redirect: "error",
+        signal: AbortSignal.timeout(10_000),
+      },
+    );
+  } catch {
+    throw new TeamApiError(
+      "UNAVAILABLE",
+      "Não foi possível enviar o convite. Tente novamente.",
+    );
+  }
+
+  const data: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const errorData =
+      data && typeof data === "object" && "error" in data
+        ? (data as { error?: { code?: string; message?: string } }).error
+        : null;
+    const code =
+      errorData?.code ??
+      (response.status === 401
+        ? "UNAUTHENTICATED"
+        : response.status === 403
+          ? "FORBIDDEN"
+          : response.status === 404
+            ? "NOT_FOUND"
+            : response.status === 409
+              ? "ALREADY_EXISTS"
+              : "UNAVAILABLE");
+    const message =
+      errorData?.message ??
+      (code === "NOT_FOUND"
+        ? "Clínica não encontrada."
+        : code === "FORBIDDEN"
+          ? "Permissão insuficiente para convidar membros."
+          : code === "ALREADY_EXISTS"
+            ? "Esta pessoa já é membro da clínica ou possui convite pendente."
+            : "Não foi possível enviar o convite.");
+    throw new TeamApiError(code, message);
+  }
+
+  const parsed = createInviteResponseSchema.safeParse(data);
+  if (!parsed.success) {
+    throw new TeamApiError(
+      "INVALID_RESPONSE",
+      "Resposta inválida do servidor ao criar convite.",
+    );
+  }
+
+  return parsed.data;
 }

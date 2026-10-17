@@ -16,6 +16,19 @@ mock.module("next/cache", () => ({
   revalidatePath: () => {},
 }));
 
+const mockPush = mock(() => {});
+mock.module("next/navigation", () => ({
+  useRouter: () => ({ push: mockPush, replace: mockPush }),
+  usePathname: () => "/app/clinica-vida/settings/team",
+  useSearchParams: () => new URLSearchParams(),
+  notFound: () => {
+    throw new Error("NEXT_NOT_FOUND");
+  },
+  redirect: (url: string) => {
+    throw new Error(`NEXT_REDIRECT:${url}`);
+  },
+}));
+
 const {
   getTeamMembersAndInvites,
   resendInvite,

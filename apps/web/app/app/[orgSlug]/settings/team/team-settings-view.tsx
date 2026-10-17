@@ -14,6 +14,7 @@ import {
   Users,
 } from "lucide-react";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import {
@@ -61,13 +62,19 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import type { TeamInvite, TeamMember } from "@/server/team";
-import { resendInviteAction, revokeInviteAction } from "./actions";
+import {
+  type CreateInviteActionResult,
+  resendInviteAction,
+  revokeInviteAction,
+} from "./actions";
+import { InviteMemberSheet } from "./invite-member-sheet";
 
 export interface TeamSettingsViewProps {
   orgSlug: string;
   initialMembers: TeamMember[];
   initialInvites: TeamInvite[];
   defaultTab?: "members" | "invites";
+  initialSheet?: string;
 }
 
 export function formatTeamDate(isoString?: string | null): string {
@@ -186,7 +193,12 @@ export function TeamSettingsView({
   initialMembers,
   initialInvites,
   defaultTab = "members",
+  initialSheet,
 }: TeamSettingsViewProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
   const [members] = useState<TeamMember[]>(initialMembers);
   const [invites, setInvites] = useState<TeamInvite[]>(initialInvites);
   const [resendingId, setResendingId] = useState<string | null>(null);
@@ -196,6 +208,53 @@ export function TeamSettingsView({
     type: "success" | "error";
     message: string;
   } | null>(null);
+
+  const isInviteSheetOpen =
+    (searchParams?.get("sheet") ?? initialSheet) === "invite";
+
+  const handleCloseInviteSheet = () => {
+    if (searchParams) {
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete("sheet");
+      const query = params.toString();
+      router.push(query ? `${pathname}?${query}` : pathname);
+    } else {
+      router.push(`/app/${encodeURIComponent(orgSlug)}/settings/team`);
+    }
+  };
+
+  const handleInviteSuccess = (newInvite: CreateInviteActionResult) => {
+    setInvites((prev) => [
+      {
+        id: newInvite.id,
+        email: newInvite.email,
+        role: newInvite.role,
+        expiresAt: newInvite.expiresAt,
+        createdAt: new Date().toISOString(),
+      },
+      ...prev.filter((inv) => inv.id !== newInvite.id),
+    ]);
+    const successMsg = `Convite enviado com sucesso para ${newInvite.email}!`;
+    setFeedback({ type: "success", message: successMsg });
+    toast.success(successMsg);
+  };
+
+  const handleResendSuccess = (updatedInvite: {
+    id: string;
+    email: string;
+    expiresAt: string;
+  }) => {
+    setInvites((prev) =>
+      prev.map((item) =>
+        item.id === updatedInvite.id
+          ? { ...item, expiresAt: updatedInvite.expiresAt }
+          : item,
+      ),
+    );
+    const successMsg = `Convite para ${updatedInvite.email} reenviado com sucesso!`;
+    setFeedback({ type: "success", message: successMsg });
+    toast.success(successMsg);
+  };
 
   // Protection for the last administrator
   const adminMembers = members.filter(
@@ -647,6 +706,17 @@ export function TeamSettingsView({
             if (!open && !isRevoking) setRevokingInvite(null);
           }}
           onConfirm={handleConfirmRevoke}
+        />
+
+        {/* Sheet for Inviting Member */}
+        <InviteMemberSheet
+          isOpen={isInviteSheetOpen}
+          onClose={handleCloseInviteSheet}
+          orgSlug={orgSlug}
+          existingMembers={members}
+          existingInvites={invites}
+          onSuccess={handleInviteSuccess}
+          onResendSuccess={handleResendSuccess}
         />
       </div>
     </TooltipProvider>

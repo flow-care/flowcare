@@ -78,10 +78,13 @@ export function TeamSettingsError({
 
 export default async function TeamSettingsPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ orgSlug: string }>;
+  searchParams?: Promise<{ sheet?: string; tab?: string }>;
 }) {
   const { orgSlug } = await params;
+  const resolvedSearchParams = searchParams ? await searchParams : undefined;
   const organizations = await getAvailableOrganizations();
   const current = organizations?.find((org) => org.slug === orgSlug);
 
@@ -120,6 +123,10 @@ export default async function TeamSettingsPage({
       orgSlug={orgSlug}
       initialMembers={teamData.members}
       initialInvites={teamData.invites}
+      initialSheet={resolvedSearchParams?.sheet}
+      defaultTab={
+        resolvedSearchParams?.tab === "invites" ? "invites" : "members"
+      }
     />
   );
 }
