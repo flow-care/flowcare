@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -14,16 +14,21 @@ mock.module("next/headers", () => ({
   }),
 }));
 
+const mockPush = mock(() => {});
+const mockReplace = mock(() => {});
 mock.module("next/navigation", () => ({
-  useRouter: () => ({ refresh: () => {} }),
+  useRouter: () => ({ push: mockPush, replace: mockReplace, refresh: () => {} }),
   useSearchParams: () => new URLSearchParams(),
+  notFound: () => {
+    throw new Error("NEXT_NOT_FOUND");
+  },
+  redirect: (url: string) => {
+    throw new Error(`NEXT_REDIRECT:${url}`);
+  },
 }));
 
-const {
-  formatSessionDevice,
-  formatSessionIp,
-  formatSessionDate,
-} = await import("../lib/account-sessions");
+const { formatSessionDevice, formatSessionIp, formatSessionDate } =
+  await import("../lib/account-sessions");
 
 const {
   listAccountSessions,

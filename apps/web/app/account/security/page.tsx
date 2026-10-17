@@ -16,7 +16,8 @@ export default async function AccountSecurityPage() {
       <div className="space-y-1">
         <h1 className="text-2xl font-semibold tracking-tight">Segurança</h1>
         <p className="text-sm text-muted-foreground">
-          Gerencie a segurança da sua conta, credenciais e dispositivos conectados.
+          Gerencie a segurança da sua conta, credenciais e dispositivos
+          conectados.
         </p>
       </div>
 

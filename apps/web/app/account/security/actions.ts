@@ -6,11 +6,11 @@ import {
   changeAccountPassword,
 } from "@/server/account-password";
 import {
-  listAccountSessions,
   type ListSessionsResult,
+  listAccountSessions,
+  type RevokeSessionResult,
   revokeAccountSession,
   revokeOtherAccountSessions,
-  type RevokeSessionResult,
 } from "@/server/account-sessions";
 
 export async function changePasswordAction(values: {

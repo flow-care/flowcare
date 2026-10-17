@@ -47,7 +47,9 @@ interface ActiveSessionsListProps {
   initialSessions: AccountSession[];
 }
 
-export function ActiveSessionsList({ initialSessions }: ActiveSessionsListProps) {
+export function ActiveSessionsList({
+  initialSessions,
+}: ActiveSessionsListProps) {
   const router = useRouter();
   const [sessions, setSessions] = useState<AccountSession[]>(initialSessions);
   const [revokingId, setRevokingId] = useState<string | null>(null);
@@ -114,7 +116,11 @@ export function ActiveSessionsList({ initialSessions }: ActiveSessionsListProps)
 
   const getDeviceIcon = (userAgent: string | null) => {
     const ua = (userAgent || "").toLowerCase();
-    if (ua.includes("mobile") || ua.includes("android") || ua.includes("iphone")) {
+    if (
+      ua.includes("mobile") ||
+      ua.includes("android") ||
+      ua.includes("iphone")
+    ) {
       return <Smartphone className="size-5 text-muted-foreground" />;
     }
     return <Laptop className="size-5 text-muted-foreground" />;
@@ -124,9 +130,12 @@ export function ActiveSessionsList({ initialSessions }: ActiveSessionsListProps)
     <Card className="rounded-xl border border-border bg-card">
       <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <CardTitle className="text-lg font-semibold">Sessões ativas</CardTitle>
+          <CardTitle className="text-lg font-semibold">
+            Sessões ativas
+          </CardTitle>
           <CardDescription>
-            Dispositivos e navegadores atualmente conectados à sua conta Flowcare.
+            Dispositivos e navegadores atualmente conectados à sua conta
+            Flowcare.
           </CardDescription>
         </div>
         <div className="flex items-center gap-2">
@@ -138,7 +147,9 @@ export function ActiveSessionsList({ initialSessions }: ActiveSessionsListProps)
             disabled={isPending}
             className="gap-1.5 text-xs"
           >
-            <RefreshCw className={`size-3.5 ${isPending ? "animate-spin" : ""}`} />
+            <RefreshCw
+              className={`size-3.5 ${isPending ? "animate-spin" : ""}`}
+            />
             Atualizar
           </Button>
 
@@ -164,9 +175,9 @@ export function ActiveSessionsList({ initialSessions }: ActiveSessionsListProps)
                     Encerrar todas as outras sessões?
                   </AlertDialogTitle>
                   <AlertDialogDescription>
-                    Esta ação desconectará imediatamente todos os outros computadores
-                    e dispositivos conectados à sua conta. A sua sessão atual
-                    permanecerá ativa.
+                    Esta ação desconectará imediatamente todos os outros
+                    computadores e dispositivos conectados à sua conta. A sua
+                    sessão atual permanecerá ativa.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -220,7 +231,8 @@ export function ActiveSessionsList({ initialSessions }: ActiveSessionsListProps)
                       <span>IP: {formatSessionIp(session.ipAddress)}</span>
                       <span>•</span>
                       <span>
-                        Última atividade: {formatSessionDate(session.lastActiveAt)}
+                        Última atividade:{" "}
+                        {formatSessionDate(session.lastActiveAt)}
                       </span>
                     </div>
                   </div>
@@ -241,7 +253,9 @@ export function ActiveSessionsList({ initialSessions }: ActiveSessionsListProps)
                       className="gap-1.5 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive border-border"
                     >
                       <LogOut className="size-3.5" />
-                      {revokingId === session.id ? "Encerrando..." : "Encerrar sessão"}
+                      {revokingId === session.id
+                        ? "Encerrando..."
+                        : "Encerrar sessão"}
                     </Button>
                   )}
                 </div>
