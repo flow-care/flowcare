@@ -76,7 +76,6 @@ export async function deleteScheduleExceptionAction(
     };
   }
 }
-
 export async function updateDayRulesAction(
   orgSlug: string,
   dayOfWeek: string,

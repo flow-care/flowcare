@@ -1,6 +1,13 @@
 "use client";
 
-import { Bell, ChevronsUpDown, LogOut, Settings, User } from "lucide-react";
+import {
+  Bell,
+  ChevronsUpDown,
+  LockKeyhole,
+  LogOut,
+  Settings,
+  User,
+} from "lucide-react";
 import Link from "next/link";
 import { logoutAction } from "@/app/app/actions";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -60,6 +67,11 @@ export function ProfileMenu({
           <DropdownMenuItem asChild>
             <Link href="/account/profile" onClick={onNavigate}>
               <User /> Meu Perfil
+            </Link>
+          </DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <Link href="/account/security" onClick={onNavigate}>
+              <LockKeyhole /> Segurança
             </Link>
           </DropdownMenuItem>
           <DropdownMenuItem asChild>

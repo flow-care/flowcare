@@ -492,7 +492,6 @@ export function SchedulesView({
         weeklySchedule={weeklySchedule}
         professionals={professionals}
       />
-
       {/* Interactive Sheet for Edit Schedule/Exception (?sheet=edit&scheduleId=...) */}
       <EditScheduleSheet
         orgSlug={orgSlug}

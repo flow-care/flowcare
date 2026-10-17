@@ -18,20 +18,14 @@ mock.module("next/cache", () => ({
   revalidatePath: () => {},
 }));
 
-const mockPush = mock(() => {});
-const mockReplace = mock(() => {});
 mock.module("next/navigation", () => ({
-  useRouter: () => ({
-    push: mockPush,
-    replace: mockReplace,
-    refresh: () => {},
-  }),
+  useRouter: () => ({ refresh: () => {}, replace: () => {}, push: () => {} }),
   useSearchParams: () => new URLSearchParams("sheet=new"),
   notFound: () => {
     throw new Error("NEXT_NOT_FOUND");
   },
   redirect: (url: string) => {
-    throw new Error("NEXT_REDIRECT:" + url);
+    throw new Error(`NEXT_REDIRECT:${url}`);
   },
 }));
 

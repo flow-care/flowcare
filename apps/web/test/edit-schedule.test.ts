@@ -31,7 +31,7 @@ mock.module("next/navigation", () => ({
     throw new Error("NEXT_NOT_FOUND");
   },
   redirect: (url: string) => {
-    throw new Error("NEXT_REDIRECT:" + url);
+    throw new Error(`NEXT_REDIRECT:${url}`);
   },
 }));
 
