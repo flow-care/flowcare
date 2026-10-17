@@ -71,42 +71,14 @@ export class WhatsAppQueueWorker {
   }
 
   private async process(message: WhatsAppMessage) {
-    const [preference, appointment, session] = await Promise.all([
-      this.prisma.whatsAppPreference.findFirst({
-        where: {
-          organizationId: message.organizationId,
-          patientId: message.patientId,
-          optedIn: true,
-        },
-      }),
-      this.prisma.appointment.findFirst({
-        where: {
-          id: message.appointmentId,
-          organizationId: message.organizationId,
-        },
-        include: {
-          patient: { select: { fullName: true, phone: true } },
-          organization: { select: { name: true, timezone: true } },
-          professional: { select: { fullName: true } },
-        },
-      }),
+    const [eligibility, session] = await Promise.all([
+      this.resolveDeliveryEligibility(message),
       this.prisma.whatsAppSession.findUnique({
         where: { organizationId: message.organizationId },
         select: { providerSessionName: true },
       }),
     ]);
-    const version = Number(message.eventId.split(":").at(-1));
-    const validState =
-      appointment &&
-      appointment.version === version &&
-      (message.type === "APPOINTMENT_CANCELLED"
-        ? appointment.status === "CANCELLED"
-        : appointment.status === "RESERVED" ||
-          appointment.status === "CONFIRMED");
-    const destination = appointment
-      ? normalizeWhatsAppDestination(appointment.patient.phone)
-      : null;
-    if (!preference || !validState || !destination) {
+    if (!eligibility) {
       await this.fail(
         message.id,
         "NOT_ELIGIBLE",
@@ -114,6 +86,7 @@ export class WhatsAppQueueWorker {
       );
       return;
     }
+    const { appointment } = eligibility;
 
     const templateType = templateTypeByMessage[message.type];
     const templateVersion = await this.resolveTemplateVersion(
@@ -177,11 +150,24 @@ export class WhatsAppQueueWorker {
     const attempt = await this.prisma.whatsAppMessageAttempt.create({
       data: { messageId: message.id, number: attemptNumber },
     });
+    // Narrows the TOCTOU window, but a database read cannot make the following
+    // external provider call atomic with consent or appointment updates.
+    const currentEligibility = await this.resolveDeliveryEligibility(message);
+    if (!currentEligibility) {
+      await this.failAttempt(
+        message.id,
+        attempt.id,
+        attemptNumber,
+        "NOT_ELIGIBLE",
+        "Mensagem não elegível para envio.",
+      );
+      return;
+    }
     let providerMessageHash: string | null = null;
     try {
       const providerMessageId = await this.provider.sendText(
         session.providerSessionName,
-        destination.chatId,
+        currentEligibility.destination.chatId,
         text,
       );
       providerMessageHash = hashProviderMessageId(providerMessageId);
@@ -248,6 +234,47 @@ export class WhatsAppQueueWorker {
     }
   }
 
+  private async resolveDeliveryEligibility(message: WhatsAppMessage) {
+    const [preference, appointment] = await Promise.all([
+      this.prisma.whatsAppPreference.findFirst({
+        where: {
+          organizationId: message.organizationId,
+          patientId: message.patientId,
+          optedIn: true,
+        },
+        select: { id: true },
+      }),
+      this.prisma.appointment.findFirst({
+        where: {
+          id: message.appointmentId,
+          organizationId: message.organizationId,
+          patientId: message.patientId,
+        },
+        include: {
+          patient: { select: { fullName: true, phone: true } },
+          organization: { select: { name: true, timezone: true } },
+          professional: { select: { fullName: true } },
+        },
+      }),
+    ]);
+    if (!preference || !appointment) return null;
+
+    const version = Number(message.eventId.split(":").at(-1));
+    const validState =
+      appointment.version === version &&
+      (message.type === "APPOINTMENT_CANCELLED"
+        ? appointment.status === "CANCELLED"
+        : appointment.status === "RESERVED" ||
+          appointment.status === "CONFIRMED");
+    const reminderIsCurrent =
+      message.type !== "APPOINTMENT_REMINDER" ||
+      appointment.scheduledAt > new Date();
+    const destination = normalizeWhatsAppDestination(appointment.patient.phone);
+    if (!validState || !reminderIsCurrent || !destination) return null;
+
+    return { appointment, destination };
+  }
+
   private async resolveTemplateVersion(
     message: WhatsAppMessage,
     templateType: WhatsAppTemplateType,
@@ -306,6 +333,33 @@ export class WhatsAppQueueWorker {
         errorCode: code,
         errorReason: reason,
       },
+    });
+  }
+
+  private async failAttempt(
+    messageId: string,
+    attemptId: string,
+    attemptNumber: number,
+    code: string,
+    reason: string,
+  ) {
+    await this.prisma.$transaction(async (tx) => {
+      const completedAt = new Date();
+      await tx.whatsAppMessageAttempt.update({
+        where: { id: attemptId },
+        data: { completedAt, errorCode: code, errorReason: reason },
+      });
+      await tx.whatsAppMessage.update({
+        where: { id: messageId },
+        data: {
+          status: "FAILED",
+          attemptCount: attemptNumber,
+          leaseUntil: null,
+          uncertainAt: null,
+          errorCode: code,
+          errorReason: reason,
+        },
+      });
     });
   }
 

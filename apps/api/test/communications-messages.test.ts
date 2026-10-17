@@ -633,6 +633,114 @@ describe("WhatsApp messages", () => {
     expect(sentUpdate?.status).toBe("SENT");
   });
 
+  test("worker refuses an overdue reminder after the appointment has started", async () => {
+    const message = {
+      ...queuedMessage(),
+      type: "APPOINTMENT_REMINDER" as const,
+    };
+    let update: Record<string, unknown> | undefined;
+    let sends = 0;
+    const prisma = {
+      whatsAppMessage: {
+        findMany: async () => [message],
+        updateMany: async () => ({ count: 1 }),
+        update: async ({ data }: { data: Record<string, unknown> }) => {
+          update = data;
+        },
+      },
+      whatsAppPreference: { findFirst: async () => ({ id: "pref" }) },
+      appointment: {
+        findFirst: async () => ({
+          ...eligibleAppointment(),
+          scheduledAt: new Date(Date.now() - 60_000),
+        }),
+      },
+      whatsAppSession: {
+        findUnique: async () => ({ providerSessionName: "private" }),
+      },
+    } as unknown as PrismaClient;
+    const sendingProvider: WhatsAppProvider = {
+      ...provider,
+      getSession: async () => ({ status: "WORKING" }),
+      sendText: async () => {
+        sends += 1;
+        return "provider-message-id";
+      },
+    };
+
+    await new WhatsAppQueueWorker(prisma, sendingProvider).processBatch();
+
+    expect(sends).toBe(0);
+    expect(update?.status).toBe("FAILED");
+    expect(update?.errorCode).toBe("NOT_ELIGIBLE");
+  });
+
+  test("worker revalidates opt-in and appointment immediately before sending", async () => {
+    const message = queuedMessage();
+    let preferenceReads = 0;
+    let appointmentReads = 0;
+    let messageUpdate: Record<string, unknown> | undefined;
+    let attemptUpdate: Record<string, unknown> | undefined;
+    let sends = 0;
+    const prisma = {
+      whatsAppMessage: {
+        findMany: async () => [message],
+        updateMany: async () => ({ count: 1 }),
+        update: async ({ data }: { data: Record<string, unknown> }) => {
+          messageUpdate = data;
+        },
+      },
+      whatsAppPreference: {
+        findFirst: async () => {
+          preferenceReads += 1;
+          return preferenceReads === 1 ? { id: "pref" } : null;
+        },
+      },
+      appointment: {
+        findFirst: async () => {
+          appointmentReads += 1;
+          return eligibleAppointment();
+        },
+      },
+      whatsAppSession: {
+        findUnique: async () => ({ providerSessionName: "private" }),
+      },
+      whatsAppTemplate: {
+        findUnique: async () => ({ id: "template", version: 1 }),
+      },
+      whatsAppTemplateVersion: {
+        findUnique: async () => ({
+          id: "template-version",
+          content: "Consulta de {paciente_nome} em {data} às {hora}.",
+        }),
+      },
+      whatsAppMessageAttempt: {
+        create: async () => ({ id: "attempt" }),
+        update: async ({ data }: { data: Record<string, unknown> }) => {
+          attemptUpdate = data;
+        },
+      },
+      $transaction: async (fn: (tx: unknown) => unknown) => fn(prisma),
+    } as unknown as PrismaClient;
+    const sendingProvider: WhatsAppProvider = {
+      ...provider,
+      getSession: async () => ({ status: "WORKING" }),
+      sendText: async () => {
+        sends += 1;
+        return "provider-message-id";
+      },
+    };
+
+    await new WhatsAppQueueWorker(prisma, sendingProvider).processBatch();
+
+    expect(preferenceReads).toBe(2);
+    expect(appointmentReads).toBe(2);
+    expect(sends).toBe(0);
+    expect(attemptUpdate?.errorCode).toBe("NOT_ELIGIBLE");
+    expect(messageUpdate?.status).toBe("FAILED");
+    expect(messageUpdate?.attemptCount).toBe(1);
+  });
+
   test("worker fails diagnostically without sending when no template exists", async () => {
     const message = queuedMessage();
     let update: Record<string, unknown> | undefined;
