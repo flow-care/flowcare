@@ -1,4 +1,3 @@
-import type { Metadata } from "next";
 import { listAccountSessions } from "@/server/account-sessions";
 import { PasswordForm } from "./password-form";
 import { ActiveSessionsList } from "./sessions-list";
