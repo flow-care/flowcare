@@ -74,6 +74,8 @@ export class CommunicationsMessageService {
 
   async list(organizationId: string, query: typeof messageQuery.static) {
     const limit = query.limit ?? 25;
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100)
+      throw new ApiError("VALIDATION_ERROR", 400, "Limite de paginação inválido.");
     const from = query.from ? new Date(query.from) : undefined;
     const to = query.to ? new Date(query.to) : undefined;
     if (
