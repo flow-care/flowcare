@@ -33,7 +33,7 @@ export const auditLogActorUser = t.Object({
 export const auditLogItem = t.Object({
   id: t.String(),
   organizationId: t.Nullable(t.String()),
-  actorUserId: t.String(),
+  actorUserId: t.Nullable(t.String()),
   actorName: t.Optional(t.Nullable(t.String())),
   actorUser: t.Optional(t.Nullable(auditLogActorUser)),
   action: t.String(),

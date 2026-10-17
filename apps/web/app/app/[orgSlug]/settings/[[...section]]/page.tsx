@@ -17,11 +17,23 @@ export default async function SettingsPage({
   if (!section || section[0] === "clinic" || section[0] === "organization") {
     redirect(`/app/${encodeURIComponent(orgSlug)}/settings/organization`);
   }
+  if (section[0] === "team") {
+    redirect(`/app/${encodeURIComponent(orgSlug)}/settings/team`);
+  }
+  if (section[0] === "roles") {
+    redirect(`/app/${encodeURIComponent(orgSlug)}/settings/roles`);
+  }
   if (section[0] === "audit") {
     redirect(`/app/${encodeURIComponent(orgSlug)}/settings/audit`);
   }
   if (section[0] === "anamnesis") {
     redirect(`/app/${encodeURIComponent(orgSlug)}/settings/anamnesis`);
+  }
+  if (section[0] === "hours" || section[0] === "schedules") {
+    redirect(`/app/${encodeURIComponent(orgSlug)}/settings/schedules`);
+  }
+  if (section[0] === "usage") {
+    redirect(`/app/${encodeURIComponent(orgSlug)}/settings/usage`);
   }
   const selected = settingsSections.find((item) => item.segment === section[0]);
   if (section.length !== 1 || !selected) notFound();

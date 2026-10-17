@@ -147,13 +147,21 @@ export function AppSidebar({
             )}
             {inSettings
               ? settingsSections.map((section) => {
-                  const href = `${settingsPath}/${section.segment}`;
+                  const href =
+                    section.segment === "hours"
+                      ? `${settingsPath}/schedules`
+                      : `${settingsPath}/${section.segment}`;
                   const Icon = settingsIcons[section.segment];
                   return (
                     <SidebarMenuItem key={section.segment}>
                       <SidebarMenuButton
                         asChild
-                        isActive={pathname === href}
+                        isActive={
+                          pathname === href ||
+                          (section.segment === "hours" &&
+                            (pathname.startsWith(`${settingsPath}/schedules`) ||
+                              pathname.startsWith(`${settingsPath}/hours`)))
+                        }
                         tooltip={section.label}
                       >
                         <Link href={href} onClick={() => setOpenMobile(false)}>

@@ -116,6 +116,8 @@ beforeEach(() => {
 
 describe.skipIf(!dbUp)("Integração: auth + onboarding (Postgres real)", () => {
   beforeEach(async () => {
+    await prisma.authRateLimit.deleteMany();
+    await prisma.auditLog.deleteMany({ where: { organizationId: null } });
     await prisma.organization.deleteMany();
     await prisma.user.deleteMany();
   });
@@ -337,6 +339,118 @@ describe.skipIf(!dbUp)("Integração: auth + onboarding (Postgres real)", () => 
     });
   });
 
+  describe("#356 proteção contra abuso e enumeração", () => {
+    test("limita login no PostgreSQL por conta e por origem", async () => {
+      for (let attempt = 1; attempt <= 5; attempt += 1) {
+        const response = await post("/auth/login", {
+          email: "conta-limitada@exemplo.com",
+          password: "senha-incorreta",
+        });
+        expect(response.status).toBe(401);
+      }
+      const accountLimited = await post("/auth/login", {
+        email: "conta-limitada@exemplo.com",
+        password: "senha-incorreta",
+      });
+      expect(accountLimited.status).toBe(429);
+
+      await prisma.authRateLimit.deleteMany();
+      for (let attempt = 1; attempt <= 20; attempt += 1) {
+        const response = await post("/auth/login", {
+          email: `origem-${attempt}@exemplo.com`,
+          password: "senha-incorreta",
+        });
+        expect(response.status).toBe(401);
+      }
+      const originLimited = await post("/auth/login", {
+        email: "origem-21@exemplo.com",
+        password: "senha-incorreta",
+      });
+      expect(originLimited.status).toBe(429);
+    }, 10_000);
+
+    test("limite por conta na recuperação mantém resposta neutra e suprime o quarto envio", async () => {
+      await post("/auth/register", {
+        fullName: "Dra. Maria Silva",
+        email: "maria@exemplo.com",
+        password: "senha-segura-123",
+      });
+      sent.length = 0;
+
+      const responses = [];
+      for (let attempt = 1; attempt <= 4; attempt += 1) {
+        responses.push(
+          await post("/auth/forgot-password", {
+            email: "maria@exemplo.com",
+          }),
+        );
+      }
+
+      expect(responses.every((response) => response.status === 200)).toBe(true);
+      expect(sent).toHaveLength(3);
+      expect(
+        await prisma.verificationToken.count({
+          where: {
+            type: "PASSWORD_RESET",
+            usedAt: null,
+            expiresAt: { gt: new Date() },
+          },
+        }),
+      ).toBe(1);
+    });
+
+    test("novos tokens de verificação e reset invalidam os anteriores", async () => {
+      await post("/auth/register", {
+        fullName: "Dra. Maria Silva",
+        email: "maria@exemplo.com",
+        password: "senha-segura-123",
+      });
+      const oldVerification = tokenFromMail();
+      await post("/auth/resend-verification", {
+        email: "maria@exemplo.com",
+      });
+      const newVerification = tokenFromMail();
+
+      expect(
+        (await post("/auth/verify-email", { token: oldVerification })).status,
+      ).toBe(400);
+      expect(
+        (await post("/auth/verify-email", { token: newVerification })).status,
+      ).toBe(200);
+
+      sent.length = 0;
+      await post("/auth/forgot-password", { email: "maria@exemplo.com" });
+      const oldReset = tokenFromMail();
+      await post("/auth/forgot-password", { email: "maria@exemplo.com" });
+      const newReset = tokenFromMail();
+
+      expect(
+        (
+          await post("/auth/reset-password", {
+            token: oldReset,
+            newPassword: "nova-senha-456",
+          })
+        ).status,
+      ).toBe(400);
+      expect(
+        (
+          await post("/auth/reset-password", {
+            token: newReset,
+            newPassword: "nova-senha-456",
+          })
+        ).status,
+      ).toBe(200);
+      expect(
+        (
+          await post("/auth/reset-password", {
+            token: newReset,
+            newPassword: "outra-senha-789",
+          })
+        ).status,
+      ).toBe(400);
+    });
+  });
+
   describe("#215/#216 onboarding", () => {
     async function loginToken(): Promise<string> {
       await post("/auth/register", {
@@ -519,9 +633,22 @@ describe.skipIf(!dbUp)("Integração: auth + onboarding (Postgres real)", () => 
       expect(await prisma.weeklyScheduleRule.count()).toBe(2);
       const savedSchedule = await get("/onboarding/schedule-rules", token);
       expect(savedSchedule.status).toBe(200);
-      expect(await savedSchedule.json()).toMatchObject({
+      expect(await savedSchedule.json()).toEqual({
         timezone: "America/Fortaleza",
-        weeklySchedule: [{ dayOfWeek: "MONDAY", startTime: "08:00" }],
+        weeklySchedule: [
+          {
+            dayOfWeek: "MONDAY",
+            startTime: "08:00",
+            endTime: "12:00",
+            slotDurationMinutes: 30,
+          },
+          {
+            dayOfWeek: "MONDAY",
+            startTime: "12:00",
+            endTime: "18:00",
+            slotDurationMinutes: 30,
+          },
+        ],
       });
 
       const overlap = await post(

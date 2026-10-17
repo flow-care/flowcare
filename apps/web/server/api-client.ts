@@ -1,7 +1,11 @@
 import "server-only";
 
+import { isIP } from "node:net";
+import * as nextHeaders from "next/headers";
 import { z } from "zod";
 import { getServerConfig } from "./config";
+
+const MAX_FORWARDED_FOR_LENGTH = 512;
 
 const publicMessages = {
   INVALID_CREDENTIALS: "E-mail ou senha inválidos.",
@@ -22,16 +26,50 @@ export class ApiRequestError extends Error {
 
 const failureSchema = z.object({ error: z.object({ code: z.string() }) });
 
+function normalizeIpAddress(value: string | null): string | null {
+  const candidate = value?.trim();
+  if (!candidate) return null;
+  const unwrapped =
+    candidate.startsWith("[") && candidate.endsWith("]")
+      ? candidate.slice(1, -1)
+      : candidate;
+  return isIP(unwrapped) === 0 ? null : unwrapped;
+}
+
+export function forwardedClientIp(value: string | null): string | null {
+  if (!value || value.length > MAX_FORWARDED_FOR_LENGTH) return null;
+  return normalizeIpAddress(value.split(",").at(-1) ?? null);
+}
+
+async function currentRequestHeaders(): Promise<Headers | null> {
+  const readHeaders = (
+    nextHeaders as unknown as {
+      headers?: () => Promise<Headers>;
+    }
+  ).headers;
+  return typeof readHeaders === "function" ? readHeaders() : null;
+}
+
 export async function postApi<T>(
   path: string,
   body: Record<string, string>,
   responseSchema: z.ZodType<T>,
+  options?: { requestHeaders?: Headers },
 ): Promise<T> {
   try {
-    const { apiBaseUrl } = getServerConfig();
+    const { apiBaseUrl, trustProxy } = getServerConfig();
+    const incomingHeaders =
+      options?.requestHeaders ?? (await currentRequestHeaders());
+    const clientIp =
+      trustProxy && incomingHeaders
+        ? forwardedClientIp(incomingHeaders.get("x-forwarded-for"))
+        : null;
     const response = await fetch(`${apiBaseUrl}${path}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(clientIp ? { "X-Forwarded-For": clientIp } : {}),
+      },
       body: JSON.stringify(body),
       cache: "no-store",
       redirect: "error",
