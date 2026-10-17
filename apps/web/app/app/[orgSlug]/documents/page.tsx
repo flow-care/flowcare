@@ -22,6 +22,7 @@ export default async function DocumentsPage({
     patientId?: string;
     page?: string;
     cursor?: string;
+    sheet?: string;
   }>;
 }) {
   const { orgSlug } = await params;

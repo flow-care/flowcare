@@ -30,6 +30,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatBirthDateAndAge } from "@/lib/patient-formatters";
 import type { ConsultationDetail } from "@/server/consultations";
 import type { PatientOverview } from "@/server/patients";
+import { AudioAnamnesisView } from "./audio-anamnesis-view";
 import {
   AnamnesisStatusBadge,
   ConsultationStatusBadge,
@@ -448,99 +449,11 @@ export function ConsultationDetailView({
 
         {/* Tab 2: Gravação (anamnesis) */}
         <TabsContent value="anamnesis" className="space-y-6 outline-none">
-          <Card className="border border-border shadow-xs">
-            <CardHeader>
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2 text-lg font-semibold">
-                    <Mic className="size-5 text-primary" />
-                    Captura de Áudio e Transcrição da Consulta
-                  </CardTitle>
-                  <CardDescription className="mt-1">
-                    Grave a consulta para transcrição e estruturação automática
-                    da anamnese clínica.
-                  </CardDescription>
-                </div>
-                <div>
-                  <AnamnesisStatusBadge status={consultation.anamnesisStatus} />
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Audio recording placeholder */}
-              <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-muted/20 p-8 text-center sm:p-12">
-                <div className="flex size-16 items-center justify-center rounded-full bg-primary/10 text-primary shadow-inner">
-                  <Mic className="size-8" />
-                </div>
-                <h3 className="mt-4 text-base font-semibold text-foreground">
-                  {isDraft
-                    ? "Gravação em processamento ou rascunho existente"
-                    : "Pronto para iniciar gravação"}
-                </h3>
-                <p className="mt-1.5 max-w-md text-sm text-muted-foreground">
-                  O microfone captará a conversa clínica com consentimento do
-                  paciente. O áudio será enviado de forma segura para
-                  processamento de IA.
-                </p>
-                <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-                  <Button className="gap-2">
-                    <Mic className="size-4" />
-                    {isDraft
-                      ? "Continuar gravação"
-                      : "Iniciar gravação de áudio"}
-                  </Button>
-                </div>
-              </div>
-
-              {/* Pipeline steps */}
-              <div className="rounded-xl border border-border bg-card p-4">
-                <h4 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Fluxo de Processamento
-                </h4>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                  <div className="flex items-start gap-3 rounded-lg border border-border/60 bg-muted/20 p-3">
-                    <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
-                      1
-                    </div>
-                    <div>
-                      <p className="text-xs font-medium text-foreground">
-                        Captura de Áudio
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Gravação ao vivo ou upload de arquivo de áudio.
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-3 rounded-lg border border-border/60 bg-muted/20 p-3">
-                    <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
-                      2
-                    </div>
-                    <div>
-                      <p className="text-xs font-medium text-foreground">
-                        Transcrição IA
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Conversão de voz em texto com identificação de falantes.
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-3 rounded-lg border border-border/60 bg-muted/20 p-3">
-                    <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
-                      3
-                    </div>
-                    <div>
-                      <p className="text-xs font-medium text-foreground">
-                        Estruturação Clínica
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Geração de proposta de anamnese para revisão médica.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          <AudioAnamnesisView
+            orgSlug={orgSlug}
+            consultation={consultation}
+            onSuccess={() => handleTabChange("review")}
+          />
         </TabsContent>
 
         {/* Tab 3: Revisão (review) */}

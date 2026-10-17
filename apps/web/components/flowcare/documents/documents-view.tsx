@@ -4,6 +4,7 @@ import { FileTextIcon, PlusIcon, SearchIcon, XIcon } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { type FormEvent, useMemo, useState } from "react";
+import { NewDocumentSheet } from "@/app/app/[orgSlug]/documents/new-document-sheet";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -79,6 +80,23 @@ export function DocumentsView({
     params.set("sheet", "new");
     return `/app/${encodeURIComponent(orgSlug)}/documents?${params.toString()}`;
   }, [searchParams, orgSlug]);
+
+  const isNewDocumentSheetOpen = searchParams.get("sheet") === "new";
+
+  const handleCloseNewDocumentSheet = () => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("sheet");
+    params.delete("type");
+    const queryString = params.toString();
+    router.push(
+      `/app/${encodeURIComponent(orgSlug)}/documents${queryString ? `?${queryString}` : ""}`,
+    );
+  };
+
+  const handleNewDocumentSuccess = (_documentId: string) => {
+    handleCloseNewDocumentSheet();
+    router.refresh();
+  };
 
   function navigateWithParams(updatedParams: Record<string, string | null>) {
     const params = new URLSearchParams(searchParams.toString());
@@ -426,6 +444,14 @@ export function DocumentsView({
           </div>
         </div>
       )}
+
+      <NewDocumentSheet
+        isOpen={isNewDocumentSheetOpen}
+        onClose={handleCloseNewDocumentSheet}
+        orgSlug={orgSlug}
+        initialType={searchParams.get("type")}
+        onSuccess={handleNewDocumentSuccess}
+      />
     </div>
   );
 }

@@ -2,16 +2,23 @@
 
 import { revalidatePath } from "next/cache";
 import {
+  archivePatientAttachment,
   type CreatePatientInput,
   type CreatePatientResponse,
   checkPatientDuplicates as checkPatientDuplicatesServer,
   createPatient as createPatientServer,
+  getAttachmentDownloadUrl,
   getPatientOverview as getPatientOverviewServer,
+  getPatientTimeline as getPatientTimelineServer,
+  type PatientAttachmentItem,
   type PatientOverviewData,
   PatientsApiError,
+  type PatientTimelineFilters,
+  type PatientTimelineResult,
   type UpdatePatientInput,
   type UpdatePatientResponse,
   updatePatient as updatePatientServer,
+  uploadPatientAttachment,
 } from "@/server/patients";
 
 export interface CreatePatientActionResult {
@@ -85,6 +92,160 @@ export async function checkPatientDuplicatesAction(
         error instanceof Error
           ? error.message
           : "Erro ao verificar duplicidade.",
+    };
+  }
+}
+
+export interface PatientTimelineActionResult extends PatientTimelineResult {
+  success: boolean;
+  error?: string;
+}
+
+export async function getPatientTimelineAction(
+  orgSlug: string,
+  patientId: string,
+  filters?: PatientTimelineFilters,
+): Promise<PatientTimelineActionResult> {
+  try {
+    const result = await getPatientTimelineServer(orgSlug, patientId, filters);
+    return {
+      success: true,
+      data: result.data,
+      pageInfo: result.pageInfo,
+      isRestricted: result.isRestricted,
+    };
+  } catch (error) {
+    if (error instanceof PatientsApiError) {
+      return {
+        success: false,
+        error: error.message,
+        data: [],
+        pageInfo: { limit: 0, hasNextPage: false, nextCursor: null },
+      };
+    }
+    return {
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Não foi possível carregar o prontuário do paciente.",
+      data: [],
+      pageInfo: { limit: 0, hasNextPage: false, nextCursor: null },
+    };
+  }
+}
+
+export interface ArchivePatientAttachmentActionResult {
+  success: boolean;
+  error?: string;
+  code?: string;
+  attachmentId?: string;
+}
+
+export async function archivePatientAttachmentAction(
+  orgSlug: string,
+  patientId: string,
+  attachmentId: string,
+  reason?: string,
+): Promise<ArchivePatientAttachmentActionResult> {
+  try {
+    await archivePatientAttachment(orgSlug, patientId, attachmentId, reason);
+    revalidatePath(`/app/${orgSlug}/patients/${patientId}`);
+    return {
+      success: true,
+      attachmentId,
+    };
+  } catch (error) {
+    if (error instanceof PatientsApiError) {
+      return {
+        success: false,
+        error: error.message,
+        code: error.code,
+      };
+    }
+    return {
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Não foi possível arquivar o anexo.",
+    };
+  }
+}
+
+export interface UploadPatientAttachmentActionResult {
+  success: boolean;
+  error?: string;
+  code?: string;
+  attachment?: PatientAttachmentItem;
+}
+
+export async function uploadPatientAttachmentAction(
+  orgSlug: string,
+  patientId: string,
+  formData: FormData,
+): Promise<UploadPatientAttachmentActionResult> {
+  try {
+    const result = await uploadPatientAttachment(orgSlug, patientId, formData);
+    revalidatePath(`/app/${orgSlug}/patients/${patientId}`);
+    return {
+      success: true,
+      attachment: result.attachment,
+    };
+  } catch (error) {
+    if (error instanceof PatientsApiError) {
+      return {
+        success: false,
+        error: error.message,
+        code: error.code,
+      };
+    }
+    return {
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Não foi possível enviar o anexo.",
+    };
+  }
+}
+
+export interface GetAttachmentDownloadUrlActionResult {
+  success: boolean;
+  downloadUrl?: string;
+  error?: string;
+  code?: string;
+}
+
+export async function getAttachmentDownloadUrlAction(
+  orgSlug: string,
+  patientId: string,
+  attachmentId: string,
+): Promise<GetAttachmentDownloadUrlActionResult> {
+  try {
+    const result = await getAttachmentDownloadUrl(
+      orgSlug,
+      patientId,
+      attachmentId,
+    );
+    return {
+      success: true,
+      downloadUrl: result.downloadUrl,
+    };
+  } catch (error) {
+    if (error instanceof PatientsApiError) {
+      return {
+        success: false,
+        error: error.message,
+        code: error.code,
+      };
+    }
+    return {
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Não foi possível obter o link de download.",
     };
   }
 }
