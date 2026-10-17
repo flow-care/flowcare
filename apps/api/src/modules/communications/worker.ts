@@ -1,13 +1,18 @@
 import type {
   PrismaClient,
   WhatsAppMessage,
+  WhatsAppMessageStatus,
   WhatsAppMessageType,
 } from "../../generated/prisma/client";
 import {
   WahaSendError,
   type WhatsAppProvider,
 } from "../../services/waha-client";
-import { hashProviderMessageId } from "./messages-service";
+import {
+  hashProviderMessageId,
+  lockWhatsAppProviderMessage,
+  reconcileWhatsAppWebhookEvents,
+} from "./messages-service";
 import type { WhatsAppTemplateType } from "./model";
 import { normalizeWhatsAppDestination } from "./phone";
 import { renderWhatsAppTemplate } from "./service";
@@ -172,6 +177,12 @@ export class WhatsAppQueueWorker {
       );
       providerMessageHash = hashProviderMessageId(providerMessageId);
       await this.prisma.$transaction(async (tx) => {
+        await lockWhatsAppProviderMessage(
+          tx,
+          message.organizationId,
+          providerMessageHash as string,
+        );
+        const sentAt = new Date();
         await tx.whatsAppMessageAttempt.update({
           where: { id: attempt.id },
           data: { completedAt: new Date(), providerMessageHash },
@@ -180,7 +191,7 @@ export class WhatsAppQueueWorker {
           where: { id: message.id },
           data: {
             status: "SENT",
-            sentAt: new Date(),
+            sentAt,
             providerMessageHash,
             attemptCount: attemptNumber,
             leaseUntil: null,
@@ -189,6 +200,12 @@ export class WhatsAppQueueWorker {
             errorReason: null,
           },
         });
+        await reconcileWhatsAppWebhookEvents(
+          tx,
+          message.organizationId,
+          providerMessageHash as string,
+          { id: message.id, status: "SENT", sentAt },
+        );
       });
     } catch (error) {
       const sendError =
@@ -201,7 +218,20 @@ export class WhatsAppQueueWorker {
           : sendError.outcome === "temporary"
             ? "Falha temporária do provedor."
             : "Envio recusado pelo provedor.";
+      const nextStatus: WhatsAppMessageStatus =
+        sendError.outcome === "uncertain"
+          ? "UNCERTAIN"
+          : sendError.outcome === "permanent" || attemptNumber >= 3
+            ? "FAILED"
+            : "QUEUED";
+      const persistedSentAt = providerMessageHash ? new Date() : null;
       await this.prisma.$transaction(async (tx) => {
+        if (providerMessageHash)
+          await lockWhatsAppProviderMessage(
+            tx,
+            message.organizationId,
+            providerMessageHash,
+          );
         await tx.whatsAppMessageAttempt.update({
           where: { id: attempt.id },
           data: {
@@ -214,22 +244,36 @@ export class WhatsAppQueueWorker {
         await tx.whatsAppMessage.update({
           where: { id: message.id },
           data: {
+            status: nextStatus,
             attemptCount: attemptNumber,
             leaseUntil: null,
             providerMessageHash,
+            ...(persistedSentAt ? { sentAt: persistedSentAt } : {}),
             errorCode: sendError.code,
             errorReason: reason,
             ...(sendError.outcome === "uncertain"
-              ? { status: "UNCERTAIN", uncertainAt: new Date() }
+              ? { uncertainAt: new Date() }
               : sendError.outcome === "permanent" || attemptNumber >= 3
-                ? { status: "FAILED", uncertainAt: null }
+                ? { uncertainAt: null }
                 : {
+                    uncertainAt: null,
                     nextAttemptAt: new Date(
                       Date.now() + (delays[attemptNumber - 1] ?? 300_000),
                     ),
                   }),
           },
         });
+        if (providerMessageHash)
+          await reconcileWhatsAppWebhookEvents(
+            tx,
+            message.organizationId,
+            providerMessageHash,
+            {
+              id: message.id,
+              status: nextStatus,
+              sentAt: persistedSentAt,
+            },
+          );
       });
     }
   }

@@ -19,6 +19,10 @@ export function hashProviderMessageId(id: string): string {
   return createHash("sha256").update(id).digest("hex");
 }
 
+export function hashWebhookEvent(raw: string): string {
+  return createHash("sha256").update(raw).digest("hex");
+}
+
 export function verifyWahaWebhook(
   raw: string,
   signature: string | null,
@@ -52,21 +56,89 @@ const messageStatusByAck: Record<
   PLAYED: "READ",
 };
 
-function webhookTransitionSources(
-  nextStatus: WhatsAppMessageStatus,
-): WhatsAppMessageStatus[] {
-  switch (nextStatus) {
-    case "SENT":
-      return ["QUEUED", "UNCERTAIN"];
-    case "DELIVERED":
-      return ["QUEUED", "UNCERTAIN", "FAILED", "SENT"];
-    case "READ":
-      return ["QUEUED", "UNCERTAIN", "FAILED", "SENT", "DELIVERED"];
-    case "FAILED":
-      return ["QUEUED", "UNCERTAIN", "SENT"];
-    default:
-      return [];
-  }
+type CorrelatedMessage = {
+  id: string;
+  status: WhatsAppMessageStatus;
+  sentAt: Date | null;
+};
+
+type AdvisoryLockRow = {
+  lockEvaluated: boolean;
+};
+
+function reconciledWebhookStatus(
+  current: WhatsAppMessageStatus,
+  events: readonly WhatsAppMessageStatus[],
+): WhatsAppMessageStatus {
+  const observed = new Set(events);
+  if (current === "READ" || observed.has("READ")) return "READ";
+  if (current === "DELIVERED" || observed.has("DELIVERED")) return "DELIVERED";
+  if (current === "FAILED" || observed.has("FAILED")) return "FAILED";
+  if (current === "SENT" || observed.has("SENT")) return "SENT";
+  return current;
+}
+
+export async function lockWhatsAppProviderMessage(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  providerMessageHash: string,
+) {
+  await tx.$queryRaw<AdvisoryLockRow[]>`
+    SELECT pg_advisory_xact_lock(
+      hashtext(${organizationId}),
+      hashtext(${providerMessageHash})
+    ) IS NULL AS "lockEvaluated"
+  `;
+}
+
+export async function reconcileWhatsAppWebhookEvents(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  providerMessageHash: string,
+  message: CorrelatedMessage,
+) {
+  await tx.whatsAppWebhookEvent.updateMany({
+    where: {
+      organizationId,
+      providerMessageHash,
+      messageId: null,
+    },
+    data: { messageId: message.id },
+  });
+  const events = await tx.whatsAppWebhookEvent.findMany({
+    where: { organizationId, messageId: message.id },
+    select: { status: true },
+  });
+  const status = reconciledWebhookStatus(
+    message.status,
+    events.map((event) => event.status),
+  );
+  const marksAccepted = ["SENT", "DELIVERED", "READ"].includes(status);
+  if (status === message.status && (!marksAccepted || message.sentAt)) return;
+
+  await tx.whatsAppMessage.updateMany({
+    where: {
+      id: message.id,
+      organizationId,
+      providerMessageHash,
+      status: message.status,
+    },
+    data:
+      status === "FAILED"
+        ? {
+            status,
+            uncertainAt: null,
+            errorCode: "WAHA_ACK_ERROR",
+            errorReason: "O provedor confirmou falha na entrega.",
+          }
+        : {
+            status,
+            sentAt: message.sentAt ?? new Date(),
+            uncertainAt: null,
+            errorCode: null,
+            errorReason: null,
+          },
+  });
 }
 
 export class CommunicationsMessageService {
@@ -75,7 +147,11 @@ export class CommunicationsMessageService {
   async list(organizationId: string, query: typeof messageQuery.static) {
     const limit = query.limit ?? 25;
     if (!Number.isInteger(limit) || limit < 1 || limit > 100)
-      throw new ApiError("VALIDATION_ERROR", 400, "Limite de paginação inválido.");
+      throw new ApiError(
+        "VALIDATION_ERROR",
+        400,
+        "Limite de paginação inválido.",
+      );
     const from = query.from ? new Date(query.from) : undefined;
     const to = query.to ? new Date(query.to) : undefined;
     if (
@@ -261,47 +337,56 @@ export class CommunicationsMessageService {
     });
     if (!binding)
       throw new ApiError("NOT_FOUND", 404, "Sessão não encontrada.");
-    const message = await this.prisma.whatsAppMessage.findFirst({
-      where: {
-        organizationId: binding.organizationId,
-        providerMessageHash: hashProviderMessageId(providerMessageId),
-      },
-      select: { id: true, status: true },
-    });
-    if (!message) return { accepted: true };
     if (!nextStatus) return { accepted: true };
-    const transitionSources = webhookTransitionSources(nextStatus);
+    const providerMessageHash = hashProviderMessageId(providerMessageId);
+    const providerEventId = hashWebhookEvent(raw);
     try {
       await this.prisma.$transaction(async (tx) => {
-        await tx.whatsAppWebhookEvent.create({
-          data: {
-            providerEventId: requestId,
-            messageId: message.id,
-            status: nextStatus,
-          },
-        });
-        if (transitionSources.includes(message.status))
-          await tx.whatsAppMessage.updateMany({
-            where: {
-              id: message.id,
+        await lockWhatsAppProviderMessage(
+          tx,
+          binding.organizationId,
+          providerMessageHash,
+        );
+        const duplicate = await tx.whatsAppWebhookEvent.findUnique({
+          where: {
+            organizationId_providerEventId: {
               organizationId: binding.organizationId,
-              status: { in: transitionSources },
+              providerEventId,
             },
-            data:
-              nextStatus === "FAILED"
-                ? {
-                    status: "FAILED",
-                    uncertainAt: null,
-                    errorCode: "WAHA_ACK_ERROR",
-                    errorReason: "O provedor confirmou falha na entrega.",
-                  }
-                : {
-                    status: nextStatus,
-                    uncertainAt: null,
-                    errorCode: null,
-                    errorReason: null,
-                  },
+          },
+          select: { providerMessageHash: true, status: true },
+        });
+        if (duplicate) {
+          if (
+            duplicate.providerMessageHash !== providerMessageHash ||
+            duplicate.status !== nextStatus
+          )
+            return;
+        }
+        const message = await tx.whatsAppMessage.findFirst({
+          where: {
+            organizationId: binding.organizationId,
+            providerMessageHash,
+          },
+          select: { id: true, status: true, sentAt: true },
+        });
+        if (!duplicate)
+          await tx.whatsAppWebhookEvent.create({
+            data: {
+              organizationId: binding.organizationId,
+              providerEventId,
+              providerMessageHash,
+              messageId: message?.id ?? null,
+              status: nextStatus,
+            },
           });
+        if (!message) return;
+        await reconcileWhatsAppWebhookEvents(
+          tx,
+          binding.organizationId,
+          providerMessageHash,
+          message,
+        );
       });
     } catch (error) {
       if ((error as { code?: string }).code !== "P2002") throw error;

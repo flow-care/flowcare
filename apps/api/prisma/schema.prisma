@@ -261,6 +261,7 @@ model Organization {
   whatsappTemplateVersions WhatsAppTemplateVersion[]
   whatsappMessages WhatsAppMessage[]
   whatsappPreferences WhatsAppPreference[]
+  whatsappWebhookEvents WhatsAppWebhookEvent[]
   activeUsers User[] @relation("ActiveOrganization")
   customRoles OrganizationRole[]
   transcriptionJobs TranscriptionJob[]
@@ -489,7 +490,7 @@ model WhatsAppMessage {
   status            WhatsAppMessageStatus @default(QUEUED)
   scheduledFor      DateTime             @default(now())
   sentAt            DateTime?
-  providerMessageHash String?              @unique
+  providerMessageHash String?
   attemptCount      Int                  @default(0)
   nextAttemptAt     DateTime             @default(now())
   leaseUntil        DateTime?
@@ -507,6 +508,8 @@ model WhatsAppMessage {
   webhookEvents WhatsAppWebhookEvent[]
 
   @@unique([organizationId, eventId, type])
+  @@unique([organizationId, id])
+  @@unique([organizationId, providerMessageHash])
   @@index([organizationId, sentAt, id])
   @@index([organizationId, status, sentAt, id])
   @@index([organizationId, patientId, sentAt, id])
@@ -529,12 +532,19 @@ model WhatsAppMessageAttempt {
 }
 
 model WhatsAppWebhookEvent {
-  id             String   @id @default(uuid()) @db.Uuid
-  providerEventId String   @unique
-  messageId      String   @db.Uuid
-  status         WhatsAppMessageStatus
-  receivedAt     DateTime @default(now())
-  message WhatsAppMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  id                  String                @id @default(uuid()) @db.Uuid
+  organizationId      String                @db.Uuid
+  providerEventId     String
+  providerMessageHash String
+  messageId           String?               @db.Uuid
+  status              WhatsAppMessageStatus
+  receivedAt          DateTime              @default(now())
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  message      WhatsAppMessage? @relation(fields: [organizationId, messageId], references: [organizationId, id], onDelete: Cascade)
+
+  @@unique([organizationId, providerEventId])
+  @@index([organizationId, providerMessageHash, messageId])
 }
 
 model PatientAttachment {

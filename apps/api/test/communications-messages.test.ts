@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
 import { Elysia } from "elysia";
-import type { PrismaClient } from "../src/generated/prisma/client";
+import type {
+  PrismaClient,
+  WhatsAppMessageStatus,
+} from "../src/generated/prisma/client";
 import { ApiError } from "../src/lib/api-error";
 import {
   communicationsModule,
@@ -10,6 +13,7 @@ import {
 import {
   CommunicationsMessageService,
   hashProviderMessageId,
+  hashWebhookEvent,
   maskPatientPhone,
   verifyWahaWebhook,
 } from "../src/modules/communications/messages-service";
@@ -252,7 +256,14 @@ describe("WhatsApp messages", () => {
   });
 
   test("webhook rejects invalid signatures and deduplicates status events", async () => {
-    const events = new Set<string>();
+    const events = new Map<
+      string,
+      {
+        providerMessageHash: string;
+        messageId: string | null;
+        status: "DELIVERED" | "READ";
+      }
+    >();
     let messageStatus = "SENT";
     const prisma = {
       whatsAppSession: { findFirst: async () => ({ organizationId: org }) },
@@ -263,11 +274,32 @@ describe("WhatsApp messages", () => {
         },
       },
       whatsAppWebhookEvent: {
-        create: async ({ data }: { data: { providerEventId: string } }) => {
-          if (events.has(data.providerEventId)) throw { code: "P2002" };
-          events.add(data.providerEventId);
+        findUnique: async ({
+          where,
+        }: {
+          where: {
+            organizationId_providerEventId: { providerEventId: string };
+          };
+        }) =>
+          events.get(where.organizationId_providerEventId.providerEventId) ??
+          null,
+        create: async ({
+          data,
+        }: {
+          data: {
+            providerEventId: string;
+            providerMessageHash: string;
+            messageId: string | null;
+            status: "DELIVERED" | "READ";
+          };
+        }) => {
+          events.set(data.providerEventId, data);
         },
+        updateMany: async () => ({ count: 0 }),
+        findMany: async () =>
+          [...events.values()].map(({ status }) => ({ status })),
       },
+      $queryRaw: async () => [{ lockEvaluated: true }],
       $transaction: async (fn: (tx: unknown) => unknown) => fn(prisma),
     } as unknown as PrismaClient;
     const service = new CommunicationsMessageService(prisma);
@@ -281,10 +313,19 @@ describe("WhatsApp messages", () => {
     await expect(
       service.webhook(raw, "bad", "event-1", String(Date.now()), secret),
     ).rejects.toMatchObject({ httpStatus: 401 });
+    await expect(
+      service.webhook(
+        raw,
+        signature,
+        "event-stale",
+        String(Date.now() - 600_000),
+        secret,
+      ),
+    ).rejects.toMatchObject({ httpStatus: 401 });
     await service.webhook(
       raw,
       signature,
-      "event-1",
+      "replay-with-a-different-request-id",
       String(Date.now()),
       secret,
     );
@@ -310,6 +351,226 @@ describe("WhatsApp messages", () => {
       secret,
     );
     expect(messageStatus).toBe("READ");
+  });
+
+  test("persists an early acknowledgement and reconciles it after the worker stores the provider hash", async () => {
+    const providerMessageId = "provider-message-id";
+    const providerMessageHash = hashProviderMessageId(providerMessageId);
+    const raw = JSON.stringify({
+      event: "message.ack",
+      session: "private",
+      payload: { id: providerMessageId, ack: 3, ackName: "READ" },
+    });
+    const providerEventId = hashWebhookEvent(raw);
+    const otherOrganizationId = "33333333-3333-4333-8333-333333333333";
+    const correlationLocks: Array<[string, string]> = [];
+    type StoredWebhookEvent = {
+      organizationId: string;
+      providerEventId: string;
+      providerMessageHash: string;
+      messageId: string | null;
+      status: "FAILED" | "READ";
+    };
+    const message = {
+      ...queuedMessage(),
+      status: "QUEUED" as WhatsAppMessageStatus,
+      providerMessageHash: null as string | null,
+      sentAt: null as Date | null,
+    };
+    const events: StoredWebhookEvent[] = [
+      {
+        organizationId: otherOrganizationId,
+        providerEventId,
+        providerMessageHash,
+        messageId: null as string | null,
+        status: "FAILED" as const,
+      },
+    ];
+    const prisma = {
+      whatsAppSession: {
+        findFirst: async () => ({ organizationId: org }),
+        findUnique: async () => ({ providerSessionName: "private" }),
+      },
+      whatsAppMessage: {
+        findFirst: async ({
+          where,
+        }: {
+          where: { organizationId: string; providerMessageHash: string };
+        }) =>
+          where.organizationId === org &&
+          message.providerMessageHash === where.providerMessageHash
+            ? {
+                id: message.id,
+                status: message.status,
+                sentAt: message.sentAt,
+              }
+            : null,
+        findMany: async () => [message],
+        updateMany: async ({
+          where,
+          data,
+        }: {
+          where: Record<string, unknown>;
+          data: Record<string, unknown>;
+        }) => {
+          if (
+            data.status === "UNCERTAIN" &&
+            typeof where.leaseUntil === "object"
+          )
+            return { count: 0 };
+          Object.assign(message, data);
+          return { count: 1 };
+        },
+        update: async ({ data }: { data: Record<string, unknown> }) => {
+          Object.assign(message, data);
+          return message;
+        },
+      },
+      whatsAppWebhookEvent: {
+        findUnique: async ({
+          where,
+        }: {
+          where: {
+            organizationId_providerEventId: {
+              organizationId: string;
+              providerEventId: string;
+            };
+          };
+        }) =>
+          events.find(
+            (event) =>
+              event.organizationId ===
+                where.organizationId_providerEventId.organizationId &&
+              event.providerEventId ===
+                where.organizationId_providerEventId.providerEventId,
+          ) ?? null,
+        create: async ({ data }: { data: StoredWebhookEvent }) => {
+          events.push(data);
+          return data;
+        },
+        updateMany: async ({
+          where,
+          data,
+        }: {
+          where: {
+            organizationId: string;
+            providerMessageHash: string;
+            messageId: null;
+          };
+          data: { messageId: string };
+        }) => {
+          let count = 0;
+          for (const event of events) {
+            if (
+              event.organizationId === where.organizationId &&
+              event.providerMessageHash === where.providerMessageHash &&
+              event.messageId === where.messageId
+            ) {
+              event.messageId = data.messageId;
+              count += 1;
+            }
+          }
+          return { count };
+        },
+        findMany: async ({
+          where,
+        }: {
+          where: { organizationId: string; messageId: string };
+        }) =>
+          events
+            .filter(
+              (event) =>
+                event.organizationId === where.organizationId &&
+                event.messageId === where.messageId,
+            )
+            .map(({ status }) => ({ status })),
+      },
+      whatsAppPreference: { findFirst: async () => ({ id: "pref" }) },
+      appointment: { findFirst: async () => eligibleAppointment() },
+      whatsAppTemplate: {
+        findUnique: async () => ({ id: "template", version: 1 }),
+      },
+      whatsAppTemplateVersion: {
+        findUnique: async () => ({
+          id: "template-version",
+          content: "Consulta de {paciente_nome} em {data} às {hora}.",
+        }),
+      },
+      whatsAppMessageAttempt: {
+        create: async () => ({ id: "attempt" }),
+        update: async () => ({}),
+      },
+      $queryRaw: async (
+        _query: TemplateStringsArray,
+        organizationId: string,
+        lockedProviderMessageHash: string,
+      ) => {
+        correlationLocks.push([organizationId, lockedProviderMessageHash]);
+        return [{ lockEvaluated: true }];
+      },
+      $transaction: async (fn: (tx: unknown) => unknown) => fn(prisma),
+    } as unknown as PrismaClient;
+    const service = new CommunicationsMessageService(prisma);
+
+    await service.webhook(
+      raw,
+      createHmac("sha512", secret).update(raw).digest("hex"),
+      "early-event-replay",
+      String(Date.now()),
+      secret,
+    );
+    await service.webhook(
+      raw,
+      createHmac("sha512", secret).update(raw).digest("hex"),
+      "early-event",
+      String(Date.now()),
+      secret,
+    );
+
+    expect(
+      events.find(
+        (event) =>
+          event.organizationId === org &&
+          event.providerEventId === providerEventId,
+      ),
+    ).toMatchObject({
+      organizationId: org,
+      providerMessageHash,
+      messageId: null,
+      status: "READ",
+    });
+    expect(
+      events.filter(
+        (event) =>
+          event.organizationId === org &&
+          event.providerEventId === providerEventId,
+      ),
+    ).toHaveLength(1);
+    expect(
+      events.filter((event) => event.providerEventId === providerEventId),
+    ).toHaveLength(2);
+
+    await new WhatsAppQueueWorker(prisma, {
+      ...provider,
+      getSession: async () => ({ status: "WORKING" }),
+      sendText: async () => providerMessageId,
+    }).processBatch();
+
+    expect(message.status).toBe("READ");
+    expect(message.providerMessageHash).toBe(providerMessageHash);
+    expect(
+      events.find(
+        (event) =>
+          event.organizationId === org &&
+          event.providerEventId === providerEventId,
+      )?.messageId,
+    ).toBe(message.id);
+    expect(correlationLocks).toEqual([
+      [org, providerMessageHash],
+      [org, providerMessageHash],
+      [org, providerMessageHash],
+    ]);
+    expect(events[0]?.messageId).toBeNull();
   });
 
   test("webhook accepts repeated PENDING acknowledgements without changing state", async () => {
@@ -359,10 +620,17 @@ describe("WhatsApp messages", () => {
     ] as const) {
       let messageStatus: string = initialStatus;
       let diagnostic: string | undefined;
+      let eventStatus: "FAILED" | undefined;
       const prisma = {
         whatsAppSession: { findFirst: async () => ({ organizationId: org }) },
         whatsAppMessage: {
-          findFirst: async () => ({ id: "msg", status: messageStatus }),
+          findFirst: async () => ({
+            id: "msg",
+            status: messageStatus,
+            sentAt: ["SENT", "DELIVERED", "READ"].includes(messageStatus)
+              ? new Date()
+              : null,
+          }),
           updateMany: async ({
             data,
           }: {
@@ -373,7 +641,16 @@ describe("WhatsApp messages", () => {
             return { count: 1 };
           },
         },
-        whatsAppWebhookEvent: { create: async () => ({ id: "event" }) },
+        whatsAppWebhookEvent: {
+          findUnique: async () => null,
+          create: async ({ data }: { data: { status: "FAILED" } }) => {
+            eventStatus = data.status;
+            return { id: "event" };
+          },
+          updateMany: async () => ({ count: 0 }),
+          findMany: async () => (eventStatus ? [{ status: eventStatus }] : []),
+        },
+        $queryRaw: async () => [{ lockEvaluated: true }],
         $transaction: async (fn: (tx: unknown) => unknown) => fn(prisma),
       } as unknown as PrismaClient;
       const service = new CommunicationsMessageService(prisma);
@@ -397,6 +674,128 @@ describe("WhatsApp messages", () => {
       expect(messageStatus).toBe(shouldFail ? "FAILED" : initialStatus);
       expect(diagnostic).toBe(shouldFail ? "WAHA_ACK_ERROR" : undefined);
     }
+  });
+
+  test("reconciles out-of-order FAILED, SENT, DELIVERED and READ acknowledgements", async () => {
+    type StoredWebhookEvent = {
+      organizationId: string;
+      providerEventId: string;
+      providerMessageHash: string;
+      messageId: string | null;
+      status: WhatsAppMessageStatus;
+    };
+    const providerMessageHash = hashProviderMessageId("wa-id");
+    const events: StoredWebhookEvent[] = [];
+    const message: {
+      id: string;
+      status: WhatsAppMessageStatus;
+      sentAt: Date | null;
+    } = {
+      id: "msg",
+      status: "SENT",
+      sentAt: new Date("2026-10-17T12:00:00Z"),
+    };
+    const prisma = {
+      whatsAppSession: { findFirst: async () => ({ organizationId: org }) },
+      whatsAppMessage: {
+        findFirst: async () => ({ ...message }),
+        updateMany: async ({
+          where,
+          data,
+        }: {
+          where: { status: WhatsAppMessageStatus };
+          data: { status: WhatsAppMessageStatus; sentAt?: Date };
+        }) => {
+          if (where.status !== message.status) return { count: 0 };
+          message.status = data.status;
+          if (data.sentAt) message.sentAt = data.sentAt;
+          return { count: 1 };
+        },
+      },
+      whatsAppWebhookEvent: {
+        findUnique: async ({
+          where,
+        }: {
+          where: {
+            organizationId_providerEventId: {
+              organizationId: string;
+              providerEventId: string;
+            };
+          };
+        }) =>
+          events.find(
+            (event) =>
+              event.organizationId ===
+                where.organizationId_providerEventId.organizationId &&
+              event.providerEventId ===
+                where.organizationId_providerEventId.providerEventId,
+          ) ?? null,
+        create: async ({ data }: { data: StoredWebhookEvent }) => {
+          events.push(data);
+          return data;
+        },
+        updateMany: async () => ({ count: 0 }),
+        findMany: async ({
+          where,
+        }: {
+          where: { organizationId: string; messageId: string };
+        }) =>
+          events
+            .filter(
+              (event) =>
+                event.organizationId === where.organizationId &&
+                event.messageId === where.messageId,
+            )
+            .map(({ status }) => ({ status })),
+      },
+      $queryRaw: async () => [{ lockEvaluated: true }],
+      $transaction: async (fn: (tx: unknown) => unknown) => fn(prisma),
+    } as unknown as PrismaClient;
+    const service = new CommunicationsMessageService(prisma);
+    const acknowledge = async (
+      requestId: string,
+      ackName: "ERROR" | "SERVER" | "DEVICE" | "READ",
+      ack: -1 | 1 | 2 | 3,
+    ) => {
+      const raw = JSON.stringify({
+        event: "message.ack",
+        session: "private",
+        payload: { id: "wa-id", ackName, ack },
+      });
+      await service.webhook(
+        raw,
+        createHmac("sha512", secret).update(raw).digest("hex"),
+        requestId,
+        String(Date.now()),
+        secret,
+      );
+    };
+
+    await acknowledge("failed", "ERROR", -1);
+    expect(message.status).toBe("FAILED");
+    await acknowledge("late-sent", "SERVER", 1);
+    expect(message.status).toBe("FAILED");
+    await acknowledge("delivered", "DEVICE", 2);
+    expect(message.status).toBe("DELIVERED");
+    await acknowledge("late-failed", "ERROR", -1);
+    expect(message.status).toBe("DELIVERED");
+    await acknowledge("read", "READ", 3);
+    expect(message.status).toBe("READ");
+    await acknowledge("late-delivered", "DEVICE", 2);
+    expect(message.status).toBe("READ");
+    await acknowledge("read", "READ", 3);
+
+    expect(message.status).toBe("READ");
+    expect(events).toHaveLength(4);
+    expect(new Set(events.map((event) => event.status))).toEqual(
+      new Set(["FAILED", "SENT", "DELIVERED", "READ"]),
+    );
+    expect(events.every((event) => event.organizationId === org)).toBe(true);
+    expect(
+      events.every(
+        (event) => event.providerMessageHash === providerMessageHash,
+      ),
+    ).toBe(true);
   });
 
   test("webhook rejects unknown or contradictory acknowledgement values", async () => {
@@ -424,6 +823,7 @@ describe("WhatsApp messages", () => {
 
   test("a later provider acknowledgement reconciles a correlated uncertain message", async () => {
     let update: Record<string, unknown> | undefined;
+    let eventStatus: "SENT" | undefined;
     const prisma = {
       whatsAppSession: { findFirst: async () => ({ organizationId: org }) },
       whatsAppMessage: {
@@ -433,7 +833,16 @@ describe("WhatsApp messages", () => {
           return { count: 1 };
         },
       },
-      whatsAppWebhookEvent: { create: async () => ({ id: "event" }) },
+      whatsAppWebhookEvent: {
+        findUnique: async () => null,
+        create: async ({ data }: { data: { status: "SENT" } }) => {
+          eventStatus = data.status;
+          return { id: "event" };
+        },
+        updateMany: async () => ({ count: 0 }),
+        findMany: async () => (eventStatus ? [{ status: eventStatus }] : []),
+      },
+      $queryRaw: async () => [{ lockEvaluated: true }],
       $transaction: async (fn: (tx: unknown) => unknown) => fn(prisma),
     } as unknown as PrismaClient;
     const service = new CommunicationsMessageService(prisma);
@@ -528,14 +937,79 @@ describe("WhatsApp messages", () => {
     expect(other.status).toBe(404);
   });
 
+  test("history route rejects invalid limits and accepts integer limits from 1 to 100", async () => {
+    const observedTakes: number[] = [];
+    const prisma = {
+      session: {
+        findFirst: async () => ({ id: "sid", lastActiveAt: new Date() }),
+      },
+      membership: {
+        findFirst: async () => ({
+          id: "mem",
+          organizationId: org,
+          role: "RECEPTIONIST",
+          status: "ACTIVE",
+        }),
+      },
+      whatsAppMessage: {
+        findMany: async ({ take }: { take: number }) => {
+          observedTakes.push(take);
+          return [];
+        },
+      },
+    } as unknown as PrismaClient;
+    const app = new Elysia()
+      .onError(({ code, error, status }) => {
+        if (error instanceof ApiError)
+          return status(error.httpStatus, { error: { code: error.code } });
+        if (code === "VALIDATION")
+          return status(400, { error: { code: "VALIDATION_ERROR" } });
+        return status(500, { error: { code: "INTERNAL" } });
+      })
+      .use(communicationsModule({ prisma, jwtSecret: "jwt-secret", provider }));
+    const token = signSessionToken(
+      { sid: "sid", sub: "user" },
+      "jwt-secret",
+      60,
+    );
+    const request = (limit: string) =>
+      app.handle(
+        new Request(
+          `http://localhost/organizations/own/communications/messages?limit=${limit}`,
+          { headers: { authorization: `Bearer ${token}` } },
+        ),
+      );
+
+    for (const limit of ["1.5", "0", "-1", "101", "abc", ""]) {
+      const response = await request(limit);
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({
+        error: { code: "VALIDATION_ERROR" },
+      });
+    }
+    for (const limit of ["1", "100"])
+      expect((await request(limit)).status).toBe(200);
+    expect(observedTakes).toEqual([2, 101]);
+  });
+
   test("webhook route verifies HMAC over raw body before updating status", async () => {
+    let eventStatus: "READ" | undefined;
     const prisma = {
       whatsAppSession: { findFirst: async () => ({ organizationId: org }) },
       whatsAppMessage: {
         findFirst: async () => ({ id: "msg", status: "SENT" }),
         updateMany: async () => ({ count: 1 }),
       },
-      whatsAppWebhookEvent: { create: async () => ({ id: "evt" }) },
+      whatsAppWebhookEvent: {
+        findUnique: async () => null,
+        create: async ({ data }: { data: { status: "READ" } }) => {
+          eventStatus = data.status;
+          return { id: "evt" };
+        },
+        updateMany: async () => ({ count: 0 }),
+        findMany: async () => (eventStatus ? [{ status: eventStatus }] : []),
+      },
+      $queryRaw: async () => [{ lockEvaluated: true }],
       $transaction: async (fn: (tx: unknown) => unknown) => fn(prisma),
     } as unknown as PrismaClient;
     const app = new Elysia()
@@ -611,6 +1085,11 @@ describe("WhatsApp messages", () => {
         create: async () => ({ id: "attempt" }),
         update: async () => ({}),
       },
+      whatsAppWebhookEvent: {
+        updateMany: async () => ({ count: 0 }),
+        findMany: async () => [],
+      },
+      $queryRaw: async () => [{ lockEvaluated: true }],
       $transaction: async (fn: (tx: unknown) => unknown) => fn(prisma),
     } as unknown as PrismaClient;
     const sendingProvider: WhatsAppProvider = {
@@ -852,6 +1331,11 @@ describe("WhatsApp messages", () => {
         create: async () => ({ id: "attempt" }),
         update: async () => ({}),
       },
+      whatsAppWebhookEvent: {
+        updateMany: async () => ({ count: 0 }),
+        findMany: async () => [],
+      },
+      $queryRaw: async () => [{ lockEvaluated: true }],
       $transaction: async (fn: (tx: unknown) => unknown) => {
         transactions += 1;
         if (transactions === 1) throw new Error("database unavailable");
@@ -987,6 +1471,6 @@ describe("WhatsApp messages", () => {
     expect(update?.errorCode).toBe("SAFE_RETRYABLE_FAILURE");
     expect(update?.attemptCount).toBe(1);
     expect(update?.nextAttemptAt).toBeInstanceOf(Date);
-    expect(update?.status).toBeUndefined();
+    expect(update?.status).toBe("QUEUED");
   });
 });
