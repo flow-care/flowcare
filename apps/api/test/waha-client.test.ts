@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { ApiError } from "../src/lib/api-error";
-import { WahaClient } from "../src/services/waha-client";
+import { WahaClient, type WahaSendError } from "../src/services/waha-client";
 
 const originalFetch = globalThis.fetch;
 
@@ -56,5 +56,45 @@ describe("WAHA client", () => {
         httpStatus: 503,
       } satisfies Partial<ApiError>);
     }
+  });
+
+  test("does not classify timeout or HTTP 5xx as safely retryable", async () => {
+    const client = new WahaClient({
+      baseUrl: "https://provider.invalid",
+      apiKey: null,
+    });
+    globalThis.fetch = (async () => {
+      throw new Error("timeout");
+    }) as unknown as typeof fetch;
+    await expect(
+      client.sendText("private", "5511987654321@c.us", "message"),
+    ).rejects.toMatchObject({
+      outcome: "uncertain",
+      code: "PROVIDER_OUTCOME_UNKNOWN",
+    } satisfies Partial<WahaSendError>);
+
+    globalThis.fetch = (async () =>
+      new Response(null, { status: 503 })) as unknown as typeof fetch;
+    await expect(
+      client.sendText("private", "5511987654321@c.us", "message"),
+    ).rejects.toMatchObject({
+      outcome: "uncertain",
+      code: "WAHA_HTTP_503",
+    } satisfies Partial<WahaSendError>);
+  });
+
+  test("treats rate limiting as uncertain without a provider guarantee", async () => {
+    const client = new WahaClient({
+      baseUrl: "https://provider.invalid",
+      apiKey: null,
+    });
+    globalThis.fetch = (async () =>
+      new Response(null, { status: 429 })) as unknown as typeof fetch;
+    await expect(
+      client.sendText("private", "5511987654321@c.us", "message"),
+    ).rejects.toMatchObject({
+      outcome: "uncertain",
+      code: "WAHA_HTTP_429",
+    } satisfies Partial<WahaSendError>);
   });
 });

@@ -1,6 +1,6 @@
 # Flowcare — mensagens operacionais no MVP
 
-**Origem:** decisão de produto #196. Esta especificação define o comportamento esperado; o envio de mensagens ainda não está implementado na API. A instância WAHA existente está descrita em [WAHA.md](infra/WAHA.md).
+**Origem:** decisão de produto #196. Esta especificação define o comportamento implementado para registro, fila e envio da #296; o reenvio manual da #297 permanece planejado. A instância WAHA existente está descrita em [WAHA.md](infra/WAHA.md).
 
 ## Catálogo de disparos
 
@@ -19,25 +19,32 @@ O envio operacional por WhatsApp exige opt-in explícito registrado por clínica
 
 Templates são limitados aos três eventos de WhatsApp acima. Variáveis desconhecidas são recusadas. Diagnóstico, medicamento, hipótese clínica e conteúdo de prontuário são proibidos nos textos; como texto livre não permite detecção confiável, um membro autorizado da clínica deve revisar o template antes de salvá-lo e ativá-lo. O texto usa apenas informações logísticas necessárias; nome de profissional e da clínica são opcionais conforme o template aprovado. O armazenamento e os logs não devem expor telefone completo, credencial, token ou conteúdo clínico.
 
+O worker seleciona o template corrente do tipo correspondente dentro da organização e fixa seu snapshot imutável em `WhatsAppMessage.templateVersionId` antes da primeira tentativa. Retentativas usam a mesma versão, mesmo que um novo texto seja ativado depois. Sem template corrente elegível, a mensagem termina em `FAILED` com diagnóstico e nada é enviado.
+
+Para o envio, telefones nacionais brasileiros são aceitos somente como DDD + assinante (10 ou 11 dígitos) e convertidos para E.164 com `+55`; um DDD `55` continua sendo tratado como DDD. Um número brasileiro já completo com `+55` é preservado. Números internacionais não brasileiros e entradas incompletas ou ambíguas não fazem parte do contrato atual e são retidos, nunca recebem prefixo presumido.
+
 **Decisão provisória do MVP para a #298:** a gravação por um membro ativo com `communications:write` — `ADMIN`, `ADMIN_PROFESSIONAL` ou `RECEPTIONIST` — equivale à revisão, aprovação e ativação da nova versão, que passa imediatamente a ser a versão corrente. Não há estado de rascunho nem endpoint de aprovação ou ativação separado nesta fase. Cada texto aceita no máximo 4.096 caracteres; esse limite fica centralizado na API e deve ser reavaliado quando o contrato definitivo do provedor e do produto for homologado. A auditoria identifica o membro responsável e registra organização, tipo, versões, instante de aprovação, campos alterados e variáveis utilizadas, mas não copia o conteúdo do texto para os metadados.
 
 Esta é uma política de produto conservadora para o canal. A base legal e os avisos de privacidade de cada clínica precisam de revisão jurídica antes da operação real; o opt-in por si só não substitui essa revisão. A [LGPD](https://www.planalto.gov.br/ccivil_03/_ato2015-2018/2018/lei/l13709.htm) disciplina o tratamento de dados pessoais, e a [ANPD](https://www.gov.br/anpd/pt-br/assuntos/noticias/anpd-conclui-a-analise-sobre-compartilhamento-de-dados-pessoais-entre-whatsapp-e-meta) destaca transparência no uso do WhatsApp.
 
 ## Fila, estados e idempotência
 
-O agendamento é salvo sem esperar o WAHA. No mesmo fluxo transacional, uma saída persistente registra o evento de mensagem; o worker a processa depois. A chave lógica única é `organizationId + eventId + channel`, em que `eventId` identifica uma mudança de estado ou uma versão de lembrete do agendamento. Reprocessar o mesmo evento não cria outra mensagem. Cada tentativa de envio tem identificador próprio e conserva o vínculo com a mensagem lógica e com o identificador retornado pelo provedor. A chave `Idempotency-Key` é exigida no reenvio manual; repetir a mesma chave devolve o mesmo resultado.
+O agendamento é salvo sem esperar o WAHA. No mesmo fluxo transacional, uma saída persistente registra o evento de mensagem; o worker a processa depois. A chave lógica única implementada é `organizationId + eventId + type`, em que `eventId` identifica uma mudança de estado ou uma versão de lembrete do agendamento. Reprocessar o mesmo evento e tipo não cria outra mensagem. Cada tentativa de envio tem identificador próprio e conserva o vínculo com a mensagem lógica e com o hash do identificador retornado pelo provedor, que pode conter o telefone do destinatário. O contrato planejado do reenvio manual da #297 exigirá `Idempotency-Key`; essa operação ainda não está implementada.
 
 | Estado | Significado |
 |---|---|
 | `QUEUED` | Persistida, aguardando tentativa; inclui reenvio agendado. |
+| `UNCERTAIN` | A tentativa pode ter sido aceita pelo provedor, mas o resultado não pôde ser confirmado; exige acompanhamento e nunca é reenviada automaticamente. |
 | `SENT` | Provedor aceitou a tentativa; entrega ao aparelho ainda não confirmada. |
 | `DELIVERED` | Provedor confirmou entrega. |
 | `READ` | Provedor confirmou leitura. |
 | `FAILED` | Falha definitiva ou tentativas automáticas esgotadas. |
 
-O webhook autenticado usa segredo configurado e deduplica pelo identificador do evento do provedor. Atualizações repetidas ou fora de ordem não retrocedem `READ → DELIVERED → SENT`; `DELIVERED` ou `READ` prevalece sobre uma falha tardia. Quando o resultado do provedor é desconhecido após timeout, o sistema consulta/reconcilia antes de novo envio, para não mandar uma segunda cópia por engano.
+O webhook autenticado usa segredo configurado e, para transições persistidas de mensagens conhecidas, deduplica pelo identificador da requisição do provedor. Atualizações repetidas ou fora de ordem não retrocedem `READ → DELIVERED → SENT`; `DELIVERED` ou `READ` prevalece sobre uma falha `ERROR` tardia. `PENDING` é aceito sem alterar o estado local. `ERROR` move apenas `QUEUED`, `UNCERTAIN` ou `SENT` para `FAILED`; uma confirmação posterior de entrega ou leitura pode superar `FAILED`. Quando uma resposta aceita forneceu identificador antes de uma falha local, seu hash é preservado e um `message.ack` posterior pode reconciliar `UNCERTAIN` para `SENT`, `DELIVERED` ou `READ`.
 
-Falhas temporárias conhecidas tentam novamente até três vezes no total, com espera de 1 e 5 minutos. Falhas definitivas, número inválido, falta de opt-in ou mensagem já aceita pelo provedor não entram em retry automático. Após esgotar as tentativas, `FAILED` fica visível à equipe. Reenvio manual só é permitido em `FAILED`, após nova verificação de consentimento, telefone, estado do agendamento e permissão; registra autor e instante. `SENT`, `DELIVERED` e `READ` não podem ser reenviadas. Desconexão do WAHA deixa itens na fila e alerta a equipe, sem bloquear agendamentos.
+O WAHA não oferece no contrato usado pelo projeto uma chave idempotente para `sendText`, nem permite consultar com segurança uma tentativa cujo identificador não retornou. Por isso timeout, resposta inválida, HTTP `408`, HTTP `429`, HTTP `5xx` e lease expirado durante uma tentativa são classificados como `UNCERTAIN`, ficam visíveis no histórico e não voltam à fila. Sem hash correlacionável, a resolução exige apuração operacional; nenhum segundo envio é iniciado enquanto o resultado original continuar desconhecido.
+
+O mecanismo admite falhas temporárias somente quando uma integração puder comprovar que a tentativa não chegou ao provedor; nesses casos, tenta novamente até três vezes no total, com espera de 1 e 5 minutos. Nenhuma resposta HTTP atual de `sendText` é classificada dessa forma sem garantia documentada. Falhas definitivas, número inválido, falta de opt-in, resultado incerto ou mensagem já aceita pelo provedor não entram em retry automático. Após esgotar as tentativas, `FAILED` fica visível à equipe. O reenvio manual seguro pertence à #297 e ainda não está implementado; `UNCERTAIN`, `SENT`, `DELIVERED` e `READ` não podem ser reenviadas. Desconexão do WAHA deixa itens na fila, sem bloquear agendamentos.
 
 ## Execução
 

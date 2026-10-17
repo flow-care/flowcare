@@ -153,7 +153,7 @@ export class CommunicationsService {
     return {
       isExample: true,
       type,
-      content: renderTemplate(validated.content, variables),
+      content: renderValidatedTemplate(validated.content, variables),
       variables,
       allowedVariables: allowedPlaceholders(type),
       maxLength: WHATSAPP_TEMPLATE_MAX_LENGTH,
@@ -467,6 +467,15 @@ export function validateWhatsAppTemplate(
   return { content: normalized, variables: uniqueVariables };
 }
 
+export function renderWhatsAppTemplate(
+  type: WhatsAppTemplateType,
+  content: string,
+  variables: Readonly<Record<string, string>>,
+): string {
+  const validated = validateWhatsAppTemplate(type, content);
+  return renderValidatedTemplate(validated.content, variables);
+}
+
 function malformedPlaceholder(position: number) {
   return new ApiError(
     "INVALID_TEMPLATE_STRUCTURE",
@@ -505,13 +514,23 @@ function fictionalPreviewValue(key: string): string {
   return value;
 }
 
-function renderTemplate(
+function renderValidatedTemplate(
   content: string,
   variables: Readonly<Record<string, string>>,
 ): string {
   return content.replace(
     /\{([a-z][a-z0-9_]*)\}/g,
-    (placeholder, key: string) => variables[key] ?? placeholder,
+    (_placeholder, key: string) => {
+      const value = variables[key];
+      if (value === undefined) {
+        throw new ApiError(
+          "INTERNAL",
+          500,
+          "VariÃ¡vel necessÃ¡ria para o template de WhatsApp indisponÃ­vel.",
+        );
+      }
+      return value;
+    },
   );
 }
 

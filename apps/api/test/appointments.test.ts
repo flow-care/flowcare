@@ -193,6 +193,8 @@ function bookingFixture(timezone = "America/Fortaleza", exception = false) {
   ];
 
   const txClient = {
+    whatsAppPreference: { findFirst: async () => null },
+    whatsAppMessage: { updateMany: async () => ({ count: 0 }) },
     $executeRaw: async () => 1,
     scheduleException: {
       findFirst: async () =>

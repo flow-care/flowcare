@@ -911,7 +911,9 @@ O identificador `revisionId` da versão vigente deve ser armazenado pela futura 
 ### Módulo 10: Comunicações & Integração WhatsApp (WAHA)
 *(Ref: Issues [#196](https://github.com/Flowcare-team/flowcare-monorepo/issues/196), [#295](https://github.com/Flowcare-team/flowcare-monorepo/issues/295)–[#298](https://github.com/Flowcare-team/flowcare-monorepo/issues/298))*
 
-**Decisão do MVP:** ver [catálogo, consentimento e estados de mensagens](MESSAGING_MVP.md). Apenas confirmação de agendamento, cancelamento e lembrete 24 horas antes são enviados por WhatsApp, com opt-in ativo do paciente. Mensagens de autenticação e convite usam e-mail. As rotas de conexão e templates estão implementadas; envio, histórico de mensagens, webhook e reenvio permanecem planejados.
+**Decisão do MVP:** ver [catálogo, consentimento e estados de mensagens](MESSAGING_MVP.md). Apenas confirmação de agendamento, cancelamento e lembrete 24 horas antes são enviados por WhatsApp, com opt-in ativo do paciente. Mensagens de autenticação e convite usam e-mail. As rotas de conexão, templates, histórico, preferência e webhook estão implementadas. A fila persistente e o worker de envio também estão implementados; o reenvio permanece planejado. O worker fixa a versão imutável do template corrente da organização antes da tentativa e não envia quando o tipo ainda não possui template configurado.
+
+**Destino e resultado de envio:** o canal aceita telefone brasileiro inequívoco como DDD + assinante ou E.164 com `+55`; DDD `55` não é confundido com código de país. Números internacionais não brasileiros e entradas ambíguas são recusados. Timeout, resposta inválida, HTTP `408`, HTTP `429`, HTTP `5xx` e interrupção durante uma tentativa são resultados `UNCERTAIN`: ficam visíveis para apuração, não recebem retry automático e só avançam por webhook quando existe identificador correlacionável. O contrato WAHA consultado não garante que essas respostas ocorram antes da aceitação de `sendText`.
 
 **Validação dos templates:** violações estruturais do contrato HTTP rejeitadas pelo Elysia — por exemplo JSON/campos inválidos, `content` vazio ou acima de 4.096 caracteres e versões fora do tipo/faixa declarados — retornam `400 VALIDATION_ERROR` no envelope padrão da API. Conteúdo aceito pelo schema, mas semanticamente inválido para templates — por exemplo placeholders malformados ou não permitidos para o tipo — retorna `422 INVALID_TEMPLATE_STRUCTURE` ou `422 INVALID_TEMPLATE_VARIABLE`.
 
@@ -927,13 +929,14 @@ O identificador `revisionId` da versão vigente deve ser armazenado pela futura 
 
 #### `GET /organizations/:orgSlug/communications/messages`
 * **Descrição:** Lista o histórico paginado de mensagens operacionais com filtros por estado e período; telefone mascarado.
-* **Permissão:** `communications:read`.
-* **Respostas:** `200 OK` (`{ "items": [{ "id": "msg_1", "type": "APPOINTMENT_REMINDER", "status": "QUEUED", "phoneMasked": "(11) 98765-****" }], "nextCursor": null }`). Estados: `QUEUED`, `SENT`, `DELIVERED`, `READ`, `FAILED`.
+* **Permissão:** `communications:read` ou `appointments:read` para membros ativos da clínica.
+* **Query:** `status`, `patientId`, `from`, `to` (instantes ISO 8601 com UTC ou offset, aplicados a `sentAt` e comparados cronologicamente), `cursor` e `limit` (1–100, padrão 25). Ordenação: `sentAt DESC NULLS LAST`, `createdAt DESC`, `id DESC`; mensagens ainda não enviadas aparecem após as enviadas.
+* **Respostas:** `200 OK` (`{ "items": [{ "id": "msg_1", "type": "APPOINTMENT_REMINDER", "status": "QUEUED", "patientId": "...", "appointmentId": "...", "phoneMasked": "(11) 98765-****", "createdAt": "...", "sentAt": null, "errorCode": null, "errorReason": null }], "nextCursor": null }`). Estados: `QUEUED`, `UNCERTAIN`, `SENT`, `DELIVERED`, `READ`, `FAILED`. `UNCERTAIN` indica que uma tentativa pode ter sido aceita e não pode ser reenviada automaticamente com segurança.
 
 #### `PATCH /organizations/:orgSlug/patients/:patientId/communication-preferences`
 * **Descrição:** Registra opt-in ou opt-out de WhatsApp informado pelo paciente, com origem, autor e horário auditáveis. Opt-out cancela disparos pendentes quando possível.
 * **Permissão:** `patients:write`.
-* **Body:** `{ "whatsappOptIn": false, "source": "PATIENT_REQUEST" }`.
+* **Body:** `{ "whatsappOptIn": false, "source": "PATIENT_REQUEST" }`. `source` deve conter ao menos um caractere diferente de espaço; o valor é persistido sem espaços nas extremidades.
 
 #### `GET /organizations/:orgSlug/communications/whatsapp/templates`
 * **Descrição:** Lista os textos já configurados pela clínica para `APPOINTMENT_CONFIRMATION`, `APPOINTMENT_CANCELLATION` e `APPOINTMENT_REMINDER_24H`. Organizações sem configuração recebem `data: []`; a API não cria textos padrão implicitamente.
@@ -964,7 +967,7 @@ O identificador `revisionId` da versão vigente deve ser armazenado pela futura 
 * **Erros:** `400 VALIDATION_ERROR` para payload estruturalmente inválido; `422 INVALID_TEMPLATE_STRUCTURE`; `422 INVALID_TEMPLATE_VARIABLE`.
 
 #### `POST /webhooks/whatsapp/status`
-* **Descrição:** Recebe atualização de entrega do WAHA após validar segredo configurado; evento repetido é idempotente e atualização fora de ordem não regride o estado.
+* **Descrição:** Recebe `message.ack` do WAHA. Exige `X-Webhook-Hmac` (HMAC-SHA512 hexadecimal do corpo bruto com `WAHA_WEBHOOK_SECRET`), `X-Webhook-Request-Id` e `X-Webhook-Timestamp` (milissegundos, janela de cinco minutos). Valida a correspondência entre `ackName` e `ack`: `PENDING/0` é aceito sem mutação; `SERVER/1`, `DEVICE/2`, `READ/3` e `PLAYED/4` avançam a entrega; `ERROR/-1` marca `FAILED` somente antes de `DELIVERED` ou `READ`. Requisições repetidas são idempotentes e atualizações fora de ordem não regridem entrega ou leitura. Se o segredo não está configurado, falha fechado. Retorna `{ "accepted": true }`.
 * **Permissão:** segredo do webhook, sem sessão de usuário.
 
 #### `POST /organizations/:orgSlug/communications/messages/:messageId/resend`
@@ -972,6 +975,7 @@ O identificador `revisionId` da versão vigente deve ser armazenado pela futura 
 * **Permissão:** `communications:write`.
 * **Cabeçalho Obrigatório:** `Idempotency-Key`
 * **Respostas:** `200 OK` (`{ "status": "QUEUED" }`), `409 MESSAGE_STATE_CONFLICT` se não for elegível. Repetir a chave retorna o resultado original.
+* **Estado:** Planejado na #297; ainda não implementado. Mensagens `UNCERTAIN` não são elegíveis enquanto o resultado original não for esclarecido.
 
 ---
 
