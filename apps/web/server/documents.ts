@@ -209,6 +209,9 @@ export async function getDocumentTemplates(
     }
   }
 
+  searchParams.set("status", "ACTIVE");
+  searchParams.set("selectableOnly", "true");
+
   const qs = searchParams.toString();
   const url = `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/templates${
     qs ? `?${qs}` : ""
@@ -251,7 +254,9 @@ export async function getDocumentTemplates(
   if (!parsed.success) {
     return [];
   }
-  return parsed.data.data;
+  return parsed.data.data.filter(
+    (item) => item.status !== "ARCHIVED" && item.selectable !== false,
+  );
 }
 
 export interface CreateDocumentDraftInput {
