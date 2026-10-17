@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Bell,
   ChevronsUpDown,
   LockKeyhole,
   LogOut,
@@ -71,6 +72,11 @@ export function ProfileMenu({
           <DropdownMenuItem asChild>
             <Link href="/account/security" onClick={onNavigate}>
               <LockKeyhole /> Segurança
+            </Link>
+          </DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <Link href="/account/notifications" onClick={onNavigate}>
+              <Bell /> Notificações
             </Link>
           </DropdownMenuItem>
           <DropdownMenuSeparator className="h-0 border-t border-dashed border-border bg-transparent" />
