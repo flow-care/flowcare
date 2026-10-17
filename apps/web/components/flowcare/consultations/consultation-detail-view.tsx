@@ -30,6 +30,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatBirthDateAndAge } from "@/lib/patient-formatters";
 import type { ConsultationDetail } from "@/server/consultations";
 import type { PatientOverview } from "@/server/patients";
+import { AnamnesisReviewView } from "./anamnesis-review-view";
 import { AudioAnamnesisView } from "./audio-anamnesis-view";
 import {
   AnamnesisStatusBadge,
@@ -42,6 +43,7 @@ export interface ConsultationDetailViewProps {
   consultation: ConsultationDetail;
   patientOverview: PatientOverview | null;
   activeTab?: string;
+  userRole?: string;
 }
 
 export function ConsultationDetailView({
@@ -49,6 +51,7 @@ export function ConsultationDetailView({
   consultation,
   patientOverview,
   activeTab = "overview",
+  userRole,
 }: ConsultationDetailViewProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -171,22 +174,37 @@ export function ConsultationDetailView({
 
           {/* Shortcut action button */}
           <div className="flex items-center gap-2">
-            <Button
-              asChild
-              className="gap-2 shadow-sm"
-              variant={isDraft ? "secondary" : "default"}
-            >
-              <Link
-                href={`/app/${encodeURIComponent(orgSlug)}/consultations/${consultation.id}?tab=anamnesis`}
-                onClick={(e) => {
-                  e.preventDefault();
-                  handleTabChange("anamnesis");
-                }}
+            {consultation.anamnesisStatus === "APPROVED" ? (
+              <Button asChild className="gap-2 shadow-sm" variant="outline">
+                <Link
+                  href={`/app/${encodeURIComponent(orgSlug)}/consultations/${consultation.id}?tab=review`}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    handleTabChange("review");
+                  }}
+                >
+                  <FileCheck className="size-4" />
+                  <span>Ver anamnese aprovada</span>
+                </Link>
+              </Button>
+            ) : (
+              <Button
+                asChild
+                className="gap-2 shadow-sm"
+                variant={isDraft ? "secondary" : "default"}
               >
-                <Mic className="size-4" />
-                <span>{shortcutText}</span>
-              </Link>
-            </Button>
+                <Link
+                  href={`/app/${encodeURIComponent(orgSlug)}/consultations/${consultation.id}?tab=anamnesis`}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    handleTabChange("anamnesis");
+                  }}
+                >
+                  <Mic className="size-4" />
+                  <span>{shortcutText}</span>
+                </Link>
+              </Button>
+            )}
           </div>
         </div>
       </div>
@@ -458,112 +476,11 @@ export function ConsultationDetailView({
 
         {/* Tab 3: Revisão (review) */}
         <TabsContent value="review" className="space-y-6 outline-none">
-          <Card className="border border-border shadow-xs">
-            <CardHeader>
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2 text-lg font-semibold">
-                    <FileCheck className="size-5 text-primary" />
-                    Revisão da Anamnese e Assinatura Médica
-                  </CardTitle>
-                  <CardDescription className="mt-1">
-                    Confira as informações clínicas estruturadas antes de
-                    assinar o prontuário do atendimento.
-                  </CardDescription>
-                </div>
-                <div>
-                  <AnamnesisStatusBadge status={consultation.anamnesisStatus} />
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {consultation.anamnesisStatus === "APPROVED" ? (
-                <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-6">
-                  <div className="flex items-start gap-3">
-                    <CheckCircle2 className="size-6 text-emerald-600 dark:text-emerald-400" />
-                    <div className="space-y-1">
-                      <h4 className="text-base font-semibold text-emerald-900 dark:text-emerald-200">
-                        Anamnese Aprovada e Assinada
-                      </h4>
-                      <p className="text-sm text-muted-foreground">
-                        Este documento foi finalizado e homologado com carimbo
-                        digital imutável.
-                      </p>
-                      <div className="mt-4 grid grid-cols-1 gap-2 pt-2 text-xs text-muted-foreground sm:grid-cols-2">
-                        <div>
-                          <span className="font-medium text-foreground">
-                            Assinado por:
-                          </span>{" "}
-                          {consultation.signedBy || professionalName}
-                        </div>
-                        <div>
-                          <span className="font-medium text-foreground">
-                            Data de aprovação:
-                          </span>{" "}
-                          {formatDateTime(consultation.approvedAt)}
-                        </div>
-                        {consultation.snapshotHash && (
-                          <div className="sm:col-span-2">
-                            <span className="font-medium text-foreground">
-                              Hash de integridade:
-                            </span>{" "}
-                            <span className="font-mono text-[11px]">
-                              {consultation.snapshotHash}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="rounded-xl border border-border bg-muted/20 p-5">
-                    <div className="flex items-start gap-3">
-                      <FileText className="size-5 text-primary" />
-                      <div className="flex-1 space-y-3">
-                        <div>
-                          <h4 className="text-sm font-semibold text-foreground">
-                            Queixa Principal
-                          </h4>
-                          <p className="mt-0.5 text-sm text-muted-foreground">
-                            {consultation.chiefComplaint ||
-                              "Pendente de preenchimento ou transcrição."}
-                          </p>
-                        </div>
-
-                        <div className="border-t border-border/60 pt-3">
-                          <h4 className="text-sm font-semibold text-foreground">
-                            Notas Clínicas e Evolução
-                          </h4>
-                          <p className="mt-0.5 text-sm text-muted-foreground">
-                            {consultation.clinicalNotes ||
-                              "Nenhuma nota clínica inserida até o momento."}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-foreground">
-                        Pronto para finalizar o prontuário?
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        A assinatura médica fecha as alterações e gera o
-                        histórico definitivo.
-                      </p>
-                    </div>
-                    <Button variant="outline" className="gap-2">
-                      <FileCheck className="size-4" />
-                      Revisar e Assinar Anamnese
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          <AnamnesisReviewView
+            orgSlug={orgSlug}
+            consultation={consultation}
+            userRole={userRole}
+          />
         </TabsContent>
       </Tabs>
     </div>
