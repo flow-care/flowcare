@@ -42,10 +42,6 @@ let mockOrganizations: Array<{
   },
 ];
 
-mock.module("@/server/organizations", () => ({
-  getAvailableOrganizations: async () => mockOrganizations,
-}));
-
 const { getOrganizationRoles, RolesApiError } = await import("../server/roles");
 
 const {
@@ -81,6 +77,16 @@ beforeEach(() => {
       role: "ADMIN",
     },
   ];
+  globalThis.fetch = (async (url: string | URL | Request) => {
+    const urlStr = String(url);
+    if (
+      urlStr.endsWith("/organizations") ||
+      urlStr.includes("/organizations?")
+    ) {
+      return Response.json({ data: mockOrganizations });
+    }
+    return Response.json(sampleRolesResponse);
+  }) as unknown as typeof fetch;
 });
 
 afterEach(() => {
@@ -265,7 +271,14 @@ describe("Roles List & Matrix (#324) - Role Protection & RBAC (403)", () => {
   });
 
   test("ADMIN and ADMIN_PROFESSIONAL are authorized and can access", async () => {
-    globalThis.fetch = (async () => {
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      const urlStr = String(url);
+      if (
+        urlStr.endsWith("/organizations") ||
+        urlStr.includes("/organizations?")
+      ) {
+        return Response.json({ data: mockOrganizations });
+      }
       return Response.json(sampleRolesResponse);
     }) as unknown as typeof fetch;
 
@@ -290,7 +303,14 @@ describe("Roles List & Matrix (#324) - Role Protection & RBAC (403)", () => {
   });
 
   test("RolesSettingsPage falls back to 403 when API returns FORBIDDEN", async () => {
-    globalThis.fetch = (async () => {
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      const urlStr = String(url);
+      if (
+        urlStr.endsWith("/organizations") ||
+        urlStr.includes("/organizations?")
+      ) {
+        return Response.json({ data: mockOrganizations });
+      }
       return Response.json({ error: { code: "FORBIDDEN" } }, { status: 403 });
     }) as unknown as typeof fetch;
 
@@ -532,7 +552,14 @@ describe("Roles List & Matrix (#324) - Error Handling & Retry", () => {
   });
 
   test("RolesSettingsPage displays error card when data fetch fails", async () => {
-    globalThis.fetch = (async () => {
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      const urlStr = String(url);
+      if (
+        urlStr.endsWith("/organizations") ||
+        urlStr.includes("/organizations?")
+      ) {
+        return Response.json({ data: mockOrganizations });
+      }
       return Response.json(
         { error: { message: "Internal server error" } },
         { status: 500 },

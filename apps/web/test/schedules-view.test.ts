@@ -588,7 +588,10 @@ describe("Schedules Settings - Page Layer & Role Protection (#308)", () => {
   test("SchedulesSettingsPage blocks unauthorized roles (RECEPTIONIST)", async () => {
     globalThis.fetch = async (url) => {
       const urlStr = String(url);
-      if (urlStr.includes("/organizations")) {
+      if (
+        urlStr.endsWith("/organizations") ||
+        urlStr.includes("/organizations?")
+      ) {
         return new Response(
           JSON.stringify({
             data: [

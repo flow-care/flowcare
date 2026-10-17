@@ -37,10 +37,6 @@ let mockOrganizations: Array<{
   { id: "org-1", name: "Clínica Teste", slug: "clinica-teste", role: "ADMIN" },
 ];
 
-mock.module("../server/organizations", () => ({
-  getAvailableOrganizations: async () => mockOrganizations,
-}));
-
 const { getTranscriptionUsage, UsageApiError } = await import(
   "../server/usage"
 );
@@ -83,6 +79,16 @@ beforeEach(() => {
       role: "ADMIN",
     },
   ];
+  globalThis.fetch = (async (url: string | URL | Request) => {
+    const urlStr = String(url);
+    if (
+      urlStr.endsWith("/organizations") ||
+      urlStr.includes("/organizations?")
+    ) {
+      return Response.json({ data: mockOrganizations });
+    }
+    return Response.json(sampleUsageResponse);
+  }) as unknown as typeof fetch;
 });
 
 afterEach(() => {
@@ -509,7 +515,14 @@ describe("Page Layer & Role Protection (#312)", () => {
   });
 
   test("UsageSettingsPage allows ADMIN and ADMIN_PROFESSIONAL roles", async () => {
-    globalThis.fetch = (async () => {
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      const urlStr = String(url);
+      if (
+        urlStr.endsWith("/organizations") ||
+        urlStr.includes("/organizations?")
+      ) {
+        return Response.json({ data: mockOrganizations });
+      }
       return new Response(JSON.stringify(sampleUsageResponse), {
         status: 200,
         headers: { "Content-Type": "application/json" },
@@ -554,7 +567,14 @@ describe("Page Layer & Role Protection (#312)", () => {
   });
 
   test("UsageSettingsPage handles API error by rendering UsageSettingsError", async () => {
-    globalThis.fetch = (async () => {
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      const urlStr = String(url);
+      if (
+        urlStr.endsWith("/organizations") ||
+        urlStr.includes("/organizations?")
+      ) {
+        return Response.json({ data: mockOrganizations });
+      }
       return new Response(
         JSON.stringify({
           error: {
