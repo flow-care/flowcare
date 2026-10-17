@@ -42,6 +42,7 @@ import {
 } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { NewScheduleSheet } from "./new-schedule-sheet";
+import { EditScheduleSheet } from "./edit-schedule-sheet";
 import {
   type DayScheduleGroup,
   filterExceptions,
@@ -501,45 +502,16 @@ export function SchedulesView({
         professionals={professionals}
       />
 
-      {/* Sheet Modal for Edit (?sheet=edit&scheduleId=...) */}
-      <Sheet
-        open={currentSheetParam === "edit"}
-        onOpenChange={(open) => !open && closeSheet()}
-      >
-        <SheetContent side="right" className="sm:max-w-md w-full">
-          <SheetHeader className="space-y-1">
-            <SheetTitle>Editar Horário / Bloqueio</SheetTitle>
-            <SheetDescription>
-              Gerenciamento do item selecionado (
-              {currentScheduleId || "configuração"}).
-            </SheetDescription>
-          </SheetHeader>
-
-          <div className="mt-6 space-y-4 text-sm text-foreground">
-            <div className="space-y-3 rounded-lg border border-border bg-muted/30 p-4">
-              <div className="space-y-1">
-                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                  Identificador do item
-                </span>
-                <p className="font-mono text-xs bg-muted px-2 py-1 rounded text-foreground">
-                  {currentScheduleId || "—"}
-                </p>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Para alterar este registro, utilize os fluxos dedicados de
-                gerenciamento ou entre em contato com o suporte caso precise
-                de uma auditoria avançada.
-              </p>
-            </div>
-
-            <div className="pt-4 flex justify-end gap-2 border-t border-border">
-              <Button variant="outline" onClick={closeSheet}>
-                Fechar
-              </Button>
-            </div>
-          </div>
-        </SheetContent>
-      </Sheet>
+      {/* Interactive Sheet for Edit Schedule/Exception (?sheet=edit&scheduleId=...) */}
+      <EditScheduleSheet
+        orgSlug={orgSlug}
+        isOpen={currentSheetParam === "edit"}
+        scheduleId={currentScheduleId}
+        onClose={closeSheet}
+        weeklySchedule={weeklySchedule}
+        exceptionsData={exceptionsData}
+        professionals={professionals}
+      />
     </div>
   );
 }
