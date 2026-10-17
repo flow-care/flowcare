@@ -33,6 +33,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Spinner } from "@/components/ui/spinner";
+import { formatTeamDate, getRoleBadgeConfig } from "@/lib/team-display";
 import {
   type EditableMember,
   getMemberRoleErrorMessage,
@@ -43,7 +44,6 @@ import {
   membershipRoles,
 } from "@/lib/team-members";
 import { updateMemberRoleAction } from "./actions";
-import { formatTeamDate, getRoleBadgeConfig } from "./team-settings-view";
 
 function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/);
