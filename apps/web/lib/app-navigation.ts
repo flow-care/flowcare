@@ -52,7 +52,7 @@ export const appSections = [
 export type AppSection = (typeof appSections)[number]["segment"];
 
 export const settingsSections = [
-  { segment: "clinic", label: "Clínica" },
+  { segment: "organization", label: "Clínica" },
   { segment: "hours", label: "Horários" },
   { segment: "team", label: "Equipe" },
   { segment: "roles", label: "Papéis" },

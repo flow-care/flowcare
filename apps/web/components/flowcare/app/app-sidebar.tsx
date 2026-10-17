@@ -56,7 +56,7 @@ const sectionIcons: Record<AppSection, typeof LayoutDashboard> = {
 };
 
 const settingsIcons: Record<SettingsSection, typeof Settings> = {
-  clinic: Building2,
+  organization: Building2,
   hours: Clock3,
   team: Users,
   roles: ShieldCheck,
@@ -201,7 +201,7 @@ export function AppSidebar({
             user={user}
             settingsHref={
               canOpenSection(current.role, "settings")
-                ? `${settingsPath}/clinic`
+                ? `${settingsPath}/organization`
                 : undefined
             }
             onNavigate={() => setOpenMobile(false)}
