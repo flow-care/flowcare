@@ -124,7 +124,7 @@ export const messageQuery = t.Object({
   from: t.Optional(t.String({ format: "date-time" })),
   to: t.Optional(t.String({ format: "date-time" })),
   cursor: t.Optional(t.String({ format: "uuid" })),
-  limit: t.Optional(t.Numeric({ minimum: 1, maximum: 100 })),
+  limit: t.Optional(t.Numeric({ minimum: 1, maximum: 100, multipleOf: 1 })),
 });
 export const messageResponse = t.Object({
   items: t.Array(
