@@ -25,12 +25,12 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { formatCnpj, validCnpj } from "@/lib/clinic-details";
-import { formatPhoneWithAreaCode } from "@/lib/phone";
-import { formatPostalCode, postalCodeDigits } from "@/lib/postal-code";
 import {
   type OrganizationSettings,
   validateLogoFile,
-} from "@/server/organization-settings";
+} from "@/lib/organization-settings";
+import { formatPhoneWithAreaCode } from "@/lib/phone";
+import { formatPostalCode, postalCodeDigits } from "@/lib/postal-code";
 import {
   updateOrganizationSettingsAction,
   uploadOrganizationLogoAction,
