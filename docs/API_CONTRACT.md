@@ -911,7 +911,9 @@ O identificador `revisionId` da versão vigente deve ser armazenado pela futura 
 ### Módulo 10: Comunicações & Integração WhatsApp (WAHA)
 *(Ref: Issues [#196](https://github.com/Flowcare-team/flowcare-monorepo/issues/196), [#295](https://github.com/Flowcare-team/flowcare-monorepo/issues/295)–[#298](https://github.com/Flowcare-team/flowcare-monorepo/issues/298))*
 
-**Decisão do MVP:** ver [catálogo, consentimento e estados de mensagens](MESSAGING_MVP.md). Apenas confirmação de agendamento, cancelamento e lembrete 24 horas antes são enviados por WhatsApp, com opt-in ativo do paciente. Mensagens de autenticação e convite usam e-mail. As rotas abaixo ainda são planejadas.
+**Decisão do MVP:** ver [catálogo, consentimento e estados de mensagens](MESSAGING_MVP.md). Apenas confirmação de agendamento, cancelamento e lembrete 24 horas antes são enviados por WhatsApp, com opt-in ativo do paciente. Mensagens de autenticação e convite usam e-mail. As rotas de conexão e templates estão implementadas; envio, histórico de mensagens, webhook e reenvio permanecem planejados.
+
+**Validação dos templates:** violações estruturais do contrato HTTP rejeitadas pelo Elysia — por exemplo JSON/campos inválidos, `content` vazio ou acima de 4.096 caracteres e versões fora do tipo/faixa declarados — retornam `400 VALIDATION_ERROR` no envelope padrão da API. Conteúdo aceito pelo schema, mas semanticamente inválido para templates — por exemplo placeholders malformados ou não permitidos para o tipo — retorna `422 INVALID_TEMPLATE_STRUCTURE` ou `422 INVALID_TEMPLATE_VARIABLE`.
 
 #### `GET /organizations/:orgSlug/communications/whatsapp/status`
 * **Descrição:** Consulta o status da sessão do WhatsApp (conectado, desconectado, QR code pendente).
@@ -934,12 +936,32 @@ O identificador `revisionId` da versão vigente deve ser armazenado pela futura 
 * **Body:** `{ "whatsappOptIn": false, "source": "PATIENT_REQUEST" }`.
 
 #### `GET /organizations/:orgSlug/communications/whatsapp/templates`
-* **Descrição:** Lista os textos de confirmação, cancelamento e lembrete, com variáveis permitidas.
-* **Permissão:** `communications:read`.
+* **Descrição:** Lista os textos já configurados pela clínica para `APPOINTMENT_CONFIRMATION`, `APPOINTMENT_CANCELLATION` e `APPOINTMENT_REMINDER_24H`. Organizações sem configuração recebem `data: []`; a API não cria textos padrão implicitamente.
+* **Permissão:** `communications:read` (`ADMIN`, `ADMIN_PROFESSIONAL` ou `RECEPTIONIST` ativo).
+* **Resposta:** `{ "data": [{ "type": "APPOINTMENT_CONFIRMATION", "content": "Consulta confirmada para {data} às {hora}.", "version": 1, "allowedVariables": ["{paciente_nome}", "{data}", "{hora}", "{medico_nome}", "{clinica_nome}"], "maxLength": 4096, "approvedById": "...", "approvedAt": "...", "createdAt": "...", "updatedAt": "..." }] }`.
 
 #### `PUT /organizations/:orgSlug/communications/whatsapp/templates/:type`
-* **Descrição:** Atualiza um texto operacional, recusando variáveis desconhecidas. O texto deve passar por revisão da clínica antes da ativação para impedir conteúdo clínico.
-* **Permissão:** `communications:write`.
+* **Descrição:** Cria ou atualiza um texto operacional com concorrência otimista. `version: 0` cria a primeira versão; atualizações devem enviar a versão corrente. Salvar por um membro autorizado equivale à revisão/aprovação e torna imediatamente a nova versão corrente. Não há rascunho ou etapa de aprovação separada no MVP. Versões anteriores permanecem imutáveis.
+* **Permissão:** `communications:write` (`ADMIN`, `ADMIN_PROFESSIONAL` ou `RECEPTIONIST` ativo).
+* **Body:** `{ "content": "Olá, {paciente_nome}. Sua consulta será em {data} às {hora}.", "version": 0 }`. O conteúdo tem limite provisório de 4.096 caracteres.
+* **Respostas:** `200 OK` com o template corrente; `400 VALIDATION_ERROR` para payload estruturalmente inválido; `409 VERSION_CONFLICT`; `422 INVALID_TEMPLATE_STRUCTURE`; `422 INVALID_TEMPLATE_VARIABLE`. A auditoria registra responsável, organização, tipo, versões, instante de aprovação, campos alterados e variáveis, sem copiar o texto.
+
+#### `GET /organizations/:orgSlug/communications/whatsapp/templates/:type/versions`
+* **Descrição:** Lista os snapshots imutáveis do tipo configurado, em ordem crescente de versão.
+* **Permissão:** `communications:read` (`ADMIN`, `ADMIN_PROFESSIONAL` ou `RECEPTIONIST` ativo).
+* **Resposta:** `{ "data": [{ "type": "APPOINTMENT_CONFIRMATION", "content": "...", "version": 1, "approvedById": "...", "approvedAt": "...", "createdAt": "..." }] }`; `404 NOT_FOUND` quando o tipo ainda não foi configurado para a clínica.
+
+#### `GET /organizations/:orgSlug/communications/whatsapp/templates/:type/versions/:version`
+* **Descrição:** Recupera um snapshot histórico específico do tipo configurado na clínica.
+* **Permissão:** `communications:read` (`ADMIN`, `ADMIN_PROFESSIONAL` ou `RECEPTIONIST` ativo).
+* **Respostas:** `200 OK`; `400 VALIDATION_ERROR` quando `version` não for um inteiro entre 1 e 2.147.483.647; `404 NOT_FOUND` para tipo/versão inexistente dentro da organização ativa.
+
+#### `POST /organizations/:orgSlug/communications/whatsapp/templates/:type/preview`
+* **Descrição:** Valida um texto sem persistir e substitui somente as variáveis presentes por exemplos fixos e fictícios. Não consulta paciente, agenda, profissional ou organização.
+* **Permissão:** `communications:write` (`ADMIN`, `ADMIN_PROFESSIONAL` ou `RECEPTIONIST` ativo).
+* **Body:** `{ "content": "Olá, {paciente_nome}. Sua consulta será em {data} às {hora}." }`.
+* **Resposta:** `{ "isExample": true, "type": "APPOINTMENT_CONFIRMATION", "content": "Olá, Maria da Silva. Sua consulta será em 20/10/2026 às 14:30.", "variables": { "paciente_nome": "Maria da Silva", "data": "20/10/2026", "hora": "14:30" }, "allowedVariables": [...], "maxLength": 4096 }`.
+* **Erros:** `400 VALIDATION_ERROR` para payload estruturalmente inválido; `422 INVALID_TEMPLATE_STRUCTURE`; `422 INVALID_TEMPLATE_VARIABLE`.
 
 #### `POST /webhooks/whatsapp/status`
 * **Descrição:** Recebe atualização de entrega do WAHA após validar segredo configurado; evento repetido é idempotente e atualização fora de ordem não regride o estado.
