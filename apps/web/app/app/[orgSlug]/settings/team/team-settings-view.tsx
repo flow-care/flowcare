@@ -14,7 +14,6 @@ import {
   Users,
 } from "lucide-react";
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import {
@@ -61,13 +60,19 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { formatTeamDate, getRoleBadgeConfig } from "@/lib/team-display";
+import type { MembershipRole } from "@/lib/team-members";
 import type { TeamInvite, TeamMember } from "@/server/team";
 import {
   type CreateInviteActionResult,
   resendInviteAction,
   revokeInviteAction,
 } from "./actions";
+import { EditMemberSheet } from "./edit-member-sheet";
 import { InviteMemberSheet } from "./invite-member-sheet";
+import { useTeamNavigation } from "./team-navigation";
+
+export { formatTeamDate, getRoleBadgeConfig };
 
 export interface TeamSettingsViewProps {
   orgSlug: string;
@@ -75,59 +80,7 @@ export interface TeamSettingsViewProps {
   initialInvites: TeamInvite[];
   defaultTab?: "members" | "invites";
   initialSheet?: string;
-}
-
-export function formatTeamDate(isoString?: string | null): string {
-  if (!isoString) return "—";
-  try {
-    const d = new Date(isoString);
-    if (Number.isNaN(d.getTime())) return isoString;
-    const day = String(d.getDate()).padStart(2, "0");
-    const month = String(d.getMonth() + 1).padStart(2, "0");
-    const year = d.getFullYear();
-    const hours = String(d.getHours()).padStart(2, "0");
-    const minutes = String(d.getMinutes()).padStart(2, "0");
-    return `${day}/${month}/${year} às ${hours}:${minutes}`;
-  } catch {
-    return isoString;
-  }
-}
-
-export function getRoleBadgeConfig(role: string): {
-  label: string;
-  className: string;
-} {
-  switch (role) {
-    case "ADMIN":
-      return {
-        label: "Administrador",
-        className:
-          "bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800",
-      };
-    case "ADMIN_PROFESSIONAL":
-      return {
-        label: "Administrador e Clínico",
-        className:
-          "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-800",
-      };
-    case "PROFESSIONAL":
-      return {
-        label: "Profissional Clínico",
-        className:
-          "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800",
-      };
-    case "RECEPTIONIST":
-      return {
-        label: "Recepção",
-        className:
-          "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800",
-      };
-    default:
-      return {
-        label: role,
-        className: "bg-muted text-muted-foreground border-border",
-      };
-  }
+  initialMemberId?: string;
 }
 
 function getInitials(name: string): string {
@@ -194,12 +147,11 @@ export function TeamSettingsView({
   initialInvites,
   defaultTab = "members",
   initialSheet,
+  initialMemberId,
 }: TeamSettingsViewProps) {
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
+  const { router, pathname, searchParams } = useTeamNavigation();
 
-  const [members] = useState<TeamMember[]>(initialMembers);
+  const [members, setMembers] = useState<TeamMember[]>(initialMembers);
   const [invites, setInvites] = useState<TeamInvite[]>(initialInvites);
   const [resendingId, setResendingId] = useState<string | null>(null);
   const [revokingInvite, setRevokingInvite] = useState<TeamInvite | null>(null);
@@ -211,6 +163,10 @@ export function TeamSettingsView({
 
   const isInviteSheetOpen =
     (searchParams?.get("sheet") ?? initialSheet) === "invite";
+  const isEditSheetOpen =
+    (searchParams?.get("sheet") ?? initialSheet) === "edit";
+  const editMemberId = searchParams?.get("memberId") ?? initialMemberId;
+  const activeEditMember = members.find((m) => m.id === editMemberId) ?? null;
 
   const handleCloseInviteSheet = () => {
     if (searchParams) {
@@ -221,6 +177,44 @@ export function TeamSettingsView({
     } else {
       router.push(`/app/${encodeURIComponent(orgSlug)}/settings/team`);
     }
+  };
+
+  const handleCloseEditSheet = () => {
+    if (searchParams) {
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete("sheet");
+      params.delete("memberId");
+      const query = params.toString();
+      router.push(query ? `${pathname}?${query}` : pathname);
+    } else {
+      router.push(`/app/${encodeURIComponent(orgSlug)}/settings/team`);
+    }
+  };
+
+  const handleMemberRoleUpdated = (updated: {
+    id: string;
+    role: MembershipRole;
+    version: number;
+    userName?: string;
+    email?: string;
+  }) => {
+    setMembers((prev) =>
+      prev.map((m) =>
+        m.id === updated.id
+          ? {
+              ...m,
+              role: updated.role,
+              version: updated.version,
+              userName: updated.userName ?? m.userName,
+              email: updated.email ?? m.email,
+            }
+          : m,
+      ),
+    );
+    const roleConfig = getRoleBadgeConfig(updated.role);
+    const successMsg = `Papel de ${updated.userName ?? "colaborador"} atualizado para ${roleConfig.label} com sucesso!`;
+    setFeedback({ type: "success", message: successMsg });
+    toast.success(successMsg);
   };
 
   const handleInviteSuccess = (newInvite: CreateInviteActionResult) => {
@@ -717,6 +711,16 @@ export function TeamSettingsView({
           existingInvites={invites}
           onSuccess={handleInviteSuccess}
           onResendSuccess={handleResendSuccess}
+        />
+
+        {/* Sheet for Editing Member Role */}
+        <EditMemberSheet
+          isOpen={isEditSheetOpen}
+          onClose={handleCloseEditSheet}
+          orgSlug={orgSlug}
+          member={activeEditMember}
+          activeAdminCount={adminMembers.length}
+          onSuccess={handleMemberRoleUpdated}
         />
       </div>
     </TooltipProvider>

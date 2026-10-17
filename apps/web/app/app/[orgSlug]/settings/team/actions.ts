@@ -6,12 +6,15 @@ import {
   createInviteSchema,
   type InviteMembershipRole,
 } from "@/lib/team-invites";
+import { updateMemberRoleSchema } from "@/lib/team-members";
 import {
   createInvite,
   type ResendInviteResponse,
   resendInvite,
   revokeInvite,
   TeamApiError,
+  type UpdateMemberRoleResponse,
+  updateMemberRole,
 } from "@/server/team";
 
 export interface CreateInviteActionResult {
@@ -155,6 +158,62 @@ export async function revokeInviteAction(
           error instanceof Error
             ? error.message
             : "Não foi possível revogar o convite.",
+      },
+    };
+  }
+}
+
+export async function updateMemberRoleAction(
+  orgSlug: string,
+  memberId: string,
+  payload: { role: string; version: number },
+): Promise<ActionResult<UpdateMemberRoleResponse>> {
+  if (!orgSlug?.trim() || !memberId?.trim()) {
+    return {
+      ok: false,
+      error: {
+        code: "VALIDATION_ERROR",
+        message: "Identificador da clínica ou do colaborador inválido.",
+      },
+    };
+  }
+
+  const parsed = updateMemberRoleSchema.safeParse(payload);
+  if (!parsed.success) {
+    const message =
+      parsed.error.issues[0]?.message ||
+      "Dados inválidos para alteração de papel.";
+    return {
+      ok: false,
+      error: {
+        code: "VALIDATION_ERROR",
+        message,
+      },
+    };
+  }
+
+  try {
+    const result = await updateMemberRole(orgSlug, memberId, {
+      role: parsed.data.role,
+      version: parsed.data.version,
+    });
+    revalidatePath(`/app/${orgSlug}/settings/team`);
+    return { ok: true, data: result };
+  } catch (error) {
+    if (error instanceof TeamApiError) {
+      return {
+        ok: false,
+        error: { code: error.code, message: error.message },
+      };
+    }
+    return {
+      ok: false,
+      error: {
+        code: "UNAVAILABLE",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Não foi possível atualizar o papel do colaborador.",
       },
     };
   }
