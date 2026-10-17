@@ -9,6 +9,7 @@ import {
   PlusCircle,
   ShieldAlert,
   ShieldCheck,
+  Trash2,
   UserCheck,
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -38,6 +39,7 @@ import {
   type EditableMember,
   getMemberRoleErrorMessage,
   getRoleChangeImpact,
+  isAdministratorRole,
   isLastAdminDowngradeBlocked,
   LAST_ADMIN_DOWNGRADE_ALERT,
   type MembershipRole,
@@ -58,6 +60,7 @@ export interface EditMemberFormProps {
   member: EditableMember;
   activeAdminCount: number;
   initialSelectedRole?: MembershipRole;
+  onInitiateRemoval?: (member: EditableMember) => void;
   onSuccess?: (updatedMember: {
     id: string;
     role: MembershipRole;
@@ -73,6 +76,7 @@ export function EditMemberForm({
   member,
   activeAdminCount,
   initialSelectedRole,
+  onInitiateRemoval,
   onSuccess,
 }: EditMemberFormProps) {
   const [selectedRole, setSelectedRole] = useState<MembershipRole>(
@@ -94,6 +98,7 @@ export function EditMemberForm({
     selectedRole,
     activeAdminCount,
   );
+  const isLastAdmin = isAdministratorRole(member.role) && activeAdminCount <= 1;
 
   const impact = getRoleChangeImpact(member.role, selectedRole);
   const currentBadge = getRoleBadgeConfig(member.role);
@@ -344,6 +349,29 @@ export function EditMemberForm({
               </Label>
             </div>
           )}
+          {onInitiateRemoval && (
+            <div className="space-y-2 border-t border-dashed border-border pt-5">
+              <p className="text-sm font-medium">Desligamento</p>
+              <p className="text-xs text-muted-foreground">
+                Remover o vínculo revoga o acesso à clínica e preserva o
+                histórico clínico.
+              </p>
+              {isLastAdmin && (
+                <p role="alert" className="text-xs text-destructive">
+                  A clínica deve manter ao menos um administrador ativo.
+                </p>
+              )}
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={isSubmitting || isLastAdmin}
+                onClick={() => onInitiateRemoval(member)}
+              >
+                <Trash2 className="size-4" />
+                Remover membro da clínica
+              </Button>
+            </div>
+          )}
         </div>
 
         {/* Footer Actions */}
@@ -386,6 +414,7 @@ export interface EditMemberSheetProps {
   orgSlug: string;
   member: EditableMember | null;
   activeAdminCount: number;
+  onInitiateRemoval?: (member: EditableMember) => void;
   onSuccess?: (updatedMember: {
     id: string;
     role: MembershipRole;
@@ -401,6 +430,7 @@ export function EditMemberSheet({
   orgSlug,
   member,
   activeAdminCount,
+  onInitiateRemoval,
   onSuccess,
 }: EditMemberSheetProps) {
   return (
@@ -426,6 +456,7 @@ export function EditMemberSheet({
             orgSlug={orgSlug}
             member={member}
             activeAdminCount={activeAdminCount}
+            onInitiateRemoval={onInitiateRemoval}
             onSuccess={onSuccess}
           />
         )}

@@ -523,3 +523,86 @@ export async function updateMemberRole(
 
   return parsed.data;
 }
+
+export const removeMemberResponseSchema = z.object({
+  success: z.literal(true),
+  message: z.string(),
+  memberId: z.string(),
+});
+
+export type RemoveMemberResponse = z.infer<typeof removeMemberResponseSchema>;
+
+export async function removeMember(
+  orgSlug: string,
+  memberId: string,
+): Promise<RemoveMemberResponse> {
+  const token = await getSessionToken();
+  if (!token) {
+    throw new TeamApiError(
+      "UNAUTHENTICATED",
+      "Entre novamente para continuar.",
+    );
+  }
+
+  const { apiBaseUrl } = getServerConfig();
+  let response: Response;
+  try {
+    response = await fetch(
+      `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/members/${encodeURIComponent(memberId)}`,
+      {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json",
+        },
+        cache: "no-store",
+        redirect: "error",
+        signal: AbortSignal.timeout(10_000),
+      },
+    );
+  } catch {
+    throw new TeamApiError(
+      "UNAVAILABLE",
+      "Não foi possível remover o membro da clínica. Tente novamente.",
+    );
+  }
+
+  const data: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const errorData =
+      data && typeof data === "object" && "error" in data
+        ? (data as { error?: { code?: string; message?: string } }).error
+        : null;
+    const code =
+      errorData?.code ??
+      (response.status === 401
+        ? "UNAUTHENTICATED"
+        : response.status === 403
+          ? "FORBIDDEN"
+          : response.status === 404
+            ? "NOT_FOUND"
+            : response.status === 409
+              ? "LAST_ADMIN_REQUIRED"
+              : "UNAVAILABLE");
+    const message =
+      errorData?.message ??
+      (code === "LAST_ADMIN_REQUIRED"
+        ? "Não é possível remover o único administrador remanescente da organização."
+        : code === "NOT_FOUND"
+          ? "Membro não encontrado."
+          : code === "FORBIDDEN" || code === "PERMISSION_DENIED"
+            ? "Você não possui permissão para realizar esta ação."
+            : "Não foi possível remover o membro da clínica.");
+    throw new TeamApiError(code, message);
+  }
+
+  const parsed = removeMemberResponseSchema.safeParse(data);
+  if (!parsed.success) {
+    throw new TeamApiError(
+      "INVALID_RESPONSE",
+      "Resposta inválida ao remover membro.",
+    );
+  }
+
+  return parsed.data;
+}
