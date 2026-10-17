@@ -344,3 +344,459 @@ export async function createDocumentDraft(
   }
   return json as DocumentListItem;
 }
+
+export const documentVersionItemSchema = z.object({
+  id: z.string(),
+  revisionId: z.string().optional(),
+  documentId: z.string(),
+  version: z.number(),
+  title: z.string(),
+  content: z.string(),
+  variables: z
+    .record(
+      z.string(),
+      z.union([z.string(), z.number(), z.boolean(), z.null()]),
+    )
+    .optional(),
+  templateId: z.string().nullable().optional(),
+  templateVersion: z.number().nullable().optional(),
+  savedById: z.string().optional(),
+  savedBy: z.object({ id: z.string(), fullName: z.string() }).optional(),
+  isActiveVersion: z.boolean().optional(),
+  createdAt: z.string(),
+});
+
+export const documentDetailSchema = z.object({
+  id: z.string(),
+  documentId: z.string().optional(),
+  chainVersion: z.number().optional(),
+  replacesDocumentId: z.string().nullable().optional(),
+  organizationId: z.string(),
+  patientId: z.string(),
+  authorId: z.string(),
+  templateId: z.string().nullable().optional(),
+  templateVersion: z.number().nullable().optional(),
+  type: documentTypeSchema,
+  title: z.string(),
+  content: z.string(),
+  variables: z
+    .record(
+      z.string(),
+      z.union([z.string(), z.number(), z.boolean(), z.null()]),
+    )
+    .optional(),
+  status: documentStatusSchema,
+  version: z.number(),
+  revisionId: z.string().nullable().optional(),
+  currentRevisionId: z.string().nullable().optional(),
+  patient: z.object({
+    id: z.string(),
+    fullName: z.string(),
+  }),
+  author: z.object({
+    id: z.string(),
+    fullName: z.string(),
+  }),
+  issuedAt: z.string().nullable().optional(),
+  voidedAt: z.string().nullable().optional(),
+  voidReason: z.string().nullable().optional(),
+  voidedById: z.string().nullable().optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  versions: z.array(documentVersionItemSchema).optional(),
+});
+
+export type DocumentDetail = z.infer<typeof documentDetailSchema>;
+export type DocumentVersionItem = z.infer<typeof documentVersionItemSchema>;
+
+export interface DocumentPdfDownloadUrlResult {
+  downloadUrl: string;
+}
+
+export interface IssueDocumentResult {
+  status: "ISSUED";
+  issuedAt: string;
+  snapshotHash: string;
+  chainVersion: number;
+  replacesDocumentId: string | null;
+}
+
+export interface RectifyDocumentResult {
+  documentId: string;
+  status: "DRAFT";
+  replacesDocumentId: string;
+  chainVersion: number;
+}
+
+export interface VoidDocumentResult {
+  documentId?: string;
+  status: "VOIDED";
+  voidedAt: string;
+  voidReason: string;
+}
+
+export interface UpdateDocumentDraftInput {
+  version: number;
+  title?: string;
+  content?: string;
+  notes?: string;
+  templateId?: string | null;
+  variables?: Record<string, string | number | boolean | null>;
+}
+
+export async function getDocumentDetails(
+  orgSlug: string,
+  documentId: string,
+): Promise<DocumentDetail> {
+  const token = await getSessionToken();
+  if (!token) {
+    throw new DocumentsApiError(
+      "UNAUTHENTICATED",
+      "Entre novamente para continuar.",
+    );
+  }
+
+  const { apiBaseUrl } = getServerConfig();
+  const url = `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/documents/${encodeURIComponent(documentId)}`;
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
+      },
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    throw new DocumentsApiError(
+      "UNAVAILABLE",
+      "Não foi possível conectar ao servidor de documentos.",
+    );
+  }
+
+  if (response.status === 404) {
+    throw new DocumentsApiError("NOT_FOUND", "Documento não encontrado.");
+  }
+
+  if (!response.ok) {
+    let message = "Erro ao buscar detalhes do documento.";
+    let code = "UNKNOWN_ERROR";
+    try {
+      const errJson = await response.json();
+      if (errJson?.message) message = errJson.message;
+      if (errJson?.code) code = errJson.code;
+    } catch {}
+    throw new DocumentsApiError(code, message);
+  }
+
+  const json = await response.json();
+  const rawData =
+    json && typeof json === "object" && "document" in json && json.document
+      ? json.document
+      : json;
+
+  const parsed = documentDetailSchema.safeParse(rawData);
+  if (parsed.success) {
+    return parsed.data;
+  }
+  return rawData as DocumentDetail;
+}
+
+export async function getDocumentPdfDownloadUrl(
+  orgSlug: string,
+  documentId: string,
+): Promise<DocumentPdfDownloadUrlResult> {
+  const token = await getSessionToken();
+  if (!token) {
+    throw new DocumentsApiError(
+      "UNAUTHENTICATED",
+      "Entre novamente para continuar.",
+    );
+  }
+
+  const downloadUrl = `/api/organizations/${encodeURIComponent(orgSlug)}/documents/${encodeURIComponent(documentId)}/pdf?download=true`;
+
+  return {
+    downloadUrl,
+  };
+}
+
+export async function issueDocument(
+  orgSlug: string,
+  documentId: string,
+  payload: { version: number },
+): Promise<IssueDocumentResult> {
+  const token = await getSessionToken();
+  if (!token) {
+    throw new DocumentsApiError(
+      "UNAUTHENTICATED",
+      "Entre novamente para continuar.",
+    );
+  }
+
+  const { apiBaseUrl } = getServerConfig();
+  const issueUrl = `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/documents/${encodeURIComponent(documentId)}/issue`;
+
+  let response: Response;
+  try {
+    response = await fetch(issueUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(payload),
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    throw new DocumentsApiError(
+      "UNAVAILABLE",
+      "Não foi possível conectar ao servidor de documentos.",
+    );
+  }
+
+  if (response.status === 422) {
+    let errJson: { message?: string } | null = null;
+    try {
+      errJson = await response.json();
+    } catch {}
+
+    const isSnapshotRequired = errJson?.message
+      ?.toLowerCase()
+      .includes("snapshot");
+
+    if (isSnapshotRequired) {
+      try {
+        const prepareUrl = `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/documents/${encodeURIComponent(documentId)}/prepare`;
+        const prepRes = await fetch(prepareUrl, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({ version: payload.version }),
+          cache: "no-store",
+        });
+
+        if (prepRes.ok) {
+          response = await fetch(issueUrl, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+              Accept: "application/json",
+            },
+            body: JSON.stringify(payload),
+            cache: "no-store",
+          });
+        }
+      } catch {}
+    }
+  }
+
+  if (!response.ok) {
+    let message = "Não foi possível emitir o documento.";
+    let code = "UNKNOWN_ERROR";
+    let details: unknown;
+    try {
+      const errJson = await response.json();
+      if (errJson?.message) message = errJson.message;
+      if (errJson?.code) code = errJson.code;
+      if (errJson?.details) details = errJson.details;
+    } catch {}
+    throw new DocumentsApiError(code, message, details);
+  }
+
+  const json = await response.json();
+  return json as IssueDocumentResult;
+}
+
+export async function rectifyDocument(
+  orgSlug: string,
+  documentId: string,
+): Promise<RectifyDocumentResult> {
+  const token = await getSessionToken();
+  if (!token) {
+    throw new DocumentsApiError(
+      "UNAUTHENTICATED",
+      "Entre novamente para continuar.",
+    );
+  }
+
+  const { apiBaseUrl } = getServerConfig();
+  const url = `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/documents/${encodeURIComponent(documentId)}/rectify`;
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
+      },
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    throw new DocumentsApiError(
+      "UNAVAILABLE",
+      "Não foi possível conectar ao servidor de documentos.",
+    );
+  }
+
+  if (!response.ok) {
+    let message = "Não foi possível retificar o documento.";
+    let code = "UNKNOWN_ERROR";
+    let details: unknown;
+    try {
+      const errJson = await response.json();
+      if (errJson?.message) message = errJson.message;
+      if (errJson?.code) code = errJson.code;
+      if (errJson?.details) details = errJson.details;
+    } catch {}
+    throw new DocumentsApiError(code, message, details);
+  }
+
+  const json = await response.json();
+  return json as RectifyDocumentResult;
+}
+
+export async function voidDocument(
+  orgSlug: string,
+  documentId: string,
+  payload: { reason: string; version: number },
+): Promise<VoidDocumentResult> {
+  const token = await getSessionToken();
+  if (!token) {
+    throw new DocumentsApiError(
+      "UNAUTHENTICATED",
+      "Entre novamente para continuar.",
+    );
+  }
+
+  if (!payload.reason || payload.reason.trim().length < 10) {
+    throw new DocumentsApiError(
+      "VALIDATION_ERROR",
+      "A justificativa deve ter no mínimo 10 caracteres.",
+    );
+  }
+
+  const { apiBaseUrl } = getServerConfig();
+  const url = `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/documents/${encodeURIComponent(documentId)}/void`;
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({
+        reason: payload.reason.trim(),
+        version: payload.version,
+      }),
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    throw new DocumentsApiError(
+      "UNAVAILABLE",
+      "Não foi possível conectar ao servidor de documentos.",
+    );
+  }
+
+  if (!response.ok) {
+    let message = "Não foi possível anular o documento.";
+    let code = "UNKNOWN_ERROR";
+    let details: unknown;
+    try {
+      const errJson = await response.json();
+      if (errJson?.message) message = errJson.message;
+      if (errJson?.code) code = errJson.code;
+      if (errJson?.details) details = errJson.details;
+    } catch {}
+    throw new DocumentsApiError(code, message, details);
+  }
+
+  const json = await response.json();
+  return json as VoidDocumentResult;
+}
+
+export async function updateDocumentDraft(
+  orgSlug: string,
+  documentId: string,
+  payload: UpdateDocumentDraftInput,
+): Promise<DocumentDetail> {
+  const token = await getSessionToken();
+  if (!token) {
+    throw new DocumentsApiError(
+      "UNAUTHENTICATED",
+      "Entre novamente para continuar.",
+    );
+  }
+
+  const { apiBaseUrl } = getServerConfig();
+  const url = `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/documents/${encodeURIComponent(documentId)}`;
+
+  const body: Record<string, unknown> = {
+    version: payload.version,
+  };
+  if (payload.title !== undefined) body.title = payload.title.trim();
+  if (payload.content !== undefined) body.content = payload.content.trim();
+  if (payload.templateId !== undefined) body.templateId = payload.templateId;
+  if (payload.variables !== undefined) body.variables = payload.variables;
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(body),
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    throw new DocumentsApiError(
+      "UNAVAILABLE",
+      "Não foi possível conectar ao servidor de documentos.",
+    );
+  }
+
+  if (!response.ok) {
+    let message = "Não foi possível atualizar o documento.";
+    let code = "UNKNOWN_ERROR";
+    let details: unknown;
+    try {
+      const errJson = await response.json();
+      if (errJson?.message) message = errJson.message;
+      if (errJson?.code) code = errJson.code;
+      if (errJson?.details) details = errJson.details;
+    } catch {}
+    throw new DocumentsApiError(code, message, details);
+  }
+
+  const json = await response.json();
+  const rawData =
+    json && typeof json === "object" && "document" in json && json.document
+      ? json.document
+      : json;
+
+  return rawData as DocumentDetail;
+}
