@@ -9,7 +9,10 @@ import { appointmentsModule } from "./modules/appointments";
 import { auditModule } from "./modules/audit";
 import { authModule } from "./modules/auth";
 import type { AuthDeps } from "./modules/auth/service";
-import { communicationsModule } from "./modules/communications";
+import {
+  communicationsModule,
+  whatsappWebhookModule,
+} from "./modules/communications";
 import { consultationsModule } from "./modules/consultations";
 import { dashboardModule } from "./modules/dashboard";
 import { documentsModule } from "./modules/documents";
@@ -221,6 +224,13 @@ export function createApp(env: Env, deps: AppDeps) {
           });
       }
     })
+    .use(
+      whatsappWebhookModule({
+        prisma: deps.prisma,
+        provider: whatsappProvider,
+        secret: env.wahaWebhookSecret,
+      }),
+    )
     .use(authModule(authDeps))
     .use(appointmentsModule({ prisma: deps.prisma, jwtSecret: env.jwtSecret }))
     .use(dashboardModule({ prisma: deps.prisma, jwtSecret: env.jwtSecret }))

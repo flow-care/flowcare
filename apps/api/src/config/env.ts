@@ -16,6 +16,8 @@ export interface Env {
   trustProxy: boolean;
   wahaBaseUrl: string;
   wahaApiKey: string | null;
+  wahaWebhookSecret?: string | null;
+  whatsappSendEnabled?: boolean;
   /** Base pública do front (usada nos links de e-mail). */
   webAppUrl: string;
   mailProvider: "disabled" | "console" | "ses";
@@ -54,6 +56,13 @@ function optionalBoolean(name: string, fallback: boolean): boolean {
 
 export function loadEnv(): Env {
   const nodeEnv = optional("NODE_ENV", "development");
+  const whatsappSendEnabled = optionalBoolean("WHATSAPP_SEND_ENABLED", false);
+  const wahaWebhookSecret = process.env.WAHA_WEBHOOK_SECRET?.trim() || null;
+  if (whatsappSendEnabled && !wahaWebhookSecret) {
+    throw new Error(
+      "[boot] WAHA_WEBHOOK_SECRET é obrigatório quando WHATSAPP_SEND_ENABLED=true.",
+    );
+  }
   const sesRegion = process.env.AWS_REGION?.trim() || null;
   const mailFrom = process.env.MAIL_FROM?.trim() || null;
   const snsTopicArn = process.env.SNS_TOPIC_ARN?.trim() || null;
@@ -111,6 +120,8 @@ export function loadEnv(): Env {
     trustProxy: optionalBoolean("TRUST_PROXY", false),
     wahaBaseUrl: required("WAHA_BASE_URL"),
     wahaApiKey: process.env.WAHA_API_KEY ?? null,
+    wahaWebhookSecret,
+    whatsappSendEnabled,
     webAppUrl: required("APP_WEB_URL"),
     mailProvider,
     sesRegion,

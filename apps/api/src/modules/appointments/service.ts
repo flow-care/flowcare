@@ -6,6 +6,10 @@ import type {
   ReceptionQueueStatus,
 } from "../../generated/prisma/client";
 import { ApiError } from "../../lib/api-error";
+import {
+  cancelQueuedAppointmentMessages,
+  enqueueAppointmentEvent,
+} from "../communications/queue";
 import type {
   AvailabilityQuery,
   CancelAppointmentBody,
@@ -1393,6 +1397,19 @@ export class AppointmentsService {
             "O agendamento foi atualizado em outra sessão.",
           );
         }
+        await cancelQueuedAppointmentMessages(
+          tx,
+          organizationId,
+          appointmentId,
+        );
+        await enqueueAppointmentEvent(tx, {
+          id: appointmentId,
+          organizationId,
+          patientId,
+          scheduledAt,
+          version: body.version + 1,
+          type: "APPOINTMENT_REMINDER",
+        });
         await tx.auditLog.create({
           data: {
             organizationId,
@@ -1454,7 +1471,7 @@ export class AppointmentsService {
     return this.prisma.$transaction(async (tx) => {
       const current = await tx.appointment.findFirst({
         where: { id: appointmentId, organizationId },
-        select: { id: true, status: true, version: true },
+        select: { id: true, status: true, version: true, patientId: true },
       });
       if (!current) {
         throw new ApiError("NOT_FOUND", 404, "Agendamento não encontrado.");
@@ -1501,6 +1518,15 @@ export class AppointmentsService {
           "O agendamento foi alterado. Recarregue os dados.",
         );
       }
+      await cancelQueuedAppointmentMessages(tx, organizationId, appointmentId);
+      await enqueueAppointmentEvent(tx, {
+        id: appointmentId,
+        organizationId,
+        patientId: current.patientId,
+        scheduledAt: cancelledAt,
+        version: body.version + 1,
+        type: "APPOINTMENT_CANCELLED",
+      });
 
       await tx.auditLog.create({
         data: {
@@ -1804,6 +1830,22 @@ export class AppointmentsService {
                   requestHash,
                   appointmentId: appointment.id,
                 },
+              });
+              await enqueueAppointmentEvent(tx, {
+                id: appointment.id,
+                organizationId,
+                patientId: appointment.patientId,
+                scheduledAt: appointment.scheduledAt,
+                version: appointment.version,
+                type: "APPOINTMENT_CREATED",
+              });
+              await enqueueAppointmentEvent(tx, {
+                id: appointment.id,
+                organizationId,
+                patientId: appointment.patientId,
+                scheduledAt: appointment.scheduledAt,
+                version: appointment.version,
+                type: "APPOINTMENT_REMINDER",
               });
               return responseForCreated(appointment, organization.timezone);
             });

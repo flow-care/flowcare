@@ -44,6 +44,8 @@ services:
       APP_WEB_URL: ${APP_WEB_URL:?Defina APP_WEB_URL no .env}
       WAHA_BASE_URL: ${DOCKER_WAHA_BASE_URL:?Defina DOCKER_WAHA_BASE_URL no .env}
       WAHA_API_KEY: ${WAHA_API_KEY:-}
+      WAHA_WEBHOOK_SECRET: ${WAHA_WEBHOOK_SECRET:-}
+      WHATSAPP_SEND_ENABLED: ${WHATSAPP_SEND_ENABLED:-false}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
