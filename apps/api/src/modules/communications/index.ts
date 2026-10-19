@@ -170,6 +170,25 @@ export function communicationsModule(deps: {
         response: { 200: "communications.messageResponse" },
       },
     )
+    .post(
+      "/organizations/:orgSlug/communications/messages/:messageId/resend",
+      ({ organizationAccess, auth, params, headers, set }) => {
+        if (!auth) throw Unauthenticated();
+        set.headers["cache-control"] = "no-store";
+        return messages.authorizeManualResend(
+          organizationAccess.organizationId,
+          params.messageId,
+          auth.userId,
+          headers["idempotency-key"],
+        );
+      },
+      {
+        params: m.manualResendParams,
+        headers: m.manualResendHeaders,
+        organizationAccess: "communications:write",
+        response: { 200: "communications.manualResendResponse" },
+      },
+    )
     .patch(
       "/organizations/:orgSlug/patients/:patientId/communication-preferences",
       ({ organizationAccess, auth, params, body }) =>

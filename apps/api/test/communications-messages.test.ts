@@ -56,6 +56,12 @@ const eligibleAppointment = (phone = "11987654321") => ({
   organization: { name: "Clínica", timezone: "America/Sao_Paulo" },
 });
 
+const noCorrelatedAttempts = () => ({
+  findUnique: async () => null,
+  findMany: async () => [],
+  findFirst: async () => null,
+});
+
 describe("WhatsApp messages", () => {
   test("masks local and international numbers", () => {
     expect(maskPatientPhone("(11) 98765-4321")).toBe("(11) 98765-****");
@@ -112,6 +118,8 @@ describe("WhatsApp messages", () => {
           return { count: 1 };
         },
       },
+      whatsAppMessageAttempt: { findMany: async () => [] },
+      $queryRaw: async () => [{ id: "message", attemptCount: 0 }],
       auditLog: {
         create: async ({ data }: { data: Record<string, unknown> }) => {
           audits.push(data);
@@ -273,6 +281,7 @@ describe("WhatsApp messages", () => {
           messageStatus = data.status;
         },
       },
+      whatsAppMessageAttempt: noCorrelatedAttempts(),
       whatsAppWebhookEvent: {
         findUnique: async ({
           where,
@@ -395,10 +404,15 @@ describe("WhatsApp messages", () => {
         findFirst: async ({
           where,
         }: {
-          where: { organizationId: string; providerMessageHash: string };
+          where: {
+            id?: string;
+            organizationId: string;
+            providerMessageHash?: string;
+          };
         }) =>
           where.organizationId === org &&
-          message.providerMessageHash === where.providerMessageHash
+          (where.id === message.id ||
+            message.providerMessageHash === where.providerMessageHash)
             ? {
                 id: message.id,
                 status: message.status,
@@ -497,16 +511,20 @@ describe("WhatsApp messages", () => {
         }),
       },
       whatsAppMessageAttempt: {
+        ...noCorrelatedAttempts(),
         create: async () => ({ id: "attempt" }),
         update: async () => ({}),
       },
       $queryRaw: async (
-        _query: TemplateStringsArray,
+        query: TemplateStringsArray,
         organizationId: string,
         lockedProviderMessageHash: string,
       ) => {
-        correlationLocks.push([organizationId, lockedProviderMessageHash]);
-        return [{ lockEvaluated: true }];
+        if (query.join("?").includes("pg_advisory_xact_lock")) {
+          correlationLocks.push([organizationId, lockedProviderMessageHash]);
+          return [{ lockEvaluated: true }];
+        }
+        return [{ id: message.id }];
       },
       $transaction: async (fn: (tx: unknown) => unknown) => fn(prisma),
     } as unknown as PrismaClient;
@@ -641,6 +659,7 @@ describe("WhatsApp messages", () => {
             return { count: 1 };
           },
         },
+        whatsAppMessageAttempt: noCorrelatedAttempts(),
         whatsAppWebhookEvent: {
           findUnique: async () => null,
           create: async ({ data }: { data: { status: "FAILED" } }) => {
@@ -712,6 +731,7 @@ describe("WhatsApp messages", () => {
           return { count: 1 };
         },
       },
+      whatsAppMessageAttempt: noCorrelatedAttempts(),
       whatsAppWebhookEvent: {
         findUnique: async ({
           where,
@@ -833,6 +853,7 @@ describe("WhatsApp messages", () => {
           return { count: 1 };
         },
       },
+      whatsAppMessageAttempt: noCorrelatedAttempts(),
       whatsAppWebhookEvent: {
         findUnique: async () => null,
         create: async ({ data }: { data: { status: "SENT" } }) => {
@@ -1000,6 +1021,7 @@ describe("WhatsApp messages", () => {
         findFirst: async () => ({ id: "msg", status: "SENT" }),
         updateMany: async () => ({ count: 1 }),
       },
+      whatsAppMessageAttempt: noCorrelatedAttempts(),
       whatsAppWebhookEvent: {
         findUnique: async () => null,
         create: async ({ data }: { data: { status: "READ" } }) => {
@@ -1053,6 +1075,12 @@ describe("WhatsApp messages", () => {
     const prisma = {
       whatsAppMessage: {
         findMany: async () => [message],
+        findFirst: async () => ({
+          id: message.id,
+          status: (sentUpdate?.status ??
+            message.status) as WhatsAppMessageStatus,
+          sentAt: (sentUpdate?.sentAt as Date | undefined) ?? null,
+        }),
         updateMany: async ({
           data,
         }: {
@@ -1082,6 +1110,7 @@ describe("WhatsApp messages", () => {
         }),
       },
       whatsAppMessageAttempt: {
+        ...noCorrelatedAttempts(),
         create: async () => ({ id: "attempt" }),
         update: async () => ({}),
       },
@@ -1122,6 +1151,11 @@ describe("WhatsApp messages", () => {
     const prisma = {
       whatsAppMessage: {
         findMany: async () => [message],
+        findFirst: async () => ({
+          id: message.id,
+          status: (update?.status ?? message.status) as WhatsAppMessageStatus,
+          sentAt: (update?.sentAt as Date | undefined) ?? null,
+        }),
         updateMany: async () => ({ count: 1 }),
         update: async ({ data }: { data: Record<string, unknown> }) => {
           update = data;
@@ -1134,6 +1168,7 @@ describe("WhatsApp messages", () => {
           scheduledAt: new Date(Date.now() - 60_000),
         }),
       },
+      whatsAppMessageAttempt: noCorrelatedAttempts(),
       whatsAppSession: {
         findUnique: async () => ({ providerSessionName: "private" }),
       },
@@ -1194,6 +1229,7 @@ describe("WhatsApp messages", () => {
         }),
       },
       whatsAppMessageAttempt: {
+        ...noCorrelatedAttempts(),
         create: async () => ({ id: "attempt" }),
         update: async ({ data }: { data: Record<string, unknown> }) => {
           attemptUpdate = data;
@@ -1238,6 +1274,7 @@ describe("WhatsApp messages", () => {
         findUnique: async () => ({ providerSessionName: "private" }),
       },
       whatsAppTemplate: { findUnique: async () => null },
+      whatsAppMessageAttempt: noCorrelatedAttempts(),
     } as unknown as PrismaClient;
     const sendingProvider: WhatsAppProvider = {
       ...provider,
@@ -1281,6 +1318,7 @@ describe("WhatsApp messages", () => {
         }),
       },
       whatsAppMessageAttempt: {
+        ...noCorrelatedAttempts(),
         create: async () => ({ id: "attempt" }),
         update: async () => ({}),
       },
@@ -1308,6 +1346,11 @@ describe("WhatsApp messages", () => {
     const prisma = {
       whatsAppMessage: {
         findMany: async () => [message],
+        findFirst: async () => ({
+          id: message.id,
+          status: (update?.status ?? message.status) as WhatsAppMessageStatus,
+          sentAt: (update?.sentAt as Date | undefined) ?? null,
+        }),
         updateMany: async () => ({ count: 1 }),
         update: async ({ data }: { data: Record<string, unknown> }) => {
           update = data;
@@ -1328,6 +1371,7 @@ describe("WhatsApp messages", () => {
         }),
       },
       whatsAppMessageAttempt: {
+        ...noCorrelatedAttempts(),
         create: async () => ({ id: "attempt" }),
         update: async () => ({}),
       },
@@ -1384,6 +1428,7 @@ describe("WhatsApp messages", () => {
         }),
       },
       whatsAppMessageAttempt: {
+        ...noCorrelatedAttempts(),
         create: async () => {
           attempts += 1;
           return { id: "attempt" };
@@ -1409,7 +1454,7 @@ describe("WhatsApp messages", () => {
     expect(update?.nextAttemptAt).toBeInstanceOf(Date);
   });
 
-  test("an explicitly safe provider failure schedules a bounded retry", async () => {
+  test("an explicitly safe provider failure stops after three automatic attempts", async () => {
     const message = {
       id: "msg",
       organizationId: org,
@@ -1419,15 +1464,18 @@ describe("WhatsApp messages", () => {
       type: "APPOINTMENT_CREATED",
       status: "QUEUED",
       attemptCount: 0,
+      nextAttemptAt: new Date(Date.now() - 1),
       templateVersionId: null,
     };
     let update: Record<string, unknown> | undefined;
+    let sends = 0;
     const prisma = {
       whatsAppMessage: {
-        findMany: async () => [message],
+        findMany: async () => (message.status === "QUEUED" ? [message] : []),
         updateMany: async () => ({ count: 1 }),
         update: async ({ data }: { data: Record<string, unknown> }) => {
           update = data;
+          Object.assign(message, data);
         },
       },
       whatsAppPreference: { findFirst: async () => ({ id: "pref" }) },
@@ -1455,6 +1503,7 @@ describe("WhatsApp messages", () => {
         }),
       },
       whatsAppMessageAttempt: {
+        ...noCorrelatedAttempts(),
         create: async () => ({ id: "attempt" }),
         update: async () => ({}),
       },
@@ -1464,13 +1513,20 @@ describe("WhatsApp messages", () => {
       ...provider,
       getSession: async () => ({ status: "WORKING" }),
       sendText: async () => {
+        sends += 1;
         throw new WahaSendError("temporary", "SAFE_RETRYABLE_FAILURE");
       },
     };
-    await new WhatsAppQueueWorker(prisma, failingProvider).processBatch();
+    const worker = new WhatsAppQueueWorker(prisma, failingProvider);
+    for (const attemptNumber of [1, 2, 3]) {
+      expect(await worker.processBatch()).toBe(1);
+      expect(update?.attemptCount).toBe(attemptNumber);
+      message.nextAttemptAt = new Date(Date.now() - 1);
+    }
     expect(update?.errorCode).toBe("SAFE_RETRYABLE_FAILURE");
-    expect(update?.attemptCount).toBe(1);
-    expect(update?.nextAttemptAt).toBeInstanceOf(Date);
-    expect(update?.status).toBe("QUEUED");
+    expect(update?.attemptCount).toBe(3);
+    expect(update?.status).toBe("FAILED");
+    expect(await worker.processBatch()).toBe(0);
+    expect(sends).toBe(3);
   });
 });

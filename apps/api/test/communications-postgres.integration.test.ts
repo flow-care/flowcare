@@ -137,6 +137,7 @@ async function createFixture(prisma: PrismaClient) {
   return {
     userId,
     organizationId,
+    patientId,
     messageId,
     sessionName,
   };
@@ -150,13 +151,18 @@ async function removeFixture(
   await prisma.user.delete({ where: { id: fixture.userId } });
 }
 
-function acknowledgement(session: string, providerMessageId: string) {
+function acknowledgement(
+  session: string,
+  providerMessageId: string,
+  ackName: "ERROR" | "READ" = "READ",
+  ack: -1 | 3 = 3,
+) {
   const raw = JSON.stringify({
     id: `evt_${randomUUID()}`,
     timestamp: Date.now(),
     event: "message.ack",
     session,
-    payload: { id: providerMessageId, ack: 3, ackName: "READ" },
+    payload: { id: providerMessageId, ack, ackName },
   });
   return {
     raw,
@@ -192,6 +198,77 @@ async function waitForAdvisoryLock(prisma: PrismaClient) {
     await Bun.sleep(10);
   }
   throw new Error("Timed out waiting for the worker advisory lock.");
+}
+
+function namedDatabaseUrl(applicationName: string) {
+  const url = new URL(databaseUrl as string);
+  url.searchParams.set("application_name", applicationName);
+  return url.toString();
+}
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  description: string,
+  timeoutMs = 5_000,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`Timed out waiting for ${description}.`)),
+      timeoutMs,
+    );
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function waitForBlockedApplication(
+  prisma: PrismaClient,
+  applicationName: string,
+) {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const [row] = await prisma.$queryRaw<Array<{ blocked: boolean }>>`
+      SELECT EXISTS (
+        SELECT 1
+        FROM pg_stat_activity
+        WHERE application_name = ${applicationName}
+          AND cardinality(pg_blocking_pids(pid)) > 0
+      ) AS blocked
+    `;
+    if (row?.blocked) return;
+    await Bun.sleep(10);
+  }
+  throw new Error(
+    `Timed out waiting for blocked application ${applicationName}.`,
+  );
+}
+
+async function waitForCompletionOrBlock(
+  prisma: PrismaClient,
+  applicationName: string,
+  completed: () => boolean,
+) {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    if (completed()) return;
+    const [row] = await prisma.$queryRaw<Array<{ blocked: boolean }>>`
+      SELECT EXISTS (
+        SELECT 1
+        FROM pg_stat_activity
+        WHERE application_name = ${applicationName}
+          AND cardinality(pg_blocking_pids(pid)) > 0
+      ) AS blocked
+    `;
+    if (row?.blocked) return;
+    await Bun.sleep(10);
+  }
+  throw new Error(
+    `Timed out waiting for application ${applicationName} to complete or block.`,
+  );
 }
 
 describe("WhatsApp PostgreSQL integration", () => {
@@ -298,6 +375,154 @@ describe("WhatsApp PostgreSQL integration", () => {
       } finally {
         await removeFixture(prisma, fixture);
         await prisma.$disconnect();
+      }
+    },
+  );
+
+  postgresTest(
+    "cancels a claimed manual resend when an old ERROR arrives before its dispatch fence",
+    async () => {
+      const workerPrisma = createPrismaClient(databaseUrl as string);
+      const webhookPrisma = createPrismaClient(databaseUrl as string);
+      const fixture = await createFixture(workerPrisma);
+      const oldProviderMessageId = `old-provider-${randomUUID()}`;
+      const oldProviderMessageHash =
+        hashProviderMessageId(oldProviderMessageId);
+      const workerReachedProviderCheck = gate();
+      const resumeWorker = gate();
+      let workerRun: Promise<number> | null = null;
+      let sends = 0;
+      try {
+        const oldAttemptTime = new Date(Date.now() - 120_000);
+        await workerPrisma.whatsAppMessageAttempt.create({
+          data: {
+            organizationId: fixture.organizationId,
+            messageId: fixture.messageId,
+            number: 1,
+            origin: "AUTOMATIC",
+            startedAt: oldAttemptTime,
+            dispatchedAt: oldAttemptTime,
+            completedAt: new Date(oldAttemptTime.getTime() + 1_000),
+            providerMessageHash: oldProviderMessageHash,
+          },
+        });
+        await workerPrisma.whatsAppMessage.update({
+          where: { id: fixture.messageId },
+          data: {
+            status: "FAILED",
+            providerMessageHash: oldProviderMessageHash,
+            attemptCount: 1,
+            errorCode: "PREVIOUS_FAILURE",
+            errorReason: "Falha anterior preparada pelo teste.",
+          },
+        });
+
+        const service = new CommunicationsMessageService(webhookPrisma);
+        await service.authorizeManualResend(
+          fixture.organizationId,
+          fixture.messageId,
+          fixture.userId,
+          "postgres-original-resend-key",
+        );
+
+        const blockedProvider: WhatsAppProvider = {
+          getSession: async () => {
+            workerReachedProviderCheck.open();
+            await resumeWorker.promise;
+            return { status: "WORKING" };
+          },
+          createSession: async () => ({ status: "WORKING" }),
+          restartSession: async () => {},
+          getQr: async () => null,
+          sendText: async () => {
+            sends += 1;
+            return `unexpected-provider-${randomUUID()}`;
+          },
+        };
+        workerRun = new WhatsAppQueueWorker(
+          workerPrisma,
+          blockedProvider,
+        ).processBatch(1);
+        await workerReachedProviderCheck.promise;
+        expect(
+          (
+            await workerPrisma.whatsAppMessage.findUniqueOrThrow({
+              where: { id: fixture.messageId },
+            })
+          ).leaseUntil,
+        ).toBeInstanceOf(Date);
+
+        const ack = acknowledgement(
+          fixture.sessionName,
+          oldProviderMessageId,
+          "ERROR",
+          -1,
+        );
+        await service.webhook(
+          ack.raw,
+          ack.signature,
+          randomUUID(),
+          String(Date.now()),
+          secret,
+        );
+        resumeWorker.open();
+        expect(await workerRun).toBe(1);
+
+        const cancelledMessage =
+          await workerPrisma.whatsAppMessage.findUniqueOrThrow({
+            where: { id: fixture.messageId },
+          });
+        const cancelledAttempt =
+          await workerPrisma.whatsAppMessageAttempt.findFirstOrThrow({
+            where: {
+              organizationId: fixture.organizationId,
+              idempotencyKey: "postgres-original-resend-key",
+            },
+          });
+        expect(cancelledMessage).toMatchObject({
+          status: "FAILED",
+          attemptCount: 2,
+          leaseUntil: null,
+          errorCode: "WAHA_ACK_ERROR",
+        });
+        expect(cancelledAttempt).toMatchObject({
+          dispatchedAt: null,
+          providerMessageHash: null,
+          errorCode: "MANUAL_RESEND_CANCELLED",
+        });
+        expect(cancelledAttempt.completedAt).toBeInstanceOf(Date);
+        expect(sends).toBe(0);
+
+        await service.authorizeManualResend(
+          fixture.organizationId,
+          fixture.messageId,
+          fixture.userId,
+          "postgres-new-resend-key",
+        );
+        expect(
+          await workerPrisma.whatsAppMessageAttempt.count({
+            where: { messageId: fixture.messageId },
+          }),
+        ).toBe(3);
+        await service.authorizeManualResend(
+          fixture.organizationId,
+          fixture.messageId,
+          fixture.userId,
+          "postgres-original-resend-key",
+        );
+        expect(
+          await workerPrisma.whatsAppMessageAttempt.count({
+            where: { messageId: fixture.messageId },
+          }),
+        ).toBe(3);
+      } finally {
+        resumeWorker.open();
+        if (workerRun) await workerRun.catch(() => {});
+        await removeFixture(workerPrisma, fixture);
+        await Promise.all([
+          workerPrisma.$disconnect(),
+          webhookPrisma.$disconnect(),
+        ]);
       }
     },
   );
@@ -542,5 +767,261 @@ describe("WhatsApp PostgreSQL integration", () => {
         await prisma.$disconnect();
       }
     },
+  );
+
+  postgresTest(
+    "cancels an authorized manual resend when opt-out waits behind eligibility locks",
+    async () => {
+      const suffix = randomUUID().slice(0, 8);
+      const setup = createPrismaClient(databaseUrl as string);
+      const holder = createPrismaClient(
+        namedDatabaseUrl(`pr484-holder-${suffix}`),
+      );
+      const authorizationPrisma = createPrismaClient(
+        namedDatabaseUrl(`pr484-auth-${suffix}`),
+      );
+      const preferencePrisma = createPrismaClient(
+        namedDatabaseUrl(`pr484-pref-${suffix}`),
+      );
+      const observer = createPrismaClient(databaseUrl as string);
+      const fixture = await createFixture(setup);
+      const messageLocked = gate();
+      const releaseMessage = gate();
+      let holderRun: Promise<void> | null = null;
+      let authorizationRun: Promise<{ status: "QUEUED" }> | null = null;
+      let preferenceRun: Promise<unknown> | null = null;
+      try {
+        await setup.whatsAppMessage.update({
+          where: { id: fixture.messageId },
+          data: {
+            status: "FAILED",
+            errorCode: "PREVIOUS_FAILURE",
+            errorReason: "Falha anterior preparada pelo teste.",
+          },
+        });
+        holderRun = holder.$transaction(
+          async (tx) => {
+            await tx.$queryRaw`
+              SELECT "id"
+              FROM "WhatsAppMessage"
+              WHERE "id" = ${fixture.messageId}::uuid
+                AND "organizationId" = ${fixture.organizationId}::uuid
+              FOR UPDATE
+            `;
+            messageLocked.open();
+            await releaseMessage.promise;
+          },
+          { timeout: 15_000 },
+        );
+        await withTimeout(messageLocked.promise, "the message lock");
+
+        authorizationRun = new CommunicationsMessageService(
+          authorizationPrisma,
+        ).authorizeManualResend(
+          fixture.organizationId,
+          fixture.messageId,
+          fixture.userId,
+          `opt-out-wins-${suffix}`,
+        );
+        await waitForBlockedApplication(observer, `pr484-auth-${suffix}`);
+
+        let preferenceCompleted = false;
+        preferenceRun = new CommunicationsMessageService(preferencePrisma)
+          .preference(
+            fixture.organizationId,
+            fixture.patientId,
+            fixture.userId,
+            { whatsappOptIn: false, source: "POSTGRES_CONCURRENCY_TEST" },
+          )
+          .then((result) => {
+            preferenceCompleted = true;
+            return result;
+          });
+
+        await waitForCompletionOrBlock(
+          observer,
+          `pr484-pref-${suffix}`,
+          () => preferenceCompleted,
+        );
+        expect(preferenceCompleted).toBe(false);
+
+        releaseMessage.open();
+        await withTimeout(holderRun, "message lock holder to finish");
+        await withTimeout(authorizationRun, "manual authorization");
+        await withTimeout(preferenceRun, "opt-out to commit");
+
+        const manualAttempts = await setup.whatsAppMessageAttempt.findMany({
+          where: { messageId: fixture.messageId, origin: "MANUAL" },
+        });
+        expect(manualAttempts).toHaveLength(1);
+        expect(manualAttempts[0]?.completedAt).toBeInstanceOf(Date);
+        expect(
+          await setup.whatsAppMessage.findUniqueOrThrow({
+            where: { id: fixture.messageId },
+            select: { status: true, leaseUntil: true },
+          }),
+        ).toEqual({ status: "FAILED", leaseUntil: null });
+      } finally {
+        releaseMessage.open();
+        const pending: Promise<unknown>[] = [];
+        if (holderRun) pending.push(holderRun);
+        if (authorizationRun) pending.push(authorizationRun);
+        if (preferenceRun) pending.push(preferenceRun);
+        await Promise.allSettled(pending);
+        await removeFixture(setup, fixture);
+        await Promise.all([
+          setup.$disconnect(),
+          holder.$disconnect(),
+          authorizationPrisma.$disconnect(),
+          preferencePrisma.$disconnect(),
+          observer.$disconnect(),
+        ]);
+      }
+    },
+    20_000,
+  );
+
+  postgresTest(
+    "cancels the reserved resend when opt-out starts after eligibility is locked",
+    async () => {
+      const suffix = randomUUID().replaceAll("-", "").slice(0, 12);
+      const triggerName = `pr484_manual_gate_${suffix}`;
+      const functionName = `pr484_manual_gate_fn_${suffix}`;
+      const advisoryKey = 297_003;
+      const setup = createPrismaClient(databaseUrl as string);
+      const blocker = createPrismaClient(
+        namedDatabaseUrl(`pr484-blocker-${suffix}`),
+      );
+      const authorizationPrisma = createPrismaClient(
+        namedDatabaseUrl(`pr484-auth-${suffix}`),
+      );
+      const preferencePrisma = createPrismaClient(
+        namedDatabaseUrl(`pr484-pref-${suffix}`),
+      );
+      const observer = createPrismaClient(databaseUrl as string);
+      const fixture = await createFixture(setup);
+      const advisoryLocked = gate();
+      const releaseAdvisory = gate();
+      let blockerRun: Promise<void> | null = null;
+      let authorizationRun: Promise<{ status: "QUEUED" }> | null = null;
+      let preferenceRun: Promise<unknown> | null = null;
+      let preferenceSettled = false;
+      try {
+        await setup.whatsAppMessage.update({
+          where: { id: fixture.messageId },
+          data: {
+            status: "FAILED",
+            errorCode: "PREVIOUS_FAILURE",
+            errorReason: "Falha anterior preparada pelo teste.",
+          },
+        });
+        await setup.$executeRawUnsafe(`
+          CREATE FUNCTION "${functionName}"()
+          RETURNS trigger LANGUAGE plpgsql AS $$
+          BEGIN
+            IF NEW."origin"::text = 'MANUAL' THEN
+              PERFORM pg_advisory_xact_lock(${advisoryKey});
+            END IF;
+            RETURN NEW;
+          END;
+          $$
+        `);
+        await setup.$executeRawUnsafe(`
+          CREATE TRIGGER "${triggerName}"
+          BEFORE INSERT ON "WhatsAppMessageAttempt"
+          FOR EACH ROW
+          EXECUTE FUNCTION "${functionName}"()
+        `);
+
+        blockerRun = blocker.$transaction(
+          async (tx) => {
+            await tx.$executeRaw`SELECT pg_advisory_xact_lock(${advisoryKey})`;
+            advisoryLocked.open();
+            await releaseAdvisory.promise;
+          },
+          { timeout: 15_000 },
+        );
+        await withTimeout(advisoryLocked.promise, "the advisory test gate");
+
+        authorizationRun = new CommunicationsMessageService(
+          authorizationPrisma,
+        ).authorizeManualResend(
+          fixture.organizationId,
+          fixture.messageId,
+          fixture.userId,
+          `authorization-wins-${suffix}`,
+        );
+        await waitForBlockedApplication(observer, `pr484-auth-${suffix}`);
+
+        preferenceRun = new CommunicationsMessageService(preferencePrisma)
+          .preference(
+            fixture.organizationId,
+            fixture.patientId,
+            fixture.userId,
+            { whatsappOptIn: false, source: "POSTGRES_CONCURRENCY_TEST" },
+          )
+          .finally(() => {
+            preferenceSettled = true;
+          });
+        await waitForCompletionOrBlock(
+          observer,
+          `pr484-pref-${suffix}`,
+          () => preferenceSettled,
+        );
+        releaseAdvisory.open();
+        expect(
+          await withTimeout(authorizationRun, "manual authorization to finish"),
+        ).toEqual({ status: "QUEUED" });
+        await withTimeout(preferenceRun, "opt-out to finish");
+        await withTimeout(blockerRun, "advisory lock holder to finish");
+
+        const [message, preference, attempts] = await Promise.all([
+          setup.whatsAppMessage.findUniqueOrThrow({
+            where: { id: fixture.messageId },
+          }),
+          setup.whatsAppPreference.findUniqueOrThrow({
+            where: { patientId: fixture.patientId },
+          }),
+          setup.whatsAppMessageAttempt.findMany({
+            where: { messageId: fixture.messageId, origin: "MANUAL" },
+          }),
+        ]);
+        expect(preference.optedIn).toBe(false);
+        expect(message).toMatchObject({
+          status: "FAILED",
+          leaseUntil: null,
+          errorCode: "OPTED_OUT",
+        });
+        expect(attempts).toHaveLength(1);
+        expect(attempts[0]).toMatchObject({
+          dispatchedAt: null,
+          providerMessageHash: null,
+          errorCode: "MANUAL_RESEND_CANCELLED",
+        });
+        expect(attempts[0]?.completedAt).toBeInstanceOf(Date);
+      } finally {
+        releaseAdvisory.open();
+        const pending: Promise<unknown>[] = [];
+        if (blockerRun) pending.push(blockerRun);
+        if (authorizationRun) pending.push(authorizationRun);
+        if (preferenceRun) pending.push(preferenceRun);
+        await Promise.allSettled(pending);
+        await setup.$executeRawUnsafe(
+          `DROP TRIGGER IF EXISTS "${triggerName}" ON "WhatsAppMessageAttempt"`,
+        );
+        await setup.$executeRawUnsafe(
+          `DROP FUNCTION IF EXISTS "${functionName}"()`,
+        );
+        await removeFixture(setup, fixture);
+        await Promise.all([
+          setup.$disconnect(),
+          blocker.$disconnect(),
+          authorizationPrisma.$disconnect(),
+          preferencePrisma.$disconnect(),
+          observer.$disconnect(),
+        ]);
+      }
+    },
+    20_000,
   );
 });
