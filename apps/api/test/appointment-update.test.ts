@@ -30,6 +30,7 @@ function fixture() {
     whatsAppPreference: { findFirst: async () => null },
     whatsAppMessage: { updateMany: async () => ({ count: 0 }) },
     $executeRaw: async () => 1,
+    $queryRaw: async () => [],
     appointment: {
       findFirst: async ({
         where,
