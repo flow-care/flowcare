@@ -911,7 +911,7 @@ O identificador `revisionId` da versão vigente deve ser armazenado pela futura 
 ### Módulo 10: Comunicações & Integração WhatsApp (WAHA)
 *(Ref: Issues [#196](https://github.com/Flowcare-team/flowcare-monorepo/issues/196), [#295](https://github.com/Flowcare-team/flowcare-monorepo/issues/295)–[#298](https://github.com/Flowcare-team/flowcare-monorepo/issues/298))*
 
-**Decisão do MVP:** ver [catálogo, consentimento e estados de mensagens](MESSAGING_MVP.md). Apenas confirmação de agendamento, cancelamento e lembrete 24 horas antes são enviados por WhatsApp, com opt-in ativo do paciente. Mensagens de autenticação e convite usam e-mail. As rotas de conexão, templates, histórico, preferência e webhook estão implementadas. A fila persistente e o worker de envio também estão implementados; o reenvio permanece planejado. O worker fixa a versão imutável do template corrente da organização antes da tentativa e não envia quando o tipo ainda não possui template configurado.
+**Decisão do MVP:** ver [catálogo, consentimento e estados de mensagens](MESSAGING_MVP.md). Apenas confirmação de agendamento, cancelamento e lembrete 24 horas antes são enviados por WhatsApp, com opt-in ativo do paciente. Mensagens de autenticação e convite usam e-mail. As rotas de conexão, templates, histórico, preferência, webhook e reenvio manual seguro estão implementadas. A fila persistente e o worker de envio também estão implementados. O worker fixa a versão imutável do template corrente da organização antes da tentativa e não envia quando o tipo ainda não possui template configurado.
 
 **Destino e resultado de envio:** o canal aceita telefone brasileiro inequívoco como DDD + assinante ou E.164 com `+55`; DDD `55` não é confundido com código de país. Números internacionais não brasileiros e entradas ambíguas são recusados. Timeout, resposta inválida, HTTP `408`, HTTP `429`, HTTP `5xx` e interrupção durante uma tentativa são resultados `UNCERTAIN`: ficam visíveis para apuração, não recebem retry automático e só avançam por webhook quando existe identificador correlacionável. O contrato WAHA consultado não garante que essas respostas ocorram antes da aceitação de `sendText`.
 
@@ -975,7 +975,7 @@ O identificador `revisionId` da versão vigente deve ser armazenado pela futura 
 * **Permissão:** `communications:write`.
 * **Cabeçalho Obrigatório:** `Idempotency-Key`
 * **Respostas:** `200 OK` (`{ "status": "QUEUED" }`), `409 MESSAGE_STATE_CONFLICT` se não for elegível. Repetir a chave retorna o resultado original.
-* **Estado:** Planejado na #297; ainda não implementado. Mensagens `UNCERTAIN` não são elegíveis enquanto o resultado original não for esclarecido.
+* **Estado:** Implementado na #297. Mensagens `UNCERTAIN` não são elegíveis enquanto o resultado original não for esclarecido.
 
 ---
 

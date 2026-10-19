@@ -143,6 +143,16 @@ export const messageResponse = t.Object({
   ),
   nextCursor: t.Union([t.String(), t.Null()]),
 });
+export const manualResendParams = t.Object({
+  orgSlug: t.String(),
+  messageId: t.String({ format: "uuid" }),
+});
+export const manualResendHeaders = t.Object({
+  "idempotency-key": t.String({ minLength: 1 }),
+});
+export const manualResendResponse = t.Object({
+  status: t.Literal("QUEUED"),
+});
 export const preferenceBody = t.Object({
   whatsappOptIn: t.Boolean(),
   source: t.String({ minLength: 1, maxLength: 80, pattern: "\\S" }),
@@ -162,6 +172,7 @@ export const models = {
   "communications.whatsappTemplatePreviewResponse":
     whatsappTemplatePreviewResponse,
   "communications.messageResponse": messageResponse,
+  "communications.manualResendResponse": manualResendResponse,
   "communications.preferenceResponse": preferenceResponse,
 };
 

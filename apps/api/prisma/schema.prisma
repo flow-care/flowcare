@@ -464,6 +464,11 @@ enum WhatsAppMessageStatus {
   FAILED
 }
 
+enum WhatsAppMessageAttemptOrigin {
+  AUTOMATIC
+  MANUAL
+}
+
 model WhatsAppPreference {
   id             String   @id @default(uuid()) @db.Uuid
   organizationId String   @db.Uuid
@@ -504,7 +509,8 @@ model WhatsAppMessage {
   patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
   appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
   templateVersion WhatsAppTemplateVersion? @relation(fields: [templateVersionId], references: [id], onDelete: SetNull)
-  attempts WhatsAppMessageAttempt[]
+  attempts WhatsAppMessageAttempt[] @relation("WhatsAppMessageAttemptLegacy")
+  scopedAttempts WhatsAppMessageAttempt[] @relation("WhatsAppMessageAttemptScoped")
   webhookEvents WhatsAppWebhookEvent[]
 
   @@unique([organizationId, eventId, type])
@@ -518,17 +524,31 @@ model WhatsAppMessage {
 }
 
 model WhatsAppMessageAttempt {
-  id          String   @id @default(uuid()) @db.Uuid
-  messageId   String   @db.Uuid
-  number      Int
-  startedAt   DateTime @default(now())
-  completedAt DateTime?
+  id                  String                       @id @default(uuid()) @db.Uuid
+  organizationId      String?                      @db.Uuid
+  messageId           String                       @db.Uuid
+  number              Int
+  origin              WhatsAppMessageAttemptOrigin @default(AUTOMATIC)
+  idempotencyKey      String?
+  requestedById       String?                      @db.Uuid
+  startedAt           DateTime                     @default(now())
+  dispatchedAt        DateTime?
+  completedAt         DateTime?
   providerMessageHash String?
-  errorCode   String?
-  errorReason String?
-  message WhatsAppMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  errorCode           String?
+  errorReason         String?
+
+  // The legacy relation remains required during expansion so attempts inserted
+  // by the #296 worker without organizationId still resolve their message.
+  message       WhatsAppMessage        @relation("WhatsAppMessageAttemptLegacy", fields: [messageId], references: [id], onDelete: Cascade)
+  scopedMessage WhatsAppMessage?       @relation("WhatsAppMessageAttemptScoped", fields: [organizationId, messageId], references: [organizationId, id], onDelete: Cascade)
+  webhookEvents WhatsAppWebhookEvent[]
 
   @@unique([messageId, number])
+  @@unique([organizationId, id])
+  @@unique([organizationId, idempotencyKey])
+  @@unique([organizationId, providerMessageHash])
+  @@index([organizationId, messageId, completedAt])
 }
 
 model WhatsAppWebhookEvent {
@@ -537,14 +557,17 @@ model WhatsAppWebhookEvent {
   providerEventId     String
   providerMessageHash String
   messageId           String?               @db.Uuid
+  attemptId           String?               @db.Uuid
   status              WhatsAppMessageStatus
   receivedAt          DateTime              @default(now())
 
   organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   message      WhatsAppMessage? @relation(fields: [organizationId, messageId], references: [organizationId, id], onDelete: Cascade)
+  attempt      WhatsAppMessageAttempt? @relation(fields: [organizationId, attemptId], references: [organizationId, id], onDelete: Cascade)
 
   @@unique([organizationId, providerEventId])
   @@index([organizationId, providerMessageHash, messageId])
+  @@index([organizationId, attemptId])
 }
 
 model PatientAttachment {
