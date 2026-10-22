@@ -58,11 +58,13 @@ const { UsageView } = await import(
   "../app/app/[orgSlug]/settings/usage/usage-view"
 );
 
-const {
-  UsageSettingsForbidden,
-  UsageSettingsError,
-  default: UsageSettingsPage,
-} = await import("../app/app/[orgSlug]/settings/usage/page");
+const { UsageSettingsForbidden, UsageSettingsError } = await import(
+  "../app/app/[orgSlug]/settings/usage/usage-states"
+);
+
+const { default: UsageSettingsPage } = await import(
+  "../app/app/[orgSlug]/settings/usage/page"
+);
 
 const originalFetch = globalThis.fetch;
 const originalApiUrl = process.env.API_INTERNAL_URL;

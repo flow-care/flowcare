@@ -52,11 +52,13 @@ const { AnamnesisTopicsForm } = await import(
   "../app/app/[orgSlug]/settings/anamnesis/anamnesis-topics-form"
 );
 
-const {
-  AnamnesisForbidden,
-  AnamnesisError,
-  default: AnamnesisSettingsPage,
-} = await import("../app/app/[orgSlug]/settings/anamnesis/page");
+const { AnamnesisForbidden, AnamnesisError } = await import(
+  "../app/app/[orgSlug]/settings/anamnesis/anamnesis-states"
+);
+
+const { default: AnamnesisSettingsPage } = await import(
+  "../app/app/[orgSlug]/settings/anamnesis/page"
+);
 
 const originalFetch = globalThis.fetch;
 const originalApiUrl = process.env.API_INTERNAL_URL;
