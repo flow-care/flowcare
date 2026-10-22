@@ -24,7 +24,7 @@ export const metadata: Metadata = {
   title: "Tópicos de Anamnese por Médico | Flowcare",
 };
 
-export function AnamnesisForbidden({ orgSlug }: { orgSlug: string }) {
+function AnamnesisForbidden({ orgSlug }: { orgSlug: string }) {
   return (
     <div className="flex min-h-[420px] w-full flex-col items-center justify-center p-8 text-center">
       <div className="mb-4 flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
@@ -53,7 +53,7 @@ export function AnamnesisForbidden({ orgSlug }: { orgSlug: string }) {
   );
 }
 
-export function AnamnesisError({
+function AnamnesisError({
   orgSlug,
   errorMessage,
 }: {
