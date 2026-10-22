@@ -1258,6 +1258,22 @@ export class AppointmentsService {
             where: { organizationId, dayOfWeek },
             orderBy: { startTime: "asc" },
           });
+          if (rules.length === 0) {
+            const configuredRules = await tx.weeklyScheduleRule.count({
+              where: { organizationId },
+            });
+            if (configuredRules === 0) {
+              throw new ApiError(
+                "SCHEDULE_NOT_CONFIGURED",
+                409,
+                "A clínica ainda não tem horário de atendimento configurado. Configure em Configurações → Horários.",
+                {
+                  reason: "SCHEDULE_NOT_CONFIGURED",
+                  timeZone: organization.timezone,
+                },
+              );
+            }
+          }
           const fitsSchedule = rules.some((rule) => {
             const start = zonedDateTimeToUtc(
               date,
@@ -1665,6 +1681,25 @@ export class AppointmentsService {
                 where: { organizationId, dayOfWeek },
                 orderBy: { startTime: "asc" },
               });
+              if (rules.length === 0) {
+                // Clínica sem nenhuma grade configurada: nenhum horário passaria,
+                // e "fora do expediente" faria o usuário procurar o erro no lugar
+                // errado.  Antes de acusar o horário, verifique se existe grade.
+                const configuredRules = await tx.weeklyScheduleRule.count({
+                  where: { organizationId },
+                });
+                if (configuredRules === 0) {
+                  throw new ApiError(
+                    "SCHEDULE_NOT_CONFIGURED",
+                    409,
+                    "A clínica ainda não tem horário de atendimento configurado. Configure em Configurações → Horários.",
+                    {
+                      reason: "SCHEDULE_NOT_CONFIGURED",
+                      timeZone: organization.timezone,
+                    },
+                  );
+                }
+              }
               const fitsSchedule = rules.some((rule) => {
                 const intervalStart = zonedDateTimeToUtc(
                   localDate,
