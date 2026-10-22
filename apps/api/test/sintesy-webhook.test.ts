@@ -1,5 +1,5 @@
-import { createHmac } from "node:crypto";
 import { describe, expect, test } from "bun:test";
+import { createHmac } from "node:crypto";
 import { Elysia } from "elysia";
 import { createSintesyWebhook } from "../src/modules/webhooks/sintesy";
 
