@@ -1339,7 +1339,7 @@ describe("Document history, paginated list, and version snapshot endpoints (#277
     );
     expect(versionDetailAsReceptionist.status).toBe(403);
 
-    // 2. ADMIN without clinical role -> 403
+    // 2. ADMIN (dono da clínica) acumula o papel clínico -> 200
     f.setRole("ADMIN");
 
     const listAsAdmin = await f.request(
@@ -1348,7 +1348,7 @@ describe("Document history, paginated list, and version snapshot endpoints (#277
       undefined,
       { userId: adminOnlyId },
     );
-    expect(listAsAdmin.status).toBe(403);
+    expect(listAsAdmin.status).toBe(200);
 
     const getAsAdmin = await f.request(
       "GET",
@@ -1356,7 +1356,7 @@ describe("Document history, paginated list, and version snapshot endpoints (#277
       undefined,
       { userId: adminOnlyId },
     );
-    expect(getAsAdmin.status).toBe(403);
+    expect(getAsAdmin.status).toBe(200);
 
     // 3. ADMIN_PROFESSIONAL (with clinical eligibility) -> 200 OK
     f.setRole("ADMIN_PROFESSIONAL");

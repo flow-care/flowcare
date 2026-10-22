@@ -770,8 +770,8 @@ describe("document drafts and versions module (#273)", () => {
     );
     expect(patchFromB.status).toBe(404);
 
-    // RBAC checks: ADMIN (non-clinical) and RECEPTIONIST are denied with 403 PERMISSION_DENIED
-    for (const deniedRole of ["ADMIN", "RECEPTIONIST"] as const) {
+    // RBAC: RECEPTIONIST é negada com 403 PERMISSION_DENIED
+    for (const deniedRole of ["RECEPTIONIST"] as const) {
       f.setRole(deniedRole);
       const readDenied = await f.request(
         "GET",
@@ -803,6 +803,14 @@ describe("document drafts and versions module (#273)", () => {
         },
       });
     }
+
+    // ADMIN (dono da clínica) também é papel clínico
+    f.setRole("ADMIN");
+    const adminRead = await f.request(
+      "GET",
+      `/organizations/clinica-a/documents/${docA.id}`,
+    );
+    expect(adminRead.status).toBe(200);
 
     // ADMIN_PROFESSIONAL is allowed
     f.setRole("ADMIN_PROFESSIONAL");

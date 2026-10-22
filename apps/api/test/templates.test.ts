@@ -796,8 +796,8 @@ describe("templates module (#287)", () => {
     });
     f.setMembershipStatus("ACTIVE");
 
-    // ADMIN (non-clinical) and RECEPTIONIST -> 403 PERMISSION_DENIED
-    for (const deniedRole of ["ADMIN", "RECEPTIONIST"] as const) {
+    // RECEPTIONIST -> 403 PERMISSION_DENIED
+    for (const deniedRole of ["RECEPTIONIST"] as const) {
       f.setRole(deniedRole);
       const denied = await f.get("/organizations/clinica-a/templates");
       expect(denied.status).toBe(403);
@@ -809,8 +809,12 @@ describe("templates module (#287)", () => {
       });
     }
 
-    // PROFESSIONAL and ADMIN_PROFESSIONAL -> 200 OK
-    for (const allowedRole of ["PROFESSIONAL", "ADMIN_PROFESSIONAL"] as const) {
+    // ADMIN (dono da clínica), PROFESSIONAL e ADMIN_PROFESSIONAL -> 200 OK
+    for (const allowedRole of [
+      "ADMIN",
+      "PROFESSIONAL",
+      "ADMIN_PROFESSIONAL",
+    ] as const) {
       f.setRole(allowedRole);
       const allowed = await f.get("/organizations/clinica-a/templates");
       expect(allowed.status).toBe(200);
@@ -1181,8 +1185,8 @@ describe("templates validation, versioning, and concurrency (#288)", () => {
     );
     expect(getForeign.status).toBe(404);
 
-    // ADMIN (non-clinical) and RECEPTIONIST cannot create or edit templates (403 PERMISSION_DENIED)
-    for (const deniedRole of ["ADMIN", "RECEPTIONIST"] as const) {
+    // RECEPTIONIST cannot create or edit templates (403 PERMISSION_DENIED)
+    for (const deniedRole of ["RECEPTIONIST"] as const) {
       f.setRole(deniedRole);
       const deniedCreate = await f.post("/organizations/clinica-a/templates", {
         title: "Novo Modelo",
@@ -1197,6 +1201,15 @@ describe("templates validation, versioning, and concurrency (#288)", () => {
         },
       });
     }
+
+    // ADMIN (dono da clínica) pode criar modelos
+    f.setRole("ADMIN");
+    const adminCreate = await f.post("/organizations/clinica-a/templates", {
+      title: "Modelo do dono",
+      type: "CERTIFICATE",
+      bodyTemplate: "Atesto que {paciente_nome} compareceu.",
+    });
+    expect(adminCreate.status).toBe(201);
 
     // ADMIN_PROFESSIONAL can create and update templates
     f.setRole("ADMIN_PROFESSIONAL");

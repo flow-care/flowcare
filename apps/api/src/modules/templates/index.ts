@@ -1,5 +1,6 @@
 import { Elysia } from "elysia";
 import type { PrismaClient } from "../../generated/prisma/client";
+import { isClinicalRole } from "../../lib/roles";
 import { authPlugin } from "../../plugins/auth";
 import {
   type OrganizationAccess,
@@ -16,7 +17,7 @@ async function defaultClinicalEligibility(
 ): Promise<boolean> {
   return (
     (capability === "templates:read" || capability === "templates:write") &&
-    (context.role === "ADMIN_PROFESSIONAL" || context.role === "PROFESSIONAL")
+    isClinicalRole(context.role)
   );
 }
 
