@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Flowcare — Documentação do Projeto</title>
+<style>
+  @page { size: 1280px 720px; margin: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root{
+    --ink:#16181a; --ink-soft:#4a5359; --muted:#8799a5; --line:#e2e4e6;
+    --blue:#0263b5; --blue-soft:#edf7ff; --paper:#f3f3f3; --card:#ffffff;
+  }
+  html,body{ background:var(--paper); color:var(--ink);
+    font-family:"Inter","DejaVu Sans",system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased; font-feature-settings:"tnum" 1; }
+  .slide{ position:relative; width:1280px; height:720px; background:var(--paper);
+    padding:64px 72px; page-break-after:always; overflow:hidden; }
+  .slide:last-child{ page-break-after:auto; }
+
+  /* chrome */
+  .kicker{ font-size:11px; letter-spacing:.16em; text-transform:uppercase;
+    color:var(--muted); font-weight:600; display:flex; gap:10px; align-items:center; }
+  .kicker b{ color:var(--blue); font-weight:700; }
+  .num{ position:absolute; right:72px; bottom:40px; font-size:11px; color:var(--muted); letter-spacing:.1em; }
+  .brand{ position:absolute; left:72px; bottom:40px; font-size:11px; color:var(--muted); letter-spacing:.14em; text-transform:uppercase; }
+  .rule{ height:1px; background:var(--line); }
+
+  h1{ font-size:76px; line-height:.98; letter-spacing:-.035em; font-weight:650; }
+  h2{ font-size:44px; line-height:1.06; letter-spacing:-.028em; font-weight:650; margin-top:14px; }
+  h3{ font-size:19px; font-weight:650; letter-spacing:-.01em; }
+  .lead{ font-size:21px; line-height:1.45; color:var(--ink-soft); max-width:830px; }
+  .small{ font-size:14px; line-height:1.5; color:var(--ink-soft); }
+  .tiny{ font-size:12px; line-height:1.45; color:var(--muted); }
+  .blue{ color:var(--blue); }
+
+  .head{ display:flex; flex-direction:column; gap:8px; margin-bottom:34px; }
+
+  /* grids */
+  .cols3{ display:grid; grid-template-columns:repeat(3,1fr); gap:20px; }
+  .cols2{ display:grid; grid-template-columns:1fr 1fr; gap:36px; }
+  .card{ background:var(--card); border:1px solid var(--line); border-radius:10px; padding:26px 24px; }
+  .card .idx{ font-size:11px; letter-spacing:.14em; color:var(--blue); font-weight:700; }
+  .card h3{ margin:10px 0 8px; }
+  .card p{ font-size:14.5px; line-height:1.5; color:var(--ink-soft); }
+
+  ul{ list-style:none; }
+  li{ font-size:15.5px; line-height:1.75; color:var(--ink-soft); padding-left:18px; position:relative; }
+  li::before{ content:""; position:absolute; left:0; top:9px; width:5px; height:5px; border-radius:50%; background:var(--blue); }
+  li.no::before{ background:#c9ced2; }
+
+  /* stats */
+  .stat{ font-size:58px; font-weight:650; letter-spacing:-.04em; line-height:1; }
+  .statlab{ font-size:12px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); margin-top:8px; font-weight:600; }
+
+  /* bars */
+  .bar{ display:grid; grid-template-columns:186px 1fr 34px; align-items:center; gap:14px; margin-bottom:9px; }
+  .bar span{ font-size:12.5px; color:var(--ink-soft); }
+  .track{ height:9px; background:#e6e8ea; border-radius:2px; overflow:hidden; }
+  .fill{ height:100%; background:var(--blue); }
+  .fill.grey{ background:#b9c1c7; }
+  .bar b{ font-size:12.5px; font-weight:600; color:var(--ink); text-align:right; }
+
+  /* table */
+  table{ width:100%; border-collapse:collapse; }
+  th{ font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted);
+    text-align:left; font-weight:600; padding:0 12px 10px 0; border-bottom:1px solid var(--line); }
+  td{ font-size:14px; padding:11px 12px 11px 0; border-bottom:1px solid var(--line); color:var(--ink-soft); }
+  td:first-child{ color:var(--ink); font-weight:600; }
+  .ok{ color:var(--blue); font-weight:650; }
+  .part{ color:#b47500; font-weight:650; }
+  .off{ color:#a8b0b6; font-weight:650; }
+
+  /* diagram */
+  .flow{ display:flex; align-items:stretch; gap:12px; }
+  .box{ background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px 18px; flex:1; }
+  .box .t{ font-size:13.5px; font-weight:650; }
+  .box .s{ font-size:11.5px; color:var(--muted); margin-top:5px; line-height:1.4; }
+  .box.accent{ background:var(--blue-soft); border-color:#c9e2f7; }
+  .arrow{ align-self:center; color:var(--muted); font-size:16px; }
+
+  .cover-tag{ display:inline-block; font-size:11px; letter-spacing:.18em; text-transform:uppercase;
+    color:var(--blue); font-weight:700; border:1px solid #c9e2f7; background:var(--blue-soft);
+    padding:7px 12px; border-radius:100px; }
+  .steps li{ font-size:15px; border-left:1px solid var(--line); padding-left:20px; margin-left:4px; }
+  .steps li::before{ left:-4px; top:8px; width:7px; height:7px; }
+  .steps li b{ color:var(--ink); }
+</style>
+</head>
+<body>
+
+<!-- 01 CAPA -->
+<section class="slide" style="background:var(--card);">
+  <div class="kicker" style="justify-content:space-between;">
+    <span><b>FLOWCARE</b> &nbsp;·&nbsp; Documentação do Projeto</span>
+    <span>22 / 10 / 2026</span>
+  </div>
+  <div style="height:120px;"></div>
+  <span class="cover-tag">Fábrica de Software · APIExt IV · 2026/2</span>
+  <h1 style="margin-top:26px; font-size:84px;">Agenda, prontuário<br>e uma IA que<br><span class="blue">só redige.</span></h1>
+  <p class="lead" style="margin-top:30px; font-size:20px;">
+    Sistema web para clínicas solo e de pequeno porte. Estado real do produto,
+    da arquitetura e do backlog — consolidado a partir da especificação e das 155 tarefas do GitHub.
+  </p>
+  <div class="brand">flow-care/flowcare · flowcare.me</div>
+  <div class="num">01</div>
+</section>
+
+<!-- 02 PROBLEMA -->
+<section class="slide">
+  <div class="head">
+    <div class="kicker"><b>01</b> O problema</div>
+    <h2>Três perdas que a clínica pequena<br>não consegue absorver.</h2>
+  </div>
+  <div class="cols3">
+    <div class="card"><div class="idx">PERDA 01</div><h3>Horário vazio</h3>
+      <p>Falta sem aviso e horário sobreposto geram ociosidade e prejuízo direto no caixa.</p></div>
+    <div class="card"><div class="idx">PERDA 02</div><h3>Papel disperso</h3>
+      <p>Prontuário, anamnese e receita em formatos diferentes, sem padrão e sem rastreabilidade.</p></div>
+    <div class="card"><div class="idx">PERDA 03</div><h3>Atenção dividida</h3>
+      <p>O profissional perde contato visual com o paciente porque digita durante a consulta.</p></div>
+  </div>
+  <div style="margin-top:44px;" class="rule"></div>
+  <p class="lead" style="margin-top:26px; font-size:19px;">
+    O produto ataca as três com uma decisão de escopo: <b class="blue">agenda que puxa ação,
+    prontuário único e transcrição que devolve o olhar ao paciente</b> — sem prometer diagnóstico por IA.
+  </p>
+  <div class="num">02</div>
+</section>
+
+<!-- 03 SOLUÇÃO -->
+<section class="slide" style="background:var(--card);">
+  <div class="head">
+    <div class="kicker"><b>02</b> A solução</div>
+    <h2>Três pilares, um limite explícito.</h2>
+  </div>
+  <div class="cols3">
+    <div class="card" style="background:var(--blue-soft); border-color:#c9e2f7;">
+      <div class="idx">PILAR 01</div><h3>Agenda de ação</h3>
+      <p>Grade diária e semanal, status visíveis, confirmação por WhatsApp e um clique para a ficha.</p></div>
+    <div class="card"><div class="idx">PILAR 02</div><h3>Prontuário 360°</h3>
+      <p>Histórico cronológico, anexos e biblioteca de modelos reutilizáveis por clínica.</p></div>
+    <div class="card"><div class="idx">PILAR 03</div><h3>Transcrição</h3>
+      <p>O médico grava; a IA transcreve e organiza a anamnese por tópicos; ele revisa e aprova.</p></div>
+  </div>
+  <div style="margin-top:40px; background:var(--paper); border-left:3px solid var(--blue); padding:24px 28px;">
+    <div style="font-size:13px; letter-spacing:.14em; text-transform:uppercase; color:var(--muted); font-weight:600;">A regra que atravessa o sistema</div>
+    <div style="font-size:30px; font-weight:650; letter-spacing:-.025em; margin-top:10px;">
+      A IA redige. Quem decide é o médico.</div>
+    <div class="small" style="margin-top:8px;">Proibição explícita de diagnóstico e conduta no prompt, com validação da saída no servidor.</div>
+  </div>
+  <div class="num">03</div>
+</section>
+
+<!-- 04 ESCOPO -->
+<section class="slide">
+  <div class="head">
+    <div class="kicker"><b>03</b> Escopo</div>
+    <h2>O que entra — e o que foi dito<br>que não entra.</h2>
+  </div>
+  <div class="cols2">
+    <div>
+      <div style="font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--blue); font-weight:700; margin-bottom:14px;">Dentro do MVP</div>
+      <ul>
+        <li>Agenda, fila da recepção e histórico de faltas</li>
+        <li>Pacientes, prontuário em linha do tempo e anexos</li>
+        <li>Modelos e emissão de documentos em PDF</li>
+        <li>Transcrição de anamnese com revisão médica</li>
+        <li>Confirmação de consulta por WhatsApp</li>
+        <li>Acesso por papel, auditoria e medição de consumo</li>
+      </ul>
+    </div>
+    <div>
+      <div style="font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); font-weight:700; margin-bottom:14px;">Fora — com motivo</div>
+      <ul>
+        <li class="no">SMS e telefonia paga &nbsp;<span class="tiny">custo por clínica</span></li>
+        <li class="no">Assinatura ICP-Brasil &nbsp;<span class="tiny">não é o gargalo real</span></li>
+        <li class="no">Editor livre tipo Canva &nbsp;<span class="tiny">quebra o PDF</span></li>
+        <li class="no">Diagnóstico por IA &nbsp;<span class="tiny">risco clínico e legal</span></li>
+        <li class="no">Faturamento TISS/TUSS &nbsp;<span class="tiny">outro produto</span></li>
+        <li class="no">Cobrança automática &nbsp;<span class="tiny">só medição no MVP</span></li>
+      </ul>
+    </div>
+  </div>
+  <div class="num">04</div>
+</section>
+
+<!-- 05 PAPÉIS -->
+<section class="slide" style="background:var(--card);">
+  <div class="head">
+    <div class="kicker"><b>04</b> Pessoas e permissões</div>
+    <h2>Quatro papéis. A recepção<br>nunca vê conteúdo clínico.</h2>
+  </div>
+  <table>
+    <tr><th style="width:240px;">Papel</th><th>Alcance</th><th style="width:150px;">Conteúdo clínico</th></tr>
+    <tr><td>ADMIN</td><td>Clínica, equipe, agenda, prontuário, documentos, consumo</td><td class="ok">Acesso total</td></tr>
+    <tr><td>ADMIN_PROFESSIONAL</td><td>Administração + atuação clínica</td><td class="ok">Acesso total</td></tr>
+    <tr><td>PROFESSIONAL</td><td>Atende, escreve prontuário, emite documento</td><td class="ok">Acesso clínico</td></tr>
+    <tr><td>RECEPTIONIST</td><td>Agenda, cadastro, fila, mensagens logísticas</td><td class="off">Negado e auditado</td></tr>
+  </table>
+  <div style="margin-top:32px; display:flex; gap:14px;">
+    <div class="card" style="flex:1; padding:18px 20px;">
+      <div class="tiny" style="letter-spacing:.1em; text-transform:uppercase; font-weight:700;">Invariante 01</div>
+      <div class="small" style="margin-top:6px;">Autorização resolvida no servidor a partir da clínica + vínculo ativo.</div>
+    </div>
+    <div class="card" style="flex:1; padding:18px 20px;">
+      <div class="tiny" style="letter-spacing:.1em; text-transform:uppercase; font-weight:700;">Invariante 02</div>
+      <div class="small" style="margin-top:6px;">Identificador enviado pelo cliente nunca seleciona outra clínica.</div>
+    </div>
+    <div class="card" style="flex:1; padding:18px 20px;">
+      <div class="tiny" style="letter-spacing:.1em; text-transform:uppercase; font-weight:700;">Invariante 03</div>
+      <div class="small" style="margin-top:6px;">Negar acesso também gera registro na trilha de auditoria.</div>
+    </div>
+  </div>
+  <div class="num">05</div>
+</section>
+
+<!-- 06 ARQUITETURA -->
+<section class="slide">
+  <div class="head">
+    <div class="kicker"><b>05</b> Arquitetura</div>
+    <h2>Monorepo, duas aplicações,<br>cinco integrações.</h2>
+  </div>
+  <div class="flow" style="margin-bottom:22px;">
+    <div class="box accent"><div class="t">apps/web</div><div class="s">Next.js 16 · React 19<br>App Router, rotas por clínica</div></div>
+    <div class="arrow">→</div>
+    <div class="box accent"><div class="t">apps/api</div><div class="s">Elysia (Bun) · Prisma<br>20 módulos, 3 plugins</div></div>
+    <div class="arrow">→</div>
+    <div class="box"><div class="t">PostgreSQL</div><div class="s">~50 modelos<br>trava de sobreposição no banco</div></div>
+  </div>
+  <div style="font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); font-weight:700; margin:26px 0 12px;">Integrações</div>
+  <div class="flow">
+    <div class="box"><div class="t">Sintesy</div><div class="s">Transcrição (STT)<br>credencial só no back-end</div></div>
+    <div class="box"><div class="t">gorouter</div><div class="s">Extração de tópicos<br>atrás de ExtractionProvider</div></div>
+    <div class="box"><div class="t">WAHA</div><div class="s">WhatsApp da clínica<br>1 sessão por clínica</div></div>
+    <div class="box"><div class="t">SES</div><div class="s">Verificação, senha<br>e convites</div></div>
+    <div class="box"><div class="t">S3 / R2</div><div class="s">Anexos, áudios e PDFs<br>privados</div></div>
+  </div>
+  <div class="num">06</div>
+</section>
+
+<!-- 07 DADOS -->
+<section class="slide" style="background:var(--card);">
+  <div class="head">
+    <div class="kicker"><b>06</b> Modelo de dados</div>
+    <h2>Oito domínios, um tenant<br>em tudo.</h2>
+  </div>
+  <div class="cols3" style="gap:16px;">
+    <div class="card" style="padding:20px;"><div class="idx">01 — IDENTIDADE</div>
+      <div class="small" style="margin-top:8px;">User · Session · VerificationToken · AuthRateLimit · SessionRevocationAudit</div></div>
+    <div class="card" style="padding:20px;"><div class="idx">02 — CLÍNICA</div>
+      <div class="small" style="margin-top:8px;">Organization · Membership · Invite · OnboardingProgress · Subscription</div></div>
+    <div class="card" style="padding:20px;"><div class="idx">03 — AGENDA</div>
+      <div class="small" style="margin-top:8px;">Appointment · ConfirmationDecision · ScheduleRule · Exception · Pause</div></div>
+    <div class="card" style="padding:20px;"><div class="idx">04 — PACIENTE</div>
+      <div class="small" style="margin-top:8px;">Patient · PatientCreationRequest · PatientAttachment</div></div>
+    <div class="card" style="padding:20px;"><div class="idx">05 — ATENDIMENTO</div>
+      <div class="small" style="margin-top:8px;">Consultation · ConsultationAudio · TranscriptionJob · AnamnesisTopic</div></div>
+    <div class="card" style="padding:20px;"><div class="idx">06 — DOCUMENTOS</div>
+      <div class="small" style="margin-top:8px;">DocumentTemplate (+Version) · ClinicalDocument · DocumentVersion</div></div>
+    <div class="card" style="padding:20px;"><div class="idx">07 — WHATSAPP</div>
+      <div class="small" style="margin-top:8px;">Session · Message · Attempt · WebhookEvent · Template (+Version)</div></div>
+    <div class="card" style="padding:20px;"><div class="idx">08 — TRANSVERSAL</div>
+      <div class="small" style="margin-top:8px;">AuditLog · StorageObject</div></div>
+    <div class="card" style="padding:20px; background:var(--blue-soft); border-color:#c9e2f7;">
+      <div class="idx">CONVENÇÕES</div>
+      <div class="small" style="margin-top:8px;">UUID · UTC no banco, offset na agenda · dinheiro em centavos · arquivamento em vez de exclusão</div></div>
+  </div>
+  <div class="num">07</div>
+</section>
+
+<!-- 08 FLUXO 1 -->
+<section class="slide">
+  <div class="head">
+    <div class="kicker"><b>07</b> Fluxo crítico · agenda</div>
+    <h2>Do horário marcado<br>à confirmação do paciente.</h2>
+  </div>
+  <ul class="steps" style="margin-top:8px;">
+    <li><b>Reserva.</b> O banco recusa sobreposição por constraint — não é validação da aplicação.</li>
+    <li><b>Disparo.</b> Se a clínica tem WhatsApp conectado, a mensagem entra na fila com estado controlado.</li>
+    <li><b>Resposta.</b> O paciente responde; o webhook entrega o texto ao sistema.</li>
+    <li><b>Interpretação.</b> Normalização + palavras-chave configuráveis: SIM/1/CONFIRMO × NÃO/2/CANCELAR.</li>
+    <li><b>Saída segura.</b> Resposta ambígua nunca fica no limbo: vai para a fila de confirmação manual.</li>
+  </ul>
+  <div class="card" style="margin-top:30px; background:var(--blue-soft); border-color:#c9e2f7; padding:20px 24px;">
+    <div class="small"><b style="color:var(--ink);">Estados da mensagem:</b> pendente → enviando → enviada → falhou. Reenvio manual, e mensagem antiga não é reenviada sozinha — uma confirmação de “amanhã” não pode sair dias depois.</div>
+  </div>
+  <div class="num">08</div>
+</section>
+
+<!-- 09 FLUXO 2 -->
+<section class="slide" style="background:var(--card);">
+  <div class="head">
+    <div class="kicker"><b>08</b> Fluxo crítico · IA</div>
+    <h2>Da consulta à anamnese<br>aprovada.</h2>
+  </div>
+  <div class="flow" style="margin:8px 0 24px;">
+    <div class="box"><div class="t">1 · Consentimento</div><div class="s">registro antes de qualquer áudio</div></div>
+    <div class="arrow">→</div>
+    <div class="box"><div class="t">2 · Captura</div><div class="s">navegador, MP3, corte em 500 MB com aviso</div></div>
+    <div class="arrow">→</div>
+    <div class="box"><div class="t">3 · Transcrição</div><div class="s">Sintesy, job assíncrono</div></div>
+    <div class="arrow">→</div>
+    <div class="box"><div class="t">4 · Extração</div><div class="s">só os tópicos configurados</div></div>
+    <div class="arrow">→</div>
+    <div class="box accent"><div class="t">5 · Aprovação</div><div class="s">médico revisa; áudio é descartado</div></div>
+  </div>
+  <div class="cols2" style="gap:24px;">
+    <div>
+      <div style="font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--blue); font-weight:700; margin-bottom:10px;">Garantias</div>
+      <ul>
+        <li>Nenhum áudio passa pelo navegador direto ao provedor</li>
+        <li>Informação ausente fica nula — nunca inventada</li>
+        <li>Falha do provedor não derruba a consulta</li>
+      </ul>
+    </div>
+    <div>
+      <div style="font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:#b47500; font-weight:700; margin-bottom:10px;">Ponto de atenção</div>
+      <ul>
+        <li class="no">O modo padrão da integração é <b>mock</b></li>
+        <li class="no">Sem chave + modo live, o diferencial não está ativo</li>
+        <li class="no">Falta teste com áudio real de consulta</li>
+      </ul>
+    </div>
+  </div>
+  <div class="num">09</div>
+</section>
+
+<!-- 10 FLUXO 3 -->
+<section class="slide">
+  <div class="head">
+    <div class="kicker"><b>09</b> Fluxo crítico · documentos</div>
+    <h2>Emitir, congelar, corrigir —<br>sem apagar história.</h2>
+  </div>
+  <div class="flow">
+    <div class="box"><div class="t">Modelo</div><div class="s">campos automáticos por catálogo</div></div>
+    <div class="arrow">→</div>
+    <div class="box"><div class="t">Validação</div><div class="s">obrigatório varia por tipo de documento</div></div>
+    <div class="arrow">→</div>
+    <div class="box"><div class="t">PDF</div><div class="s">render no back-end + snapshot imutável</div></div>
+    <div class="arrow">→</div>
+    <div class="box accent"><div class="t">Ciclo de vida</div><div class="s">retificar ou anular com justificativa</div></div>
+  </div>
+  <div style="margin-top:36px;" class="rule"></div>
+  <div class="cols3" style="margin-top:26px;">
+    <div><div class="stat" style="font-size:34px;">Nunca</div><div class="tiny" style="margin-top:8px; font-size:13px;">erro técnico na tela: falta de dado vira lista do que corrigir</div></div>
+    <div><div class="stat" style="font-size:34px;">Nunca</div><div class="tiny" style="margin-top:8px; font-size:13px;">modelo editado altera documento já emitido</div></div>
+    <div><div class="stat" style="font-size:34px;">Sempre</div><div class="tiny" style="margin-top:8px; font-size:13px;">autor, data e auditoria em cada emissão e anulação</div></div>
+  </div>
+  <div class="num">10</div>
+</section>
+
+<!-- 11 STATUS -->
+<section class="slide" style="background:var(--card);">
+  <div class="head">
+    <div class="kicker"><b>10</b> O que está construído</div>
+    <h2>Volume alto. O diferencial<br>ainda desligado.</h2>
+  </div>
+  <table>
+    <tr><th style="width:340px;">Área</th><th>Situação</th><th style="width:210px;">Evidência</th></tr>
+    <tr><td>Entrada, conta e clínicas</td><td><span class="ok">Pronto</span> — cadastro, e-mail, login, multi-clínica</td><td class="tiny">marcos SR II</td></tr>
+    <tr><td>Equipe, papéis e auditoria</td><td><span class="ok">Pronto</span></td><td class="tiny">RBAC + trilha</td></tr>
+    <tr><td>Agenda e recepção</td><td><span class="ok">Pronto</span> — inclui recorrência e fila</td><td class="tiny">constraint no banco</td></tr>
+    <tr><td>Pacientes e prontuário</td><td><span class="ok">Pronto</span></td><td class="tiny">busca normalizada</td></tr>
+    <tr><td>Documentos e PDF</td><td><span class="part">Quase</span> — faltam telas de edição e histórico</td><td class="tiny">5 tarefas abertas</td></tr>
+    <tr><td>WhatsApp</td><td><span class="part">Quase</span> — envio pronto; faltam telas de conexão e falhas</td><td class="tiny">4 tarefas abertas</td></tr>
+    <tr><td>Transcrição e anamnese</td><td><span class="part">Pipeline pronto</span> — modo mock por padrão</td><td class="tiny">provedores reais existem</td></tr>
+    <tr><td>Operação (alertas, rollback, staging)</td><td><span class="off">Não iniciado</span></td><td class="tiny">4 tarefas abertas</td></tr>
+  </table>
+  <div class="num">11</div>
+</section>
+
+<!-- 12 NÚMEROS -->
+<section class="slide">
+  <div class="head">
+    <div class="kicker"><b>11</b> Números</div>
+    <h2>Seis semanas de trabalho.</h2>
+  </div>
+  <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:22px; margin-bottom:36px;">
+    <div><div class="stat">155</div><div class="statlab">Tarefas no board</div></div>
+    <div><div class="stat">136</div><div class="statlab">Concluídas</div></div>
+    <div><div class="stat">156</div><div class="statlab">Mudanças integradas</div></div>
+    <div><div class="stat">113</div><div class="statlab">Arquivos de teste</div></div>
+  </div>
+  <div class="cols2" style="gap:52px;">
+    <div>
+      <div style="font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); font-weight:700; margin-bottom:14px;">Tarefas por área</div>
+      <div class="bar"><span>Atendimento e IA</span><div class="track"><div class="fill" style="width:100%"></div></div><b>31</b></div>
+      <div class="bar"><span>Clínica e acesso</span><div class="track"><div class="fill" style="width:93%"></div></div><b>29</b></div>
+      <div class="bar"><span>Documentos</span><div class="track"><div class="fill" style="width:58%"></div></div><b>18</b></div>
+      <div class="bar"><span>QA e homologação</span><div class="track"><div class="fill grey" style="width:48%"></div></div><b>15</b></div>
+      <div class="bar"><span>Conta e segurança</span><div class="track"><div class="fill" style="width:45%"></div></div><b>14</b></div>
+      <div class="bar"><span>Infra e operação</span><div class="track"><div class="fill grey" style="width:35%"></div></div><b>11</b></div>
+      <div class="bar"><span>Agenda</span><div class="track"><div class="fill" style="width:32%"></div></div><b>10</b></div>
+      <div class="bar"><span>WhatsApp</span><div class="track"><div class="fill grey" style="width:29%"></div></div><b>9</b></div>
+      <div class="bar"><span>Produto e decisões</span><div class="track"><div class="fill" style="width:29%"></div></div><b>9</b></div>
+      <div class="bar"><span>Pacientes e prontuário</span><div class="track"><div class="fill" style="width:26%"></div></div><b>8</b></div>
+      <div class="bar"><span>Painel e gestão</span><div class="track"><div class="fill" style="width:3%"></div></div><b>1</b></div>
+    </div>
+    <div>
+      <div style="font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); font-weight:700; margin-bottom:14px;">Marcos</div>
+      <table>
+        <tr><td style="border:none; padding-bottom:4px;">SR II · core</td><td style="border:none; padding-bottom:4px; text-align:right;" class="ok">70 / 70</td></tr>
+        <tr><td style="border:none; padding:4px 0;">SR III · homologação</td><td style="border:none; padding:4px 0; text-align:right;"><span class="part">63 / 82</span></td></tr>
+        <tr><td style="border:none; padding:4px 0;">AV2 · entrega</td><td style="border:none; padding:4px 0; text-align:right;">2 / 2</td></tr>
+      </table>
+      <div class="card" style="margin-top:24px; padding:18px 20px;">
+        <div class="small">O SR II fechou inteiro. As 19 tarefas abertas estão concentradas em <b>documentos, WhatsApp, QA e operação</b> — não no núcleo clínico.</div>
+      </div>
+    </div>
+  </div>
+  <div class="num">12</div>
+</section>
+
+<!-- 13 DIVERGÊNCIAS -->
+<section class="slide" style="background:var(--card);">
+  <div class="head">
+    <div class="kicker"><b>12</b> Especificação × código</div>
+    <h2>O produto evoluiu.<br>O documento não acompanhou.</h2>
+  </div>
+  <table>
+    <tr><th style="width:230px;">Tema</th><th>O que o documento diz</th><th style="width:330px;">O que o sistema faz</th></tr>
+    <tr><td>Frontend</td><td>React + Vite (SPA)</td><td>Next.js 16 + React 19</td></tr>
+    <tr><td>Banco</td><td>SQLite em três pontos</td><td>PostgreSQL (e o próprio contrato exige recursos de Postgres)</td></tr>
+    <tr><td>Multi-clínica</td><td>“1 clínica por deploy”</td><td>Várias clínicas por pessoa, com convite e alternância</td></tr>
+    <tr><td>Editor</td><td>BlockNote</td><td>Editor por texto — BlockNote não existe no código</td></tr>
+    <tr><td>Sessão</td><td>JWT sem expiração</td><td>Sessão com validade, revogação e auditoria</td></tr>
+    <tr><td>Receita de controlados</td><td>Requisito Must</td><td>Fora do MVP (precisa de justificativa formal)</td></tr>
+  </table>
+  <div class="small" style="margin-top:26px; max-width:900px;">
+    Nenhuma dessas diferenças é acidente: são decisões tomadas durante a construção. O problema é que o documento continua
+    prometendo o produto anterior — e é ele que a banca lê.
+  </div>
+  <div class="num">13</div>
+</section>
+
+<!-- 14 RISCOS -->
+<section class="slide">
+  <div class="head">
+    <div class="kicker"><b>13</b> Riscos</div>
+    <h2>Onde o projeto pode quebrar.</h2>
+  </div>
+  <table>
+    <tr><th style="width:330px;">Risco</th><th style="width:120px;">Impacto</th><th>Mitigação</th></tr>
+    <tr><td>Vazamento de dado clínico</td><td><span class="off">Crítico</span></td><td>RBAC no servidor, TLS, auditoria, descarte do áudio</td></tr>
+    <tr><td>Ban do número de WhatsApp</td><td><span class="part">Alto</span></td><td>Número dedicado da clínica, ritmo conservador, plano B oficial</td></tr>
+    <tr><td>Sobreposição de horário</td><td><span class="part">Alto</span></td><td>Constraint transacional no banco</td></tr>
+    <tr><td>Dependência do Sintesy</td><td><span class="part">Médio</span></td><td>Job assíncrono, retry com backoff, digitação manual como saída</td></tr>
+    <tr><td>Custo de transcrição estourar</td><td><span class="part">Médio</span></td><td>Medição por clínica e alerta — sem bloquear atendimento</td></tr>
+    <tr><td>PDF divergir do preview</td><td><span class="part">Médio</span></td><td>Mesmo CSS no editor e no render, teste de regressão visual</td></tr>
+  </table>
+  <div class="num">14</div>
+</section>
+
+<!-- 15 MARCOS -->
+<section class="slide" style="background:var(--card);">
+  <div class="head">
+    <div class="kicker"><b>14</b> Próximos marcos</div>
+    <h2>O que precisa estar de pé<br>até 30/11.</h2>
+  </div>
+  <div class="cols2" style="gap:40px;">
+    <div>
+      <div style="font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--blue); font-weight:700; margin-bottom:14px;">SR III · 16–30/11</div>
+      <ul>
+        <li>Ligar a IA de verdade: chave, modo live e teste com áudio real</li>
+        <li>Publicar a versão atual (produção está atrás do código)</li>
+        <li>Fechar telas de documentos e WhatsApp</li>
+        <li>Homologar o fluxo inteiro: marcar → atender → aprovar → emitir</li>
+        <li>Rollback, alertas e playbooks de incidente</li>
+      </ul>
+    </div>
+    <div>
+      <div style="font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); font-weight:700; margin-bottom:14px;">AV2 · 01–15/12</div>
+      <ul>
+        <li class="no">Demonstração ao vivo do fluxo completo</li>
+        <li class="no">Relatório final de extensão</li>
+        <li class="no">Seminário e apresentação do impacto</li>
+        <li class="no">Justificativa formal das mudanças pós-AV1</li>
+      </ul>
+      <div class="card" style="margin-top:22px; padding:18px 20px; background:var(--blue-soft); border-color:#c9e2f7;">
+        <div class="small">A ordem que mais reduz risco: <b>publicar o que existe → ligar a IA → fechar telas → homologar</b>.</div>
+      </div>
+    </div>
+  </div>
+  <div class="num">15</div>
+</section>
+
+<!-- 16 LACUNAS DA DOC -->
+<section class="slide">
+  <div class="head">
+    <div class="kicker"><b>15</b> Lacunas</div>
+    <h2>Documentar não é colar commits<br>em slides.</h2>
+  </div>
+  <div class="cols3">
+    <div class="card"><div class="idx">FALTA 01</div><h3>Glossário</h3>
+      <p>“Clínica”, “organização”, “tenant” e “modelo” aparecem com mais de um sentido. Custa barato resolver.</p></div>
+    <div class="card"><div class="idx">FALTA 02</div><h3>Operação</h3>
+      <p>Sem alertas, sem playbook de incidente e sem staging: o sistema não tem plano de ficar quebrado.</p></div>
+    <div class="card"><div class="idx">FALTA 03</div><h3>Registro de mudanças</h3>
+      <p>As decisões pós-AV1 estão espalhadas em issues e conversas, não em um changelog contínuo.</p></div>
+  </div>
+  <div style="margin-top:34px;" class="rule"></div>
+  <p class="lead" style="margin-top:24px; font-size:19px;">
+    Um projeto de sistema precisa responder, sem depender de quem está no grupo:
+    <b>o que é, para quem, com qual escopo, como funciona, como se prova, como se opera e o que falta.</b>
+  </p>
+  <div class="num">16</div>
+</section>
+
+<!-- 17 FECHAMENTO -->
+<section class="slide" style="background:var(--blue-soft);">
+  <div class="kicker" style="color:var(--blue);"><b>16</b> Onde está tudo</div>
+  <h2 style="margin-top:16px; font-size:52px;">A documentação vive<br>no repositório.</h2>
+  <div class="cols2" style="margin-top:38px; gap:26px;">
+    <div>
+      <table style="background:var(--card); border-radius:10px;">
+        <tr><td style="padding:14px 18px; border-bottom:1px solid var(--line);">docs/README.md</td><td style="padding:14px 18px; border-bottom:1px solid var(--line); font-size:13px;">mapa e trilha por perfil</td></tr>
+        <tr><td style="padding:14px 18px; border-bottom:1px solid var(--line);">PROJETO_VISAO_GERAL.md</td><td style="padding:14px 18px; border-bottom:1px solid var(--line); font-size:13px;">escopo, requisitos, arquitetura</td></tr>
+        <tr><td style="padding:14px 18px; border-bottom:1px solid var(--line);">ESPECIFICACAO_VS_IMPLEMENTACAO.md</td><td style="padding:14px 18px; border-bottom:1px solid var(--line); font-size:13px;">divergências e ações</td></tr>
+        <tr><td style="padding:14px 18px;">BACKLOG.md</td><td style="padding:14px 18px; font-size:13px;">155 tarefas por área</td></tr>
+      </table>
+    </div>
+    <div>
+      <div style="font-size:22px; font-weight:650; letter-spacing:-.02em; line-height:1.3;">
+        Mais de 2.500 linhas já existentes de contrato, papéis, documentos, mensageria, testes e operação — agora com uma porta de entrada.</div>
+      <div class="small" style="margin-top:18px;">
+        A regra combinada: o documento muda na mesma PR que muda o comportamento. Documento desatualizado é dívida, não acervo.
+      </div>
+      <div style="margin-top:26px; font-size:13px; color:var(--muted); letter-spacing:.1em; text-transform:uppercase; font-weight:600;">
+        flow-care/flowcare · flowcare.me</div>
+    </div>
+  </div>
+  <div class="num">17</div>
+</section>
+
+</body>
+</html>
