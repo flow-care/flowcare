@@ -741,14 +741,19 @@ O identificador `revisionId` da versão vigente deve ser armazenado pela futura 
 * **Respostas:** `200 OK` (`{ "audioId": "<uuid>", "status": "UPLOADED" }`), `400 VALIDATION_ERROR`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`, `422 BUSINESS_RULE_VIOLATION`.
 
 #### `POST /organizations/:orgSlug/consultations/:consultationId/transcribe`
-* **Descrição:** Dispara o processamento da transcrição e geração automática da minuta de anamnese por IA.
+* **Descrição:** Dispara a transcrição do áudio e a estruturação automática da minuta de anamnese. O áudio é enviado ao provedor por URL assinada e temporária; o texto integral é persistido no job e os tópicos extraídos são gravados em `anamnesisDraft` (somente quando a anamnese ainda está `PENDING`, nunca sobre rascunho editado ou anamnese aprovada). Com `SINTESEY_MODE=mock` o provedor é simulado.
 * **Permissão:** `consultations:write`.
 * **Cabeçalho Obrigatório:** `Idempotency-Key`
-* **Respostas:** `202 Accepted` (`{ "jobId": "job_tx_88", "status": "PROCESSING" }`).
+* **Respostas:** `202 Accepted` (`{ "jobId": "job_tx_88", "status": "PROCESSING" }`), `403 PERMISSION_DENIED`, `404 NOT_FOUND`, `422 BUSINESS_RULE_VIOLATION` (sem áudio com consentimento).
+
+#### `GET /organizations/:orgSlug/consultations/:consultationId/transcription`
+* **Descrição:** Consulta o job de transcrição mais recente da consulta. É o endpoint de polling da interface: devolve o estado atual e, quando `COMPLETED`, o texto integral para conferência antes da aprovação da anamnese.
+* **Permissão:** `consultations:read`.
+* **Respostas:** `200 OK` (`{ "jobId": "<uuid>", "status": "QUEUED|PROCESSING|COMPLETED|FAILED", "text": "…"|null, "error": null|"motivo da falha" }`), `403 PERMISSION_DENIED`, `404 NOT_FOUND` (consulta inexistente ou nenhuma transcrição solicitada).
 
 #### `PATCH /organizations/:orgSlug/consultations/:consultationId/draft`
 * **Descrição:** Salva edições no rascunho da anamnese médica com controle de versão e concorrência otimista. Possui aliases em `PUT /organizations/:orgSlug/consultations/:consultationId/draft` e `PATCH`/`PUT /organizations/:orgSlug/consultations/:consultationId/anamnesis/draft`.
-* **Permissão:** `consultations:write` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL` autorizados/atribuídos).
+* **Permissão:** `consultations:write` (`ADMIN`, `ADMIN_PROFESSIONAL`, `PROFESSIONAL` autorizados/atribuídos).
 * **Body:** `{ "version": 3, "chiefComplaint": "Dor de cabeça persistente", "clinicalNotes": "...", "topics": { "hda": "...", "antecedentes": "..." } }` (topics aceita objeto chave-valor ou lista `[{ "key": "...", "value": "..." }]`).
 * **Respostas:** `200 OK` (dados da consulta atualizados com nova `version`, `anamnesisStatus: "DRAFT"`, `chiefComplaint`, `clinicalNotes`, `anamnesisDraft`), `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`, `409 VERSION_CONFLICT`, `409 DOCUMENT_STATE_CONFLICT`.
 

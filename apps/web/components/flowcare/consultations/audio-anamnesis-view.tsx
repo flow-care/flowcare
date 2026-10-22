@@ -427,9 +427,11 @@ export function AudioAnamnesisView({
       setPipelineStage("structuring");
       setPipelineProgress(85);
 
-      // Status polling (up to 5 attempts with delay)
-      for (let attempt = 0; attempt < 5; attempt += 1) {
-        await new Promise((resolve) => setTimeout(resolve, 1200));
+      // Status polling: a transcrição real roda no Sintesy e leva dezenas de
+      // segundos; esperamos até ~3 minutos antes de avisar o profissional.
+      let completed = false;
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 3000));
         const statusRes = await getTranscriptionStatusAction(
           orgSlug,
           consultation.id,
@@ -437,6 +439,7 @@ export function AudioAnamnesisView({
 
         if (statusRes.success && statusRes.data) {
           if (statusRes.data.status === "COMPLETED") {
+            completed = true;
             break;
           }
           if (statusRes.data.status === "FAILED") {
@@ -446,6 +449,12 @@ export function AudioAnamnesisView({
             );
           }
         }
+      }
+
+      if (!completed) {
+        throw new Error(
+          "A transcrição ainda está em processamento. Você pode fechar esta tela e revisar a anamnese em instantes.",
+        );
       }
 
       // Transition to completed

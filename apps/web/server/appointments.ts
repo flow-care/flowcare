@@ -807,7 +807,9 @@ export async function getProfessionals(
     .filter(
       (m) =>
         (m.status === undefined || m.status === "ACTIVE") &&
-        (m.role === "PROFESSIONAL" || m.role === "ADMIN_PROFESSIONAL"),
+        (m.role === "PROFESSIONAL" ||
+          m.role === "ADMIN_PROFESSIONAL" ||
+          m.role === "ADMIN"),
     )
     .map((m) => ({
       id: m.userId,

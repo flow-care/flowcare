@@ -21,17 +21,17 @@ export const appSections = [
   {
     segment: "consultations",
     label: "Consultas",
-    roles: ["ADMIN_PROFESSIONAL", "PROFESSIONAL"],
+    roles: ["ADMIN", "ADMIN_PROFESSIONAL", "PROFESSIONAL"],
   },
   {
     segment: "documents",
     label: "Documentos",
-    roles: ["ADMIN_PROFESSIONAL", "PROFESSIONAL"],
+    roles: ["ADMIN", "ADMIN_PROFESSIONAL", "PROFESSIONAL"],
   },
   {
     segment: "templates",
     label: "Modelos",
-    roles: ["ADMIN_PROFESSIONAL", "PROFESSIONAL"],
+    roles: ["ADMIN", "ADMIN_PROFESSIONAL", "PROFESSIONAL"],
   },
   {
     segment: "whatsapp",
@@ -69,5 +69,7 @@ export function canOpenSection(role: Role, segment: string): boolean {
 }
 
 export function isClinicalRole(role?: Role | string | null): boolean {
-  return role === "ADMIN_PROFESSIONAL" || role === "PROFESSIONAL";
+  return (
+    role === "ADMIN" || role === "ADMIN_PROFESSIONAL" || role === "PROFESSIONAL"
+  );
 }

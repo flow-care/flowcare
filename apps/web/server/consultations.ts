@@ -567,6 +567,9 @@ export type StartTranscriptionJobPayload = z.infer<
 export const transcriptionJobResponseSchema = z.object({
   jobId: z.string(),
   status: z.enum(["QUEUED", "PROCESSING", "COMPLETED", "FAILED"]),
+  /** Texto integral quando o job já concluiu (usado no painel de revisão). */
+  text: z.string().nullable().optional(),
+  error: z.string().nullable().optional(),
 });
 export type TranscriptionJobResponse = z.infer<
   typeof transcriptionJobResponseSchema
@@ -672,7 +675,8 @@ export async function startTranscriptionJob(
 export interface TranscriptionStatusResult {
   jobId: string;
   status: "QUEUED" | "PROCESSING" | "COMPLETED" | "FAILED";
-  error?: string;
+  text?: string | null;
+  error?: string | null;
 }
 
 export async function getTranscriptionStatus(

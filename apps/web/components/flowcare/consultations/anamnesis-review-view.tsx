@@ -15,9 +15,10 @@ import {
   UserCheck,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import {
   approveAnamnesisAction,
+  getTranscriptionStatusAction,
   updateAnamnesisDraftAction,
 } from "@/app/app/[orgSlug]/consultations/actions";
 import {
@@ -70,6 +71,28 @@ export function AnamnesisReviewView({
 
   const isClinical = isClinicalRole(userRole);
   const isInitiallyApproved = consultation.anamnesisStatus === "APPROVED";
+
+  // Transcrição original: mostra o texto que a IA ouviu, para o profissional
+  // conferir antes de aprovar. Falha em silêncio (recurso acessório).
+  const [transcript, setTranscript] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void getTranscriptionStatusAction(orgSlug, consultation.id)
+      .then((result) => {
+        if (
+          !cancelled &&
+          result.success &&
+          result.data?.status === "COMPLETED" &&
+          result.data.text
+        ) {
+          setTranscript(result.data.text);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [orgSlug, consultation.id]);
 
   // Initial topics extracted from draft or snapshot or consultation fields
   const initialDraftTopics = useMemo(() => {
@@ -423,6 +446,39 @@ export function AnamnesisReviewView({
             </span>
           </div>
         </div>
+      )}
+
+      {/* 5b. Transcrição original do atendimento (somente leitura) */}
+      {transcript && (
+        <Card
+          className="border-border shadow-xs"
+          data-testid="transcription-panel"
+        >
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <Sparkles className="size-4 text-muted-foreground" />
+              Transcrição do atendimento
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Texto reconhecido a partir do áudio. Confira a fonte antes de
+              aprovar a anamnese.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <details>
+              <summary className="cursor-pointer text-xs font-medium text-muted-foreground hover:text-foreground">
+                Ver transcrição completa
+              </summary>
+              <Textarea
+                readOnly
+                rows={10}
+                value={transcript}
+                className="mt-2 text-xs leading-relaxed"
+                aria-label="Transcrição do atendimento"
+              />
+            </details>
+          </CardContent>
+        </Card>
       )}
 
       {/* 6. Transient feedback messages */}

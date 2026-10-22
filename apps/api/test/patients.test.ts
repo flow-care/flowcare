@@ -770,7 +770,7 @@ describe("patient search, detail, and clinical overview (#251)", () => {
     }
   });
 
-  test("omits confidential clinical alerts and medical notes in overview for RECEPTIONIST and ADMIN roles", async () => {
+  test("omits confidential clinical alerts and medical notes in overview for RECEPTIONIST", async () => {
     const f = seedSearchFixture("RECEPTIONIST");
     const app = buildTestApp(f.prisma);
     const token = signSessionToken(
@@ -779,7 +779,7 @@ describe("patient search, detail, and clinical overview (#251)", () => {
       60,
     );
 
-    for (const nonClinicalRole of ["RECEPTIONIST", "ADMIN"] as const) {
+    for (const nonClinicalRole of ["RECEPTIONIST"] as const) {
       f.setRole(nonClinicalRole);
       const res = await app.handle(
         new Request(
@@ -823,6 +823,21 @@ describe("patient search, detail, and clinical overview (#251)", () => {
       expect(rawText).not.toContain("sangramento");
       expect(rawText).not.toContain("anticoagulante");
     }
+
+    // ADMIN é papel clínico desde 22/10/2026: o resumo traz os campos sigilosos.
+    f.setRole("ADMIN");
+    const adminRes = await app.handle(
+      new Request(
+        "http://localhost/organizations/clinic-a/patients/pat-1/overview",
+        {
+          headers: { authorization: `Bearer ${token}` },
+        },
+      ),
+    );
+    expect(adminRes.status).toBe(200);
+    const adminOverview = (await adminRes.json()) as PatientOverviewResponse;
+    expect(adminOverview.clinicalAlerts?.length ?? 0).toBeGreaterThan(0);
+    expect(adminOverview.medicalNotes).toBeDefined();
 
     // Overview for non-existent ID or another clinic's ID returns 404
     const missingOverview = await app.handle(

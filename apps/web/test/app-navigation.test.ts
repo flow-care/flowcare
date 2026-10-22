@@ -19,8 +19,10 @@ describe("app navigation", () => {
     expect(canOpenSection("RECEPTIONIST", "settings")).toBe(false);
     expect(canOpenSection("PROFESSIONAL", "settings")).toBe(false);
     expect(canOpenSection("ADMIN", "settings")).toBe(true);
-    expect(canOpenSection("ADMIN", "consultations")).toBe(false);
+    // ADMIN acumula o grupo clínico (decisão de 22/10/2026).
+    expect(canOpenSection("ADMIN", "consultations")).toBe(true);
     expect(canOpenSection("PROFESSIONAL", "consultations")).toBe(true);
+    expect(canOpenSection("RECEPTIONIST", "consultations")).toBe(false);
     expect(canOpenSection("RECEPTIONIST", "whatsapp")).toBe(true);
     expect(canOpenSection("PROFESSIONAL", "whatsapp")).toBe(false);
     expect(canOpenSection("ADMIN", "unlisted-module")).toBe(false);

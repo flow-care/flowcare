@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { Prisma, PrismaClient } from "../../generated/prisma/client";
 import { ApiError } from "../../lib/api-error";
+import { CLINICAL_ROLES } from "../../lib/roles";
 import { normalizePatientName } from "../patients/service";
 import type {
   AnamnesisStatus,
@@ -443,7 +444,7 @@ export class ConsultationsService {
             userId: professionalId,
             organizationId,
             status: "ACTIVE",
-            role: { in: ["PROFESSIONAL", "ADMIN_PROFESSIONAL"] },
+            role: { in: CLINICAL_ROLES },
           },
         });
         if (!profMembership) {
@@ -726,7 +727,8 @@ export class ConsultationsService {
     }
 
     const isAssigned = consultation.professionalId === actorUserId;
-    const isClinicAdminProf = actorRole === "ADMIN_PROFESSIONAL";
+    const isClinicAdminProf =
+      actorRole === "ADMIN" || actorRole === "ADMIN_PROFESSIONAL";
     if (!isAssigned && !isClinicAdminProf) {
       throw new ApiError(
         "PERMISSION_DENIED",
@@ -909,7 +911,8 @@ export class ConsultationsService {
     }
 
     const isAssigned = consultation.professionalId === actorUserId;
-    const isClinicAdminProf = actorRole === "ADMIN_PROFESSIONAL";
+    const isClinicAdminProf =
+      actorRole === "ADMIN" || actorRole === "ADMIN_PROFESSIONAL";
     if (!isAssigned && !isClinicAdminProf) {
       throw new ApiError(
         "PERMISSION_DENIED",

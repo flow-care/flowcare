@@ -120,11 +120,11 @@ describe("consultations web logic (#268)", () => {
     expect(parsed.success).toBe(true);
   });
 
-  test("enforces RBAC: only ADMIN_PROFESSIONAL and PROFESSIONAL have access to consultations", () => {
+  test("enforces RBAC: ADMIN, ADMIN_PROFESSIONAL and PROFESSIONAL have access to consultations", () => {
     expect(canOpenSection("PROFESSIONAL", "consultations")).toBe(true);
     expect(canOpenSection("ADMIN_PROFESSIONAL", "consultations")).toBe(true);
+    expect(canOpenSection("ADMIN", "consultations")).toBe(true);
     expect(canOpenSection("RECEPTIONIST", "consultations")).toBe(false);
-    expect(canOpenSection("ADMIN", "consultations")).toBe(false);
   });
 
   test("getConsultations handles unauthenticated sessions and API responses", async () => {

@@ -1,5 +1,6 @@
 import type { PrismaClient } from "../../generated/prisma/client";
 import { ApiError } from "../../lib/api-error";
+import { isClinicalRole } from "../../lib/roles";
 import { recordAuditEvent } from "../../services/audit-logger";
 import type { PutTopicsBody, TopicOutput } from "./model";
 
@@ -22,11 +23,7 @@ export class AnamnesisTopicsService {
   constructor(private readonly prisma: PrismaClient) {}
 
   private authorize(userId: string, professionalId: string, role: string) {
-    if (
-      userId !== professionalId ||
-      !["PROFESSIONAL", "ADMIN_PROFESSIONAL"].includes(role)
-    )
-      throw denied();
+    if (userId !== professionalId || !isClinicalRole(role)) throw denied();
   }
 
   async get(

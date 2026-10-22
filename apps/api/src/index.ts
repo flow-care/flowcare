@@ -2,7 +2,13 @@ import { createApp } from "./app";
 import { loadEnv } from "./config/env";
 import { WhatsAppQueueWorker } from "./modules/communications/worker";
 import { createPrismaClient } from "./services/db";
+import { GorouterExtractionProvider } from "./services/extraction-provider";
 import { createMailer } from "./services/mailer";
+import { SintesyClient } from "./services/sintesy-client";
+import {
+  MockTranscriptionProvider,
+  SintesyTranscriptionProvider,
+} from "./services/transcription-provider";
 import { WahaClient } from "./services/waha-client";
 
 // Raiz de composição: monta env, infra e aplicação.
@@ -14,9 +20,34 @@ const whatsappProvider = new WahaClient({
   apiKey: env.wahaApiKey,
 });
 
-const app = createApp(env, { prisma, mailer, whatsappProvider }).listen(
-  env.port,
-);
+// Transcrição: com SINTESEY_MODE=live e chave B2B configurada, o áudio vai para
+// o Sintesy; sem isso o provedor simulado mantém o fluxo utilizável em dev.
+const transcriptionProvider =
+  env.sintesyMode === "live" && env.sintesyB2bApiKey
+    ? new SintesyTranscriptionProvider(
+        new SintesyClient({
+          baseUrl: env.sintesyBaseUrl ?? "https://api.sintesy.me",
+          apiKey: env.sintesyB2bApiKey,
+        }),
+      )
+    : new MockTranscriptionProvider();
+
+const extractionProvider =
+  env.gorouterBaseUrl && env.gorouterModel
+    ? new GorouterExtractionProvider({
+        baseUrl: env.gorouterBaseUrl,
+        apiKey: env.gorouterApiKey ?? null,
+        model: env.gorouterModel,
+      })
+    : null;
+
+const app = createApp(env, {
+  prisma,
+  mailer,
+  whatsappProvider,
+  transcriptionProvider,
+  extractionProvider,
+}).listen(env.port);
 const queueWorker = new WhatsAppQueueWorker(prisma, whatsappProvider);
 let processing = false;
 if (env.whatsappSendEnabled)

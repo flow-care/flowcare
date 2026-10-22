@@ -363,7 +363,8 @@ describe("Patient Header & Formatting Helpers (#257)", () => {
     expect(isClinicalRole("PROFESSIONAL")).toBe(true);
     expect(isClinicalRole("ADMIN_PROFESSIONAL")).toBe(true);
     expect(isClinicalRole("RECEPTIONIST")).toBe(false);
-    expect(isClinicalRole("ADMIN")).toBe(false);
+    // ADMIN (dono da clínica) passou a ser papel clínico em 22/10/2026.
+    expect(isClinicalRole("ADMIN")).toBe(true);
     expect(isClinicalRole(null)).toBe(false);
   });
 });

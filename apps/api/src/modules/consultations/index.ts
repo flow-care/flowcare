@@ -7,6 +7,7 @@ import {
   organizationAccessPlugin,
 } from "../../plugins/organization-access";
 import type { ConsultationAudioStore } from "../../services/consultation-audio-store";
+import type { ExtractionProvider } from "../../services/extraction-provider";
 import type { TranscriptionProvider } from "../../services/transcription-provider";
 import { ConsultationAudioService } from "./audio-service";
 import * as m from "./model";
@@ -21,7 +22,9 @@ async function defaultClinicalEligibility(
     (capability === "consultations:read" ||
       capability === "consultations:write" ||
       capability === "consultations:approve") &&
-    (context.role === "ADMIN_PROFESSIONAL" || context.role === "PROFESSIONAL")
+    (context.role === "ADMIN" ||
+      context.role === "ADMIN_PROFESSIONAL" ||
+      context.role === "PROFESSIONAL")
   );
 }
 
@@ -30,6 +33,7 @@ export function consultationsModule(deps: {
   jwtSecret: string;
   audioStore?: ConsultationAudioStore | null;
   transcriptionProvider?: TranscriptionProvider | null;
+  extractionProvider?: ExtractionProvider | null;
   clinicalEligibility?: (
     context: OrganizationAccess,
     capability: OrganizationCapability,
@@ -43,6 +47,8 @@ export function consultationsModule(deps: {
   const transcriptionService = new ConsultationTranscriptionService(
     deps.prisma,
     deps.transcriptionProvider ?? null,
+    deps.audioStore ?? null,
+    deps.extractionProvider ?? null,
   );
   const clinicalEligibility =
     deps.clinicalEligibility ?? defaultClinicalEligibility;
@@ -189,6 +195,19 @@ export function consultationsModule(deps: {
             headers: m.idempotencyHeaders,
             organizationAccess: "consultations:write",
             response: { 202: m.transcriptionResponse },
+          },
+        )
+        .get(
+          "/consultations/:consultationId/transcription",
+          ({ organizationAccess, params }) =>
+            transcriptionService.status(
+              organizationAccess.organizationId,
+              params.consultationId,
+            ),
+          {
+            params: m.consultationIdParams,
+            organizationAccess: "consultations:read",
+            response: { 200: m.transcriptionStatusResponse },
           },
         )
         .patch(

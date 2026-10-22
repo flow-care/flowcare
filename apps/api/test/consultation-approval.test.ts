@@ -663,7 +663,7 @@ describe("POST /organizations/:orgSlug/consultations/:consultationId/approve", (
     expect(body.error.code).toBe("PERMISSION_DENIED");
   });
 
-  test("403 when user is plain ADMIN without clinical license", async () => {
+  test("200 OK when ADMIN (clinic owner) approves the anamnesis", async () => {
     const fixture = createFixture();
     fixture.setCurrentUserId(plainAdminId);
     fixture.setRole("ADMIN");
@@ -676,9 +676,7 @@ describe("POST /organizations/:orgSlug/consultations/:consultationId/approve", (
         token: fixture.generateToken(plainAdminId),
       },
     );
-    expect(res.status).toBe(403);
-    const body = (await res.json()) as ErrorResponse;
-    expect(body.error.code).toBe("PERMISSION_DENIED");
+    expect(res.status).toBe(200);
   });
 
   test("403 when user is an unassigned PROFESSIONAL (different doctor)", async () => {

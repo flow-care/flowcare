@@ -6,6 +6,7 @@ import type {
   ReceptionQueueStatus,
 } from "../../generated/prisma/client";
 import { ApiError } from "../../lib/api-error";
+import { CLINICAL_ROLES } from "../../lib/roles";
 import {
   cancelQueuedAppointmentMessages,
   enqueueAppointmentEvent,
@@ -454,7 +455,7 @@ export class AppointmentsService {
         organizationId,
         userId: query.professionalId,
         status: "ACTIVE",
-        role: { in: ["PROFESSIONAL", "ADMIN_PROFESSIONAL"] },
+        role: { in: CLINICAL_ROLES },
       },
       select: { id: true },
     });
@@ -1239,7 +1240,7 @@ export class AppointmentsService {
               organizationId,
               userId: professionalId,
               status: "ACTIVE",
-              role: { in: ["PROFESSIONAL", "ADMIN_PROFESSIONAL"] },
+              role: { in: CLINICAL_ROLES },
             },
             select: { id: true },
           });
@@ -1645,7 +1646,7 @@ export class AppointmentsService {
                   organizationId,
                   userId: body.professionalId,
                   status: "ACTIVE",
-                  role: { in: ["PROFESSIONAL", "ADMIN_PROFESSIONAL"] },
+                  role: { in: CLINICAL_ROLES },
                 },
                 select: { id: true },
               });

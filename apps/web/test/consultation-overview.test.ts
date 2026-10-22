@@ -40,11 +40,11 @@ afterEach(() => {
 
 describe("consultation overview (#269)", () => {
   describe("Role-based access", () => {
-    test("clinical access is restricted to ADMIN_PROFESSIONAL and PROFESSIONAL only", () => {
+    test("clinical access includes ADMIN, ADMIN_PROFESSIONAL and PROFESSIONAL", () => {
       expect(canOpenSection("PROFESSIONAL", "consultations")).toBe(true);
       expect(canOpenSection("ADMIN_PROFESSIONAL", "consultations")).toBe(true);
+      expect(canOpenSection("ADMIN", "consultations")).toBe(true);
       expect(canOpenSection("RECEPTIONIST", "consultations")).toBe(false);
-      expect(canOpenSection("ADMIN", "consultations")).toBe(false);
     });
   });
 

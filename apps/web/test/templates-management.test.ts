@@ -64,7 +64,7 @@ describe("Templates organization scoping & access control", () => {
   });
 
   test("blocks non-clinical roles from accessing templates section", () => {
-    expect(canOpenSection("ADMIN", "templates")).toBe(false);
+    expect(canOpenSection("ADMIN", "templates")).toBe(true);
     expect(canOpenSection("RECEPTIONIST", "templates")).toBe(false);
   });
 

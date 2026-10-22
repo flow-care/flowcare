@@ -3,8 +3,51 @@ import type {
   TranscriptionJobStatus,
 } from "../../generated/prisma/client";
 import { ApiError } from "../../lib/api-error";
-import type { TranscriptionProvider } from "../../services/transcription-provider";
-import type { TranscriptionResponse } from "./model";
+import type { ConsultationAudioStore } from "../../services/consultation-audio-store";
+import type {
+  AnamnesisTopicDefinition,
+  ExtractionProvider,
+} from "../../services/extraction-provider";
+import type {
+  TranscriptionProvider,
+  TranscriptionResult,
+} from "../../services/transcription-provider";
+import type {
+  TranscriptionResponse,
+  TranscriptionStatusResponse,
+} from "./model";
+
+/** Tópicos que a tela de revisão sempre exibe (espelho do front). */
+const CANONICAL_TOPICS: AnamnesisTopicDefinition[] = [
+  {
+    key: "chief_complaint",
+    label: "Queixa principal",
+    description: "Motivo relatado pelo paciente na consulta.",
+  },
+  {
+    key: "hda",
+    label: "História da doença atual (HDA)",
+    description:
+      "Evolução cronológica dos sintomas, início e fatores de piora/melhora.",
+  },
+  {
+    key: "antecedents",
+    label: "Antecedentes pessoais e familiares",
+    description:
+      "Comorbidades, histórico familiar, medicamentos em uso e alergias.",
+  },
+  {
+    key: "physical_exam",
+    label: "Exame físico",
+    description: "Achados objetivos, sinais vitais e avaliação física.",
+  },
+  {
+    key: "conduct",
+    label: "Conduta e hipótese diagnóstica",
+    description:
+      "Conclusão diagnóstica, prescrições, encaminhamentos e plano terapêutico.",
+  },
+];
 
 export class ConsultationTranscriptionService {
   private readonly locks = new Map<string, Promise<void>>();
@@ -12,6 +55,8 @@ export class ConsultationTranscriptionService {
   constructor(
     private readonly prisma: PrismaClient,
     private readonly provider: TranscriptionProvider | null = null,
+    private readonly audioStore: ConsultationAudioStore | null = null,
+    private readonly extractionProvider: ExtractionProvider | null = null,
   ) {}
 
   private async withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
@@ -218,6 +263,46 @@ export class ConsultationTranscriptionService {
     });
   }
 
+  /** Retorna o job de transcrição mais recente da consulta (polling da web). */
+  async status(
+    organizationId: string,
+    consultationId: string,
+  ): Promise<TranscriptionStatusResponse> {
+    const consultation = await this.prisma.consultation.findFirst({
+      where: { id: consultationId, organizationId },
+      select: { id: true },
+    });
+    if (!consultation) {
+      throw new ApiError("NOT_FOUND", 404, "Atendimento não encontrado.");
+    }
+
+    const job = await this.prisma.transcriptionJob.findFirst({
+      where: { organizationId, consultationId },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        status: true,
+        text: true,
+        errorReason: true,
+      },
+    });
+
+    if (!job) {
+      throw new ApiError(
+        "NOT_FOUND",
+        404,
+        "Nenhuma transcrição solicitada para este atendimento.",
+      );
+    }
+
+    return {
+      jobId: job.id,
+      status: job.status,
+      text: job.text ?? null,
+      error: job.errorReason ?? null,
+    };
+  }
+
   async dispatchProvider(
     jobId: string,
     organizationId: string,
@@ -226,6 +311,13 @@ export class ConsultationTranscriptionService {
   ): Promise<void> {
     if (!this.provider) return;
     try {
+      // Provedores externos só recebem o áudio por URL assinada e temporária:
+      // o bucket permanece privado e o Sintesy nunca tem credencial de storage.
+      const sourceUrlExpiresAt = new Date(Date.now() + 60 * 60_000);
+      const sourceUrl = this.audioStore
+        ? await this.audioStore.signedDownloadUrl(audio.objectKey, 3600)
+        : undefined;
+
       const result = await this.provider.transcribe({
         jobId,
         organizationId,
@@ -233,7 +325,17 @@ export class ConsultationTranscriptionService {
         audioId: audio.id,
         objectKey: audio.objectKey,
         contentType: audio.contentType,
+        sourceUrl,
+        sourceUrlExpiresAt: sourceUrlExpiresAt.toISOString(),
       });
+
+      // A extração de tópicos é acessório: se o gateway falhar, o job conclui
+      // com o texto salvo e o profissional revisa/preenche manualmente.
+      const extracted = await this.extractTopics(
+        organizationId,
+        consultationId,
+        result,
+      );
 
       await this.prisma.$transaction(async (tx) => {
         await tx.transcriptionJob.update({
@@ -242,6 +344,8 @@ export class ConsultationTranscriptionService {
             status: "COMPLETED",
             providerJobId: result.providerJobId ?? null,
             durationSeconds: result.durationSeconds ?? 0,
+            text: result.text,
+            ...(extracted ? { topics: extracted } : {}),
             finishedAt: new Date(),
           },
         });
@@ -250,6 +354,10 @@ export class ConsultationTranscriptionService {
           where: { audioId: audio.id },
           data: { status: "COMPLETED" },
         });
+
+        if (extracted && Object.keys(extracted).length > 0) {
+          await this.applyDraft(organizationId, consultationId, extracted);
+        }
       });
     } catch (err: unknown) {
       const message =
@@ -261,7 +369,7 @@ export class ConsultationTranscriptionService {
             where: { id: jobId },
             data: {
               status: "FAILED",
-              errorReason: message,
+              errorReason: message.slice(0, 1000),
               retryCount: { increment: 1 },
               durationSeconds: 0,
               finishedAt: new Date(),
@@ -275,5 +383,131 @@ export class ConsultationTranscriptionService {
         })
         .catch(() => {});
     }
+  }
+
+  /** Catálogo de tópicos: os canônicos da tela + os ativos configurados. */
+  private async resolveTopics(
+    organizationId: string,
+    consultationId: string,
+    professionalId: string,
+  ): Promise<AnamnesisTopicDefinition[]> {
+    const consultation = await this.prisma.consultation.findFirst({
+      where: { id: consultationId, organizationId },
+      select: {
+        anamnesisTopicRevision: { select: { topics: true } },
+        patient: { select: { fullName: true } },
+      },
+    });
+
+    let configured = consultation?.anamnesisTopicRevision?.topics;
+    if (!configured) {
+      const config = await this.prisma.anamnesisTopicConfig.findUnique({
+        where: {
+          organizationId_professionalId: { organizationId, professionalId },
+        },
+        select: {
+          revisions: {
+            orderBy: { version: "desc" },
+            take: 1,
+            select: { topics: true },
+          },
+        },
+      });
+      configured = config?.revisions[0]?.topics;
+    }
+
+    const custom: AnamnesisTopicDefinition[] = Array.isArray(configured)
+      ? configured
+          .filter(
+            (
+              topic,
+            ): topic is { key: string; label: string; active?: boolean } =>
+              Boolean(topic) &&
+              typeof topic === "object" &&
+              typeof (topic as { key?: unknown }).key === "string" &&
+              typeof (topic as { label?: unknown }).label === "string" &&
+              (topic as { active?: unknown }).active !== false,
+          )
+          .map((topic) => ({ key: topic.key, label: topic.label }))
+      : [];
+
+    const seen = new Set(CANONICAL_TOPICS.map((topic) => topic.key));
+    return [
+      ...CANONICAL_TOPICS,
+      ...custom.filter((topic) => !seen.has(topic.key)),
+    ];
+  }
+
+  private async extractTopics(
+    organizationId: string,
+    consultationId: string,
+    result: TranscriptionResult,
+  ): Promise<Record<string, string> | null> {
+    if (!this.extractionProvider) return null;
+    try {
+      const consultation = await this.prisma.consultation.findFirst({
+        where: { id: consultationId, organizationId },
+        select: {
+          professionalId: true,
+          anamnesisStatus: true,
+          patient: { select: { fullName: true } },
+        },
+      });
+      // Nunca sobrescreve anamnese já aprovada nem rascunho editado à mão.
+      if (!consultation || consultation.anamnesisStatus !== "PENDING") {
+        return null;
+      }
+
+      const topics = await this.resolveTopics(
+        organizationId,
+        consultationId,
+        consultation.professionalId,
+      );
+      return await this.extractionProvider.extractTopics({
+        transcript: result.text,
+        topics,
+        patientName: consultation.patient?.fullName ?? null,
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  /** Escreve os tópicos no rascunho, preservando o que já existia. */
+  private async applyDraft(
+    organizationId: string,
+    consultationId: string,
+    extracted: Record<string, string>,
+  ): Promise<void> {
+    const consultation = await this.prisma.consultation.findFirst({
+      where: { id: consultationId, organizationId },
+      select: { anamnesisDraft: true },
+    });
+    if (!consultation) return;
+
+    const existingDraft =
+      consultation.anamnesisDraft &&
+      typeof consultation.anamnesisDraft === "object" &&
+      !Array.isArray(consultation.anamnesisDraft)
+        ? (consultation.anamnesisDraft as Record<string, unknown>)
+        : {};
+    const existingTopics =
+      existingDraft.topics &&
+      typeof existingDraft.topics === "object" &&
+      !Array.isArray(existingDraft.topics)
+        ? (existingDraft.topics as Record<string, unknown>)
+        : {};
+
+    await this.prisma.consultation.update({
+      where: { id: consultationId },
+      data: {
+        anamnesisDraft: {
+          ...existingDraft,
+          topics: { ...existingTopics, ...extracted },
+        } as unknown as Record<string, string>,
+        anamnesisStatus: "DRAFT",
+        draftSavedAt: new Date(),
+      },
+    });
   }
 }

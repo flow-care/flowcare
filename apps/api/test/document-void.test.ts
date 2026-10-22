@@ -84,7 +84,7 @@ interface StoredAuditLog {
 function createFixture() {
   let role: MembershipRole = "PROFESSIONAL";
   let membershipStatus: MembershipStatus = "ACTIVE";
-  let allowedOrgSlugs = new Set<string>(["clinica-a"]);
+  const allowedOrgSlugs = new Set<string>(["clinica-a"]);
   let sessionActive = true;
 
   const users = [

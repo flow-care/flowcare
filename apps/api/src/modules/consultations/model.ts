@@ -225,6 +225,14 @@ export const transcriptionResponse = t.Object({
   status: transcriptionJobStatus,
 });
 
+/** Status do job com o texto quando concluído (usado pelo polling da web). */
+export const transcriptionStatusResponse = t.Object({
+  jobId: t.String(),
+  status: transcriptionJobStatus,
+  text: t.Optional(t.Nullable(t.String())),
+  error: t.Optional(t.Nullable(t.String())),
+});
+
 export type OrgSlugParams = typeof orgSlugParams.static;
 export type ConsultationIdParams = typeof consultationIdParams.static;
 export type ConsultationStatus = typeof consultationStatus.static;
@@ -245,6 +253,8 @@ export type PrepareAudioBody = typeof prepareAudioBody.static;
 export type IdempotencyHeaders = typeof idempotencyHeaders.static;
 export type TranscriptionJobStatus = typeof transcriptionJobStatus.static;
 export type TranscriptionResponse = typeof transcriptionResponse.static;
+export type TranscriptionStatusResponse =
+  typeof transcriptionStatusResponse.static;
 export type AnamnesisTopicsInput = typeof anamnesisTopicsInput.static;
 export type SaveConsultationDraftBody = typeof saveConsultationDraftBody.static;
 export type ApproveConsultationBody = typeof approveConsultationBody.static;

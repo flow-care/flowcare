@@ -28,6 +28,7 @@ import { storageModule } from "./modules/storage";
 import { teamModule } from "./modules/team";
 import { templatesModule } from "./modules/templates";
 import { createSesWebhook } from "./modules/webhooks/ses";
+import { createSintesyWebhook } from "./modules/webhooks/sintesy";
 import { requestLogger } from "./plugins/request-logger";
 import {
   type ConsultationAudioStore,
@@ -37,6 +38,7 @@ import {
   createDocumentPdfService,
   type DocumentPdfService,
 } from "./services/document-pdf";
+import type { ExtractionProvider } from "./services/extraction-provider";
 import type { Mailer } from "./services/mailer";
 import {
   createProfilePhotoStore,
@@ -64,6 +66,7 @@ export interface AppDeps {
   attachmentStore?: ProfilePhotoStore | null;
   consultationAudioStore?: ConsultationAudioStore | null;
   transcriptionProvider?: TranscriptionProvider | null;
+  extractionProvider?: ExtractionProvider | null;
   whatsappProvider?: WhatsAppProvider;
   documentPdfService?: DocumentPdfService | null;
 }
@@ -135,6 +138,7 @@ export function createApp(env: Env, deps: AppDeps) {
   const app = new Elysia({ prefix: "/api" })
     .use(requestLogger)
     .use(createSesWebhook(env.snsTopicArn ?? null))
+    .use(createSintesyWebhook(env.sintesyWebhookSecret ?? null))
     .use(
       cors({
         origin: env.corsOrigin.split(",").map((o) => o.trim()),
@@ -305,6 +309,7 @@ export function createApp(env: Env, deps: AppDeps) {
         jwtSecret: env.jwtSecret,
         audioStore: consultationAudioStore,
         transcriptionProvider: deps.transcriptionProvider,
+        extractionProvider: deps.extractionProvider,
       }),
     )
     .use(auditModule({ prisma: deps.prisma, jwtSecret: env.jwtSecret }));

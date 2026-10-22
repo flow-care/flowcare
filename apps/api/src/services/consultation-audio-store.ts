@@ -17,6 +17,8 @@ export interface ConsultationAudioStore {
     contentType: string,
     sizeBytes: number,
   ): Promise<string>;
+  /** URL temporária de leitura: o provedor externo baixa o áudio por ela. */
+  signedDownloadUrl(key: string, expiresInSeconds: number): Promise<string>;
 }
 
 export function createConsultationAudioStore(
@@ -87,6 +89,15 @@ export function createConsultationAudioStore(
         {
           expiresIn: 600,
           signableHeaders: new Set(["content-type", "content-length"]),
+        },
+      );
+    },
+    signedDownloadUrl(key, expiresInSeconds) {
+      return getSignedUrl(
+        client,
+        new GetObjectCommand({ Bucket: bucket, Key: key }),
+        {
+          expiresIn: expiresInSeconds,
         },
       );
     },

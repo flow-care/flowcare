@@ -117,7 +117,7 @@ export function AppSidebar({
               current={current}
               organizations={organizations}
               onNavigate={() => setOpenMobile(false)}
-              onNewClinic={() => setSheet("new")}
+              onNewClinic={() => setSheet("new-clinic")}
             />
           </SidebarMenuItem>
         </SidebarMenu>

@@ -848,6 +848,10 @@ model TranscriptionJob {
   errorReason    String?
   retryCount     Int                    @default(0)
   durationSeconds Int                   @default(0)
+  /** Texto retornado pelo provedor (transcrição integral do áudio). */
+  text           String?
+  /** Tópicos extraídos da transcrição e aplicados ao rascunho da anamnese. */
+  topics         Json?
   finishedAt     DateTime?
   provider       String?
   providerJobId  String?

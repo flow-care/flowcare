@@ -46,9 +46,14 @@ export type OrganizationCapability =
 export type Role = MembershipRole;
 
 export const capabilities: Record<Role, ReadonlySet<OrganizationCapability>> = {
+  // O dono/criador da clínica e qualquer administrador controlam a clínica
+  // inteira, incluindo prontuário, documentos e modelos: ADMIN acumula as
+  // capacidades administrativas e clínicas. O papel ADMIN_PROFESSIONAL
+  // permanece para quem foi convidado explicitamente como profissional.
   ADMIN: new Set([
     ...capacityGroups.common,
     ...capacityGroups.administration,
+    ...capacityGroups.clinical,
     ...capacityGroups.logistics,
   ]),
   ADMIN_PROFESSIONAL: new Set(Object.values(capacityGroups).flat()),

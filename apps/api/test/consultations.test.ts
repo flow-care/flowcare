@@ -557,7 +557,7 @@ describe("consultations module (#262)", () => {
     });
   });
 
-  test("enforces RBAC: RECEPTIONIST and non-clinical ADMIN receive 403 PERMISSION_DENIED while PROFESSIONAL and ADMIN_PROFESSIONAL succeed", async () => {
+  test("enforces RBAC: RECEPTIONIST receives 403 PERMISSION_DENIED while ADMIN, PROFESSIONAL and ADMIN_PROFESSIONAL succeed", async () => {
     const f = createFixture();
 
     // Unauthenticated -> 401 UNAUTHENTICATED
@@ -583,8 +583,8 @@ describe("consultations module (#262)", () => {
     });
     f.setMembershipStatus("ACTIVE");
 
-    // RECEPTIONIST and ADMIN -> 403 PERMISSION_DENIED
-    for (const deniedRole of ["RECEPTIONIST", "ADMIN"] as const) {
+    // RECEPTIONIST -> 403 PERMISSION_DENIED
+    for (const deniedRole of ["RECEPTIONIST"] as const) {
       f.setRole(deniedRole);
       const denied = await f.get("/organizations/clinica-a/consultations");
       expect(denied.status).toBe(403);
@@ -596,8 +596,12 @@ describe("consultations module (#262)", () => {
       });
     }
 
-    // PROFESSIONAL and ADMIN_PROFESSIONAL -> 200 OK
-    for (const allowedRole of ["PROFESSIONAL", "ADMIN_PROFESSIONAL"] as const) {
+    // ADMIN, PROFESSIONAL and ADMIN_PROFESSIONAL -> 200 OK
+    for (const allowedRole of [
+      "ADMIN",
+      "PROFESSIONAL",
+      "ADMIN_PROFESSIONAL",
+    ] as const) {
       f.setRole(allowedRole);
       const allowed = await f.get("/organizations/clinica-a/consultations");
       expect(allowed.status).toBe(200);

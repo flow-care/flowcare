@@ -96,14 +96,25 @@ function fixture() {
 
 describe("organization access", () => {
   test("matches the fixed MVP capacity matrix", () => {
-    for (const role of ["ADMIN", "RECEPTIONIST"] as const) {
-      expect(hasOrganizationCapability(role, "patients:read_history")).toBe(
-        false,
-      );
-      expect(hasOrganizationCapability(role, "patients:attachments:read")).toBe(
-        false,
-      );
-      expect(hasOrganizationCapability(role, "consultations:read")).toBe(false);
+    // Decisão de 22/10/2026: ADMIN acumula administração e conteúdo clínico,
+    // porque é o papel do criador/dono da clínica.
+    for (const capability of [
+      "patients:read_history",
+      "patients:attachments:read",
+      "consultations:read",
+      "consultations:write",
+      "consultations:approve",
+      "documents:read",
+      "templates:read",
+    ] as const) {
+      expect(hasOrganizationCapability("ADMIN", capability)).toBe(true);
+    }
+    for (const capability of [
+      "patients:read_history",
+      "patients:attachments:read",
+      "consultations:read",
+    ] as const) {
+      expect(hasOrganizationCapability("RECEPTIONIST", capability)).toBe(false);
     }
     expect(hasOrganizationCapability("PROFESSIONAL", "team:manage")).toBe(
       false,
