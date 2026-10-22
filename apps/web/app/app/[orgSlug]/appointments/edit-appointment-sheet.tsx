@@ -46,6 +46,11 @@ import {
 } from "@/lib/appointments";
 import { maskCpf } from "@/lib/patient-formatters";
 import { formatPhoneWithAreaCode } from "@/lib/phone";
+import {
+  isServerActionMissingError,
+  recoverFromStaleBuild,
+  STALE_BUILD_MESSAGE,
+} from "@/lib/stale-build";
 import type {
   AppointmentDetails,
   AppointmentItem,
@@ -410,6 +415,12 @@ export function EditAppointmentSheet({
       onClose();
       onSuccess?.(date, appointmentId);
     } catch (err) {
+      if (isServerActionMissingError(err)) {
+        setGeneralError(STALE_BUILD_MESSAGE);
+        recoverFromStaleBuild();
+        return;
+      }
+
       const error = err as { code?: string; message?: string };
       if (
         error?.code === "VERSION_CONFLICT" ||

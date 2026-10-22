@@ -36,6 +36,11 @@ import {
   zonedDateTimeToUtc,
 } from "@/lib/appointments";
 import { maskCpf } from "@/lib/patient-formatters";
+import {
+  isServerActionMissingError,
+  recoverFromStaleBuild,
+  STALE_BUILD_MESSAGE,
+} from "@/lib/stale-build";
 import type {
   PatientSearchResultItem,
   ProfessionalItem,
@@ -177,6 +182,12 @@ export function NewAppointmentSheet({
       onClose();
       onSuccess?.();
     } catch (err) {
+      if (isServerActionMissingError(err)) {
+        setGeneralError(STALE_BUILD_MESSAGE);
+        recoverFromStaleBuild();
+        return;
+      }
+
       const error = err as { code?: string; message?: string };
       if (error?.code === "SLOT_CONFLICT") {
         setConflictWarning(
