@@ -46,6 +46,18 @@ O WAHA não oferece no contrato usado pelo projeto uma chave idempotente para `s
 
 O mecanismo admite falhas temporárias somente quando uma integração puder comprovar que a tentativa não chegou ao provedor; nesses casos, tenta novamente até três vezes no total, com espera de 1 e 5 minutos. Nenhuma resposta HTTP atual de `sendText` é classificada dessa forma sem garantia documentada. Falhas definitivas, número inválido, falta de opt-in, resultado incerto ou mensagem já aceita pelo provedor não entram em retry automático. Após esgotar as tentativas, `FAILED` fica visível à equipe. O reenvio manual seguro pertence à #297 e ainda não está implementado; `UNCERTAIN`, `SENT`, `DELIVERED` e `READ` não podem ser reenviadas. Desconexão do WAHA deixa itens na fila, sem bloquear agendamentos.
 
+## Interface web (#299–#301)
+
+Rota única `/app/:orgSlug/whatsapp`, com abas por query string:
+
+| Aba | URL | Quem acessa | API usada |
+|---|---|---|---|
+| Conexão | `/whatsapp` (ou `?tab=connection`) | `ADMIN`, `ADMIN_PROFESSIONAL` (`settings:write`) | `GET …/whatsapp/status` (polling), `POST …/whatsapp/reconnect` |
+| Mensagens | `?tab=messages&status=&period=&cursor=` | `ADMIN`, `ADMIN_PROFESSIONAL`, `RECEPTIONIST` | `GET …/messages`, `POST …/messages/:id/resend` |
+| Textos das mensagens | `?tab=settings` | `ADMIN`, `ADMIN_PROFESSIONAL` | `GET/PUT …/whatsapp/templates[/:type]` |
+
+Outros papéis veem o aviso 403 na aba restrita; o recepcionista abre direto em Mensagens. O navegador nunca chama a API diretamente: status e QR passam por route handlers do Next (`/api/organizations/:orgSlug/whatsapp/{status,qr}`) com `Cache-Control: no-store`; o QR fica só em memória do componente, expira no cronômetro e nunca é registrado em log. O reenvio gera uma `Idempotency-Key` por mensagem e trava cliques repetidos. Os textos padrão de “Restaurar padrão” vivem no frontend (`apps/web/lib/whatsapp.ts`), pois a API não cria textos implícitos; restaurar apenas preenche o editor e o texto só vale após “Salvar e ativar”. A desconexão voluntária ainda não existe na API: o painel orienta remover o aparelho pelo WhatsApp do celular.
+
 ## Execução
 
 Conexão #295; registro, fila e webhook #296; reenvio #297; templates #298; interface #299–#301; QA #302. A revisão jurídica da preferência de canal e o procedimento de operação do WAHA devem ser concluídos antes de ativar disparos reais para pacientes.
