@@ -48,6 +48,24 @@ const app = createApp(env, {
   transcriptionProvider,
   extractionProvider,
 }).listen(env.port);
+console.log(
+  JSON.stringify({
+    ts: new Date().toISOString(),
+    level: "info",
+    msg: "transcription-config",
+    sintesyMode: env.sintesyMode ?? "mock",
+    transcriptionProvider:
+      transcriptionProvider instanceof SintesyTranscriptionProvider
+        ? "sintesy-b2b"
+        : "mock",
+    extractionProvider:
+      extractionProvider instanceof GorouterExtractionProvider
+        ? `gorouter:${env.gorouterModel}`
+        : "disabled",
+    webhookSignature:
+      (env.sintesyWebhookSecret ?? null) === null ? "disabled" : "enabled",
+  }),
+);
 const queueWorker = new WhatsAppQueueWorker(prisma, whatsappProvider);
 let processing = false;
 if (env.whatsappSendEnabled)

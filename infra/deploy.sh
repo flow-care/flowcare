@@ -99,7 +99,19 @@ if compgen -G "apps/api/prisma/migrations/*" > /dev/null; then
     fi
     sleep 5
   done
-  if ! docker exec "$API_MIGRATION_CID" bun run db:deploy; then
+  # `prisma migrate deploy` é idempotente e o P1001 ("can't reach database")
+  # acontece de forma transitória quando o Postgres acabou de ser atualizado
+  # pela própria stack: o DNS do serviço troca de IP durante o rollout.
+  migrate_ok=0
+  for attempt in $(seq 1 12); do
+    if docker exec "$API_MIGRATION_CID" bun run db:deploy; then
+      migrate_ok=1
+      break
+    fi
+    echo "migration tentativa $attempt falhou; Postgres ainda propagando, nova tentativa em 5s" >&2
+    sleep 5
+  done
+  if [ "$migrate_ok" != 1 ]; then
     echo "FALHA: migration não concluiu após PostgreSQL ficar pronto" >&2
     exit 1
   fi
