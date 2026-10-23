@@ -91,7 +91,8 @@ export const consultationIdParams = t.Object({
 });
 
 export const startConsultationBody = t.Object({
-  patientId: uuid,
+  /** Opcional quando `appointmentId` é informado: a clínica resolve o paciente. */
+  patientId: t.Optional(uuid),
   appointmentId: t.Optional(uuid),
   scheduledAt: t.Optional(t.String()),
   notes: t.Optional(t.String({ maxLength: 5000 })),

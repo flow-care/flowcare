@@ -427,36 +427,7 @@ export class ConsultationsService {
     const timeZone = await this.resolveTimeZone(organizationId);
 
     const runInTransaction = async (tx: PrismaClient) => {
-      // 1. Patient must belong to active clinic
-      const patient = await tx.patient.findFirst({
-        where: { id: body.patientId, organizationId },
-        select: { id: true, fullName: true },
-      });
-      if (!patient) {
-        throw new ApiError("NOT_FOUND", 404, "Paciente não encontrado.");
-      }
-
-      // 2. Professional is the caller, or if specified, must be an active clinical professional of the clinic
-      const professionalId = body.professionalId ?? callerUserId;
-      if (body.professionalId && body.professionalId !== callerUserId) {
-        const profMembership = await tx.membership.findFirst({
-          where: {
-            userId: professionalId,
-            organizationId,
-            status: "ACTIVE",
-            role: { in: CLINICAL_ROLES },
-          },
-        });
-        if (!profMembership) {
-          throw new ApiError(
-            "NOT_FOUND",
-            404,
-            "Profissional não encontrado ou sem habilitação clínica ativa nesta organização.",
-          );
-        }
-      }
-
-      // 3. Appointment validations if provided
+      // 1. Appointment validations if provided
       let appointment: {
         id: string;
         organizationId: string;
@@ -484,7 +455,7 @@ export class ConsultationsService {
           throw new ApiError("NOT_FOUND", 404, "Agendamento não encontrado.");
         }
 
-        if (appointment.patientId !== body.patientId) {
+        if (body.patientId && appointment.patientId !== body.patientId) {
           throw new ApiError(
             "VALIDATION_ERROR",
             400,
@@ -514,6 +485,47 @@ export class ConsultationsService {
             created: false,
             consultation: this.formatConsultationDetail(existing, timeZone),
           };
+        }
+      }
+
+      // 2. Patient: o informado, ou o do agendamento.
+      const patientId = body.patientId ?? appointment?.patientId ?? null;
+      if (!patientId) {
+        throw new ApiError(
+          "VALIDATION_ERROR",
+          400,
+          "Informe o paciente ou o agendamento para iniciar o atendimento.",
+          { field: "patientId" },
+        );
+      }
+
+      const patientExists = await tx.patient.findFirst({
+        where: { id: patientId, organizationId },
+        select: { id: true },
+      });
+      if (!patientExists) {
+        throw new ApiError("NOT_FOUND", 404, "Paciente não encontrado.");
+      }
+
+      // 3. Professional: o informado, o do agendamento, ou quem está atendendo.
+      // Só valida quando é outra pessoa — quem atende já tem vínculo ativo.
+      const professionalId =
+        body.professionalId ?? appointment?.professionalId ?? callerUserId;
+      if (professionalId !== callerUserId) {
+        const profMembership = await tx.membership.findFirst({
+          where: {
+            userId: professionalId,
+            organizationId,
+            status: "ACTIVE",
+            role: { in: CLINICAL_ROLES },
+          },
+        });
+        if (!profMembership) {
+          throw new ApiError(
+            "NOT_FOUND",
+            404,
+            "Profissional não encontrado ou sem habilitação clínica ativa nesta organização.",
+          );
         }
       }
 
@@ -580,7 +592,7 @@ export class ConsultationsService {
           data: {
             organizationId,
             appointmentId: body.appointmentId ?? null,
-            patientId: body.patientId,
+            patientId,
             professionalId,
             scheduledAt,
             startedAt,
@@ -644,7 +656,7 @@ export class ConsultationsService {
           targetType: "CONSULTATION",
           targetId: createdConsultation.id,
           metadata: {
-            patientId: body.patientId,
+            patientId,
             professionalId,
             appointmentId: body.appointmentId ?? null,
             ...(body.notes ? { notes: body.notes } : {}),

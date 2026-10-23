@@ -6,7 +6,10 @@ import {
   createInviteSchema,
   type InviteMembershipRole,
 } from "@/lib/team-invites";
-import { updateMemberRoleSchema } from "@/lib/team-members";
+import {
+  updateMemberPermissionsSchema,
+  updateMemberRoleSchema,
+} from "@/lib/team-members";
 import {
   createInvite,
   type RemoveMemberResponse,
@@ -16,6 +19,7 @@ import {
   revokeInvite,
   TeamApiError,
   type UpdateMemberRoleResponse,
+  updateMemberPermissions,
   updateMemberRole,
 } from "@/server/team";
 
@@ -195,6 +199,61 @@ export async function revokeInviteAction(
           error instanceof Error
             ? error.message
             : "Não foi possível revogar o convite.",
+      },
+    };
+  }
+}
+
+export async function updateMemberPermissionsAction(
+  orgSlug: string,
+  memberId: string,
+  payload: {
+    permissions?: string[];
+    preset?: "ADMIN" | "PROFESSIONAL" | "RECEPTIONIST";
+    version: number;
+  },
+): Promise<ActionResult<UpdateMemberRoleResponse>> {
+  if (!orgSlug?.trim() || !memberId?.trim()) {
+    return {
+      ok: false,
+      error: {
+        code: "VALIDATION_ERROR",
+        message: "Identificador da clínica ou do colaborador inválido.",
+      },
+    };
+  }
+
+  const parsed = updateMemberPermissionsSchema.safeParse(payload);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: {
+        code: "VALIDATION_ERROR",
+        message: parsed.error.issues[0]?.message || "Permissões inválidas.",
+      },
+    };
+  }
+
+  try {
+    const result = await updateMemberPermissions(
+      orgSlug,
+      memberId,
+      parsed.data,
+    );
+    revalidatePath(`/app/${orgSlug}/settings/team`);
+    return { ok: true, data: result };
+  } catch (error) {
+    if (error instanceof TeamApiError) {
+      return {
+        ok: false,
+        error: { code: error.code, message: error.message },
+      };
+    }
+    return {
+      ok: false,
+      error: {
+        code: "UNKNOWN",
+        message: "Não foi possível salvar as permissões. Tente novamente.",
       },
     };
   }

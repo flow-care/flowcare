@@ -5,6 +5,7 @@ import {
   ArrowLeftIcon,
   CalendarClockIcon,
   CalendarPlusIcon,
+  Loader2Icon,
   LockIcon,
   MailIcon,
   PencilIcon,
@@ -16,6 +17,7 @@ import {
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { PatientAttachmentsView } from "@/components/flowcare/patients/patient-attachments-view";
 import { PatientRecordsTimeline } from "@/components/flowcare/patients/patient-records-timeline";
 import { Badge } from "@/components/ui/badge";
@@ -38,6 +40,7 @@ import type {
   PatientOverviewData,
   PatientTimelineResult,
 } from "@/server/patients";
+import { startConsultationAction } from "../../consultations/actions";
 import { EditPatientSheet } from "./edit-patient-sheet";
 
 const VALID_TABS = ["overview", "records", "attachments"] as const;
@@ -67,6 +70,26 @@ export function PatientProfileView({
   const searchParams = useSearchParams();
 
   const isClinical = isClinicalRole(userRole) && !overview.isRestricted;
+  const [isStartingConsultation, setIsStartingConsultation] = useState(false);
+
+  const handleStartConsultation = async () => {
+    if (isStartingConsultation) return;
+    setIsStartingConsultation(true);
+    try {
+      const result = await startConsultationAction(orgSlug, {
+        patientId: overview.patient.id,
+      });
+      if (!result.success || !result.consultationId) {
+        toast.error(result.error ?? "Não foi possível iniciar o atendimento.");
+        return;
+      }
+      router.push(
+        `/app/${orgSlug}/consultations/${result.consultationId}?tab=anamnesis`,
+      );
+    } finally {
+      setIsStartingConsultation(false);
+    }
+  };
 
   const validInitialTab: TabKey = VALID_TABS.includes(initialTab as TabKey)
     ? (initialTab as TabKey)
@@ -253,14 +276,23 @@ export function PatientProfileView({
                 Agendar consulta
               </Link>
             </Button>
-            <Button asChild variant="outline">
-              <Link
-                href={`/app/${orgSlug}/consultations?newPatientId=${overview.patient.id}`}
+            {isClinical && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleStartConsultation}
+                disabled={isStartingConsultation}
               >
-                <StethoscopeIcon className="mr-2 size-4" />
-                Novo atendimento
-              </Link>
-            </Button>
+                {isStartingConsultation ? (
+                  <Loader2Icon className="mr-2 size-4 animate-spin" />
+                ) : (
+                  <StethoscopeIcon className="mr-2 size-4" />
+                )}
+                {isStartingConsultation
+                  ? "Abrindo atendimento..."
+                  : "Novo atendimento"}
+              </Button>
+            )}
           </div>
         </div>
       </section>
@@ -311,18 +343,65 @@ export function PatientProfileView({
               </CardHeader>
               <CardContent className="space-y-4">
                 {!isClinical ? (
-                  <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/40 p-3.5 text-sm text-muted-foreground">
-                    <LockIcon className="size-4 shrink-0 mt-0.5" />
-                    <div>
-                      <p className="font-medium text-foreground">
-                        Acesso clínico confidencial restrito
-                      </p>
-                      <p className="mt-0.5 text-xs">
-                        Alergias a medicamentos, comorbidades e anotações
-                        médicas são acessíveis exclusivamente para profissionais
-                        de saúde autorizados.
-                      </p>
+                  <div className="space-y-3">
+                    <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/40 p-3.5 text-sm text-muted-foreground">
+                      <LockIcon className="size-4 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-medium text-foreground">
+                          Acesso clínico confidencial restrito
+                        </p>
+                        <p className="mt-0.5 text-xs">
+                          Alergias, comorbidades e anotações médicas ficam
+                          disponíveis apenas para profissionais de saúde
+                          autorizados.
+                        </p>
+                      </div>
                     </div>
+
+                    {overview.historySummary ? (
+                      <div
+                        className="rounded-lg border border-border p-3.5 text-sm"
+                        data-testid="patient-history-summary"
+                      >
+                        <p className="font-medium text-foreground">
+                          Histórico do paciente
+                        </p>
+                        <dl className="mt-2 grid gap-1.5 text-xs text-muted-foreground sm:grid-cols-3">
+                          <div>
+                            <dt className="sr-only">Atendimentos</dt>
+                            <dd>
+                              <span className="font-semibold text-foreground">
+                                {overview.historySummary.totalVisits}
+                              </span>{" "}
+                              {overview.historySummary.totalVisits === 1
+                                ? "atendimento"
+                                : "atendimentos"}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt className="sr-only">Último atendimento</dt>
+                            <dd>
+                              {overview.historySummary.lastVisitAt
+                                ? `Último em ${new Date(
+                                    overview.historySummary.lastVisitAt,
+                                  ).toLocaleDateString("pt-BR")}`
+                                : "Nenhum atendimento registrado"}
+                              {overview.historySummary.lastProfessionalName
+                                ? ` · ${overview.historySummary.lastProfessionalName}`
+                                : ""}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt className="sr-only">Próximos agendamentos</dt>
+                            <dd>
+                              {overview.historySummary.upcomingCount
+                                ? `${overview.historySummary.upcomingCount} agendamento(s) futuro(s)`
+                                : "Sem agendamentos futuros"}
+                            </dd>
+                          </div>
+                        </dl>
+                      </div>
+                    ) : null}
                   </div>
                 ) : (
                   <>

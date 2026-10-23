@@ -21,7 +21,12 @@ export default async function ModulePage({
   const current = organizations?.find(
     (organization) => organization.slug === orgSlug,
   );
-  if (!section || !current || !canOpenSection(current.role, module)) notFound();
+  if (
+    !section ||
+    !current ||
+    !canOpenSection(current.role, module, current.permissions)
+  )
+    notFound();
 
   return <ModulePlaceholder title={section.label} />;
 }

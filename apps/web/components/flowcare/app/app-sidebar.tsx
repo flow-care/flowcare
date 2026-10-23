@@ -59,7 +59,6 @@ const settingsIcons: Record<SettingsSection, typeof Settings> = {
   organization: Building2,
   hours: Clock3,
   team: Users,
-  roles: ShieldCheck,
   anamnesis: Stethoscope,
   usage: ChartNoAxesCombined,
   audit: ScrollText,
@@ -80,7 +79,7 @@ export function AppSidebar({
   const basePath = `/app/${encodeURIComponent(current.slug)}`;
   const settingsPath = `${basePath}/settings`;
   const inSettings =
-    canOpenSection(current.role, "settings") &&
+    canOpenSection(current.role, "settings", current.permissions) &&
     (pathname === settingsPath || pathname.startsWith(`${settingsPath}/`));
 
   return (
@@ -176,7 +175,11 @@ export function AppSidebar({
                   .filter(
                     (section) =>
                       section.segment !== "settings" &&
-                      canOpenSection(current.role, section.segment),
+                      canOpenSection(
+                        current.role,
+                        section.segment,
+                        current.permissions,
+                      ),
                   )
                   .map((section) => {
                     const href = `${basePath}/${section.segment}`;
@@ -209,7 +212,7 @@ export function AppSidebar({
           <ProfileMenu
             user={user}
             settingsHref={
-              canOpenSection(current.role, "settings")
+              canOpenSection(current.role, "settings", current.permissions)
                 ? `${settingsPath}/organization`
                 : undefined
             }

@@ -2,12 +2,12 @@ import { expect, test } from "bun:test";
 import { createApp } from "../src/app";
 import type { Env } from "../src/config/env";
 import type { PrismaClient } from "../src/generated/prisma/client";
-import { organizationsModule } from "../src/modules/organizations";
-import { OrganizationsService } from "../src/modules/organizations/service";
 import {
   materializePermissions,
   PRESET_PERMISSIONS,
 } from "../src/lib/permissions";
+import { organizationsModule } from "../src/modules/organizations";
+import { OrganizationsService } from "../src/modules/organizations/service";
 import { signSessionToken } from "../src/services/session-token";
 
 const memberships = [

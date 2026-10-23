@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getAvailableOrganizations } from "@/server/organizations";
 import {
+  getPermissionCatalog,
   getTeamMembersAndInvites,
+  type PermissionCatalog,
   TeamApiError,
   type TeamData,
 } from "@/server/team";
@@ -39,11 +41,15 @@ export default async function TeamSettingsPage({
   }
 
   let teamData: TeamData | null = null;
+  let catalog: PermissionCatalog | null = null;
   let hasError = false;
   let errorMessage: string | null = null;
 
   try {
-    teamData = await getTeamMembersAndInvites(orgSlug);
+    [teamData, catalog] = await Promise.all([
+      getTeamMembersAndInvites(orgSlug),
+      getPermissionCatalog(orgSlug),
+    ]);
   } catch (err) {
     hasError = true;
     if (err instanceof TeamApiError && err.code === "FORBIDDEN") {
@@ -63,6 +69,8 @@ export default async function TeamSettingsPage({
     <TeamSettingsView
       orgSlug={orgSlug}
       initialMembers={teamData.members}
+      permissionCatalog={catalog}
+      isSoloClinic={teamData.isSoloClinic}
       initialInvites={teamData.invites}
       initialSheet={resolvedSearchParams?.sheet}
       initialMemberId={resolvedSearchParams?.memberId}

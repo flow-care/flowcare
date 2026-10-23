@@ -65,6 +65,8 @@ export interface GetAppointmentsQuery {
   startDate: string;
   endDate: string;
   professionalId?: string;
+  /** "Somente meu": a API resolve pelo usuário da sessão. */
+  mine?: boolean;
 }
 
 export type AppointmentsResult = AppointmentItem[] & {
@@ -135,6 +137,9 @@ export async function getAppointments(
     startDate: query.startDate,
     endDate: query.endDate,
   });
+  if (query.mine) {
+    searchParams.set("mine", "true");
+  }
   if (query.professionalId) {
     searchParams.set("professionalId", query.professionalId);
   }

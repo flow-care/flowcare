@@ -430,6 +430,51 @@ function createFixture() {
   };
 }
 
+describe("Clinical Consultation Start from the agenda", () => {
+  test("starts with only the appointment and resolves the patient", async () => {
+    const f = createFixture();
+
+    const res = await f.post("/organizations/clinica-a/consultations", {
+      appointmentId: appointment1ClinicAId,
+    });
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as ConsultationDetailResponse;
+    expect(body.patientId).toBe(patient1ClinicAId);
+    expect(body.appointmentId).toBe(appointment1ClinicAId);
+    expect(body.professionalId).toBe(profAId);
+    expect(body.status).toBe("IN_PROGRESS");
+  });
+
+  test("reopening the same appointment returns the existing consultation", async () => {
+    const f = createFixture();
+
+    const first = await f.post("/organizations/clinica-a/consultations", {
+      appointmentId: appointment1ClinicAId,
+    });
+    expect(first.status).toBe(201);
+    const firstBody = (await first.json()) as ConsultationDetailResponse;
+
+    const second = await f.post("/organizations/clinica-a/consultations", {
+      appointmentId: appointment1ClinicAId,
+    });
+    expect(second.status).toBe(200);
+    const secondBody = (await second.json()) as ConsultationDetailResponse;
+    expect(secondBody.id).toBe(firstBody.id);
+    expect(
+      f.consultations.filter((c) => c.appointmentId === appointment1ClinicAId),
+    ).toHaveLength(1);
+  });
+
+  test("rejects a start without patient or appointment", async () => {
+    const f = createFixture();
+
+    const res = await f.post("/organizations/clinica-a/consultations", {});
+
+    expect(res.status).toBe(400);
+  });
+});
+
 describe("Clinical Consultation Start (Issue #263)", () => {
   test("starts consultation linked to patient and appointment in same clinic with 201 Created", async () => {
     const f = createFixture();

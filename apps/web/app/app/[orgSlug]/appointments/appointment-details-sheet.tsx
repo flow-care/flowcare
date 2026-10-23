@@ -16,7 +16,6 @@ import {
   UserCheckIcon,
   UserIcon,
 } from "lucide-react";
-import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -65,6 +64,7 @@ import type {
   AppointmentDetails,
   AppointmentItem,
 } from "@/server/appointments";
+import { startConsultationAction } from "../consultations/actions";
 import {
   cancelAppointmentAction,
   updateReceptionQueueStatusAction,
@@ -94,6 +94,33 @@ export function AppointmentDetailsSheet({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+
+  const [isStartingConsultation, setIsStartingConsultation] = useState(false);
+
+  const handleStartConsultation = async () => {
+    if (!details?.id || isStartingConsultation) return;
+    setIsStartingConsultation(true);
+    try {
+      const result = await startConsultationAction(orgSlug, {
+        appointmentId: details.id,
+      });
+      if (!result.success || !result.consultationId) {
+        toast.error(result.error ?? "Não foi possível iniciar o atendimento.");
+        return;
+      }
+      if (result.created === false) {
+        toast.info(
+          "Este atendimento já estava aberto. Continuando de onde parou.",
+        );
+      }
+      onClose();
+      router.push(
+        `/app/${orgSlug}/consultations/${result.consultationId}?tab=anamnesis`,
+      );
+    } finally {
+      setIsStartingConsultation(false);
+    }
+  };
 
   const handleOpenEdit = () => {
     if (!details?.id) return;
@@ -650,15 +677,19 @@ export function AppointmentDetailsSheet({
             {/* Iniciar atendimento: only clinical roles */}
             {canStart && (
               <Button
-                asChild
+                type="button"
+                onClick={handleStartConsultation}
+                disabled={isStartingConsultation}
                 className="w-full bg-primary text-primary-foreground hover:bg-primary/90 font-medium"
               >
-                <Link
-                  href={`/app/${orgSlug}/consultations?startAppointmentId=${details.id}`}
-                >
+                {isStartingConsultation ? (
+                  <Loader2Icon className="size-4 mr-2 animate-spin" />
+                ) : (
                   <PlayIcon className="size-4 mr-2" />
-                  Iniciar atendimento
-                </Link>
+                )}
+                {isStartingConsultation
+                  ? "Abrindo atendimento..."
+                  : "Iniciar atendimento"}
               </Button>
             )}
 

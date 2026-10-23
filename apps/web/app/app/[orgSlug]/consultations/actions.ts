@@ -10,11 +10,53 @@ import {
   completeAudioUpload,
   getAudioPresignedUrl,
   getTranscriptionStatus,
+  startConsultation,
   startTranscriptionJob,
   type TranscriptionJobResponse,
   type TranscriptionStatusResult,
   updateAnamnesisDraft,
 } from "@/server/consultations";
+
+export interface StartConsultationActionResult {
+  success: boolean;
+  consultationId?: string;
+  created?: boolean;
+  error?: string;
+}
+
+/**
+ * Abre o atendimento a partir de um agendamento ou de um paciente.
+ *
+ * Devolve o id em vez de redirecionar: quem chama decide a navegação (sheet da
+ * agenda, ficha do paciente) e consegue mostrar o erro no lugar do clique.
+ */
+export async function startConsultationAction(
+  orgSlug: string,
+  input: { patientId?: string; appointmentId?: string },
+): Promise<StartConsultationActionResult> {
+  try {
+    const result = await startConsultation(orgSlug, input);
+    revalidatePath(`/app/${orgSlug}/consultations`);
+    revalidatePath(`/app/${orgSlug}/appointments`);
+    revalidatePath(`/app/${orgSlug}/dashboard`);
+    if (input.patientId) {
+      revalidatePath(`/app/${orgSlug}/patients/${input.patientId}`);
+    }
+    return {
+      success: true,
+      consultationId: result.consultation.id,
+      created: result.created,
+    };
+  } catch (error) {
+    if (error instanceof ConsultationsApiError) {
+      return { success: false, error: error.message };
+    }
+    return {
+      success: false,
+      error: "Não foi possível iniciar o atendimento. Tente novamente.",
+    };
+  }
+}
 
 export interface StartTranscriptionActionResult {
   success: boolean;

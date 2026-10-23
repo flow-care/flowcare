@@ -16,6 +16,9 @@ const organizationsResponse = z.object({
         "PROFESSIONAL",
         "RECEPTIONIST",
       ]),
+      preset: z.enum(["ADMIN", "PROFESSIONAL", "RECEPTIONIST"]).optional(),
+      permissions: z.array(z.string()).optional(),
+      isSoloClinic: z.boolean().optional(),
     }),
   ),
 });

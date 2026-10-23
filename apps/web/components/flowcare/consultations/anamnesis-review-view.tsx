@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   Clock,
   FileCheck,
+  FileText,
   Loader2,
   Lock,
   RefreshCw,
@@ -392,6 +393,27 @@ export function AnamnesisReviewView({
                     </span>
                   </div>
                 )}
+              </div>
+
+              {/* Próximo passo do atendimento, sem sair da tela para descobrir */}
+              <div className="flex flex-wrap gap-2 pt-1">
+                <Button
+                  size="sm"
+                  onClick={() => router.push(`/app/${orgSlug}/appointments`)}
+                  className="gap-1.5"
+                >
+                  <CheckCircle2 className="size-4" />
+                  Concluir e voltar para a agenda
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => router.push(`/app/${orgSlug}/documents`)}
+                  className="gap-1.5"
+                >
+                  <FileText className="size-4" />
+                  Ver documentos
+                </Button>
               </div>
             </div>
           </div>

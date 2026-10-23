@@ -147,10 +147,11 @@ export function appointmentsModule(deps: {
           ({ organizationAccess, query }) =>
             service.list(organizationAccess.organizationId, {
               ...query,
-              // Sem `appointments:read_all` a agenda é sempre "somente meu".
-              ...(canReadAllAgenda(organizationAccess)
-                ? {}
-                : { professionalId: organizationAccess.userId }),
+              // "Somente meu" explícito, ou obrigatório sem permissão de ver
+              // a agenda da clínica toda.
+              ...(query.mine || !canReadAllAgenda(organizationAccess)
+                ? { professionalId: organizationAccess.userId }
+                : {}),
             }),
           {
             params: m.organizationParams,

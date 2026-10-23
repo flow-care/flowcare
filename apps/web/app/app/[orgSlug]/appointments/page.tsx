@@ -32,6 +32,7 @@ export default async function AppointmentsPage({
     appointmentId?: string;
     time?: string;
     slotTime?: string;
+    scope?: string;
   }>;
 }) {
   const { orgSlug } = await params;
@@ -41,7 +42,10 @@ export default async function AppointmentsPage({
   const current = organizations?.find(
     (organization) => organization.slug === orgSlug,
   );
-  if (!current || !canOpenSection(current.role, "appointments")) {
+  if (
+    !current ||
+    !canOpenSection(current.role, "appointments", current.permissions)
+  ) {
     notFound();
   }
 
@@ -65,6 +69,25 @@ export default async function AppointmentsPage({
   let professionals: ProfessionalItem[] = [];
   let timeZone = "America/Sao_Paulo";
   let hasError = false;
+
+  // Escopo da agenda: só abre "clínica toda" para quem tem a permissão.
+  const canSeeAllAgenda = (current.permissions ?? []).includes(
+    "appointments:read_all",
+  );
+  // Quem atende abre no "Somente meu"; a recepção abre na clínica toda, senão
+  // veria uma agenda vazia (não tem agendamentos próprios).
+  const attendsPatients = (current.permissions ?? []).includes(
+    "consultations:write",
+  );
+  const defaultScope: "mine" | "all" = attendsPatients ? "mine" : "all";
+  const requestedScope =
+    query.scope === "all"
+      ? "all"
+      : query.scope === "mine"
+        ? "mine"
+        : defaultScope;
+  const scope: "mine" | "all" =
+    requestedScope === "all" && !canSeeAllAgenda ? "mine" : requestedScope;
 
   if (view === "confirmations") {
     try {
@@ -100,6 +123,7 @@ export default async function AppointmentsPage({
         getAppointments(orgSlug, {
           startDate,
           endDate,
+          mine: scope === "mine",
         }),
         getProfessionals(orgSlug).catch(() => []),
       ]);
@@ -132,6 +156,8 @@ export default async function AppointmentsPage({
       slotTime={query.time ?? query.slotTime}
       timeZone={timeZone}
       professionals={professionals}
+      agendaScope={scope}
+      canSeeAllAgenda={canSeeAllAgenda}
     />
   );
 }
