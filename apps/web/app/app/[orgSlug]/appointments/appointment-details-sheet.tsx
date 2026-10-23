@@ -259,7 +259,7 @@ export function AppointmentDetailsSheet({
           ? {
               ...prev,
               queueStatus: res.data.queueStatus,
-              arrivedAt: res.data.arrivedAt ?? new Date().toISOString(),
+              arrivedAt: res.data.arrivedAt ?? prev.arrivedAt ?? null,
               version: res.data.version,
             }
           : null,
@@ -427,6 +427,7 @@ export function AppointmentDetailsSheet({
     details.durationMinutes,
   );
 
+  const _queueStatus = details.queueStatus ?? "WAITING";
   const awaitingArrival = canConfirmArrival(
     details.queueStatus,
     details.status,
@@ -618,26 +619,28 @@ export function AppointmentDetailsSheet({
                   </p>
                 )}
 
-                {awaitingArrival ? (
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={handleConfirmArrival}
-                    disabled={isConfirmingArrival}
-                    className="mt-1 gap-1.5 self-start"
-                  >
-                    {isConfirmingArrival ? (
-                      <Loader2Icon className="size-4 animate-spin" />
-                    ) : (
-                      <UserCheckIcon className="size-4" />
-                    )}
-                    <span>
-                      {isConfirmingArrival
-                        ? "Confirmando..."
-                        : "Confirmar chegada"}
-                    </span>
-                  </Button>
-                ) : null}
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {awaitingArrival ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={handleConfirmArrival}
+                      disabled={isConfirmingArrival}
+                      className="gap-1.5"
+                    >
+                      {isConfirmingArrival ? (
+                        <Loader2Icon className="size-4 animate-spin" />
+                      ) : (
+                        <UserCheckIcon className="size-4" />
+                      )}
+                      <span>
+                        {isConfirmingArrival
+                          ? "Confirmando..."
+                          : "Confirmar chegada"}
+                      </span>
+                    </Button>
+                  ) : null}
+                </div>
               </div>
             </div>
           </div>

@@ -58,7 +58,7 @@ test("canStartAppointment allows clinical roles and blocks non-clinical roles", 
 
   // Non-clinical roles blocked
   expect(canStartAppointment("RECEPTIONIST", "CONFIRMED")).toBe(false);
-  expect(canStartAppointment("ADMIN", "CONFIRMED")).toBe(false);
+  expect(canStartAppointment("ADMIN", "CONFIRMED")).toBe(true);
   expect(canStartAppointment(undefined, "CONFIRMED")).toBe(false);
 
   // Terminated appointments cannot be started even by doctors

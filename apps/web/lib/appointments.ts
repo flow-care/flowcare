@@ -295,7 +295,12 @@ export function canStartAppointment(
   userRole?: string,
   appointmentStatus?: string,
 ): boolean {
-  if (userRole !== "ADMIN_PROFESSIONAL" && userRole !== "PROFESSIONAL") {
+  // ADMIN acumula o grupo clínico (quem cria a clínica atende e controla tudo).
+  if (
+    userRole !== "ADMIN" &&
+    userRole !== "ADMIN_PROFESSIONAL" &&
+    userRole !== "PROFESSIONAL"
+  ) {
     return false;
   }
   if (!appointmentStatus) return true;
