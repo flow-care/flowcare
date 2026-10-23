@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 import { LoginForm } from "@/components/flowcare/auth/login-form";
+import { getOnboardingProgress } from "@/server/onboarding";
+import { getSessionToken } from "@/server/session";
 
 export const metadata: Metadata = { title: "Entrar | Flowcare" };
 
@@ -9,6 +12,14 @@ export default async function Page({
   searchParams: Promise<{ returnTo?: string }>;
 }) {
   const { returnTo } = await searchParams;
+
+  // Sessão expirada deixa o cookie no navegador: só pula o formulário quando a
+  // API confirma que a sessão ainda vale. Sem isto o usuário entra em laço.
+  const token = await getSessionToken();
+  if (token && (await getOnboardingProgress())) {
+    redirect("/");
+  }
+
   return (
     <section aria-labelledby="auth-title">
       <h1

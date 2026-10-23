@@ -100,12 +100,13 @@ test("proxy deixa passar uma sessão presente sem validar autorização", () => 
   expect(proxy(request).status).toBe(200);
 });
 
-test("proxy envia sessão presente para a resolução do onboarding", () => {
+test("proxy não manda /login para / só porque existe cookie (evita laço de redirecionamento)", () => {
   const request = new NextRequest("http://localhost/login?returnTo=%2Fapp", {
-    headers: { Cookie: "__Host-mf_session=opaque-token" },
+    headers: { Cookie: "__Host-mf_session=token-expirado" },
   });
-  expect(proxy(request).status).toBe(307);
-  expect(proxy(request).headers.get("location")).toBe("http://localhost/");
+  const response = proxy(request);
+  expect(response.status).toBe(200);
+  expect(response.headers.get("location")).toBeNull();
 });
 
 test("proxy deixa páginas públicas acessíveis sem sessão", () => {
