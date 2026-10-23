@@ -3,6 +3,8 @@ import type { PrismaClient } from "../../generated/prisma/client";
 import { isClinicalRole } from "../../lib/roles";
 import { authPlugin } from "../../plugins/auth";
 import {
+  canReadAllClinical,
+  clinicalOwnerFilter,
   type OrganizationAccess,
   type OrganizationCapability,
   organizationAccessPlugin,
@@ -15,28 +17,12 @@ import * as m from "./model";
 import { ConsultationsService } from "./service";
 import { ConsultationTranscriptionService } from "./transcription-service";
 
-async function defaultClinicalEligibility(
-  context: OrganizationAccess,
-  capability: OrganizationCapability,
-): Promise<boolean> {
-  return (
-    (capability === "consultations:read" ||
-      capability === "consultations:write" ||
-      capability === "consultations:approve") &&
-    isClinicalRole(context.role)
-  );
-}
-
 export function consultationsModule(deps: {
   prisma: PrismaClient;
   jwtSecret: string;
   audioStore?: ConsultationAudioStore | null;
   transcriptionProvider?: TranscriptionProvider | null;
   extractionProvider?: ExtractionProvider | null;
-  clinicalEligibility?: (
-    context: OrganizationAccess,
-    capability: OrganizationCapability,
-  ) => Promise<boolean>;
 }) {
   const service = new ConsultationsService(deps.prisma);
   const audioService = new ConsultationAudioService(
@@ -49,8 +35,6 @@ export function consultationsModule(deps: {
     deps.audioStore ?? null,
     deps.extractionProvider ?? null,
   );
-  const clinicalEligibility =
-    deps.clinicalEligibility ?? defaultClinicalEligibility;
 
   return new Elysia({ name: "consultations" })
     .use(authPlugin(deps))
@@ -58,7 +42,6 @@ export function consultationsModule(deps: {
       organizationAccessPlugin({
         prisma: deps.prisma,
         jwtSecret: deps.jwtSecret,
-        clinicalEligibility,
       }),
     )
     .group("/organizations/:orgSlug", (group) =>
@@ -66,7 +49,14 @@ export function consultationsModule(deps: {
         .get(
           "/consultations",
           ({ organizationAccess, query }) =>
-            service.list(organizationAccess.organizationId, query),
+            service.list(organizationAccess.organizationId, {
+              ...query,
+              // Escopo clínico: quem não tem `clinical:read_all` lista apenas
+              // os próprios atendimentos.
+              ...(canReadAllClinical(organizationAccess)
+                ? {}
+                : { professionalId: organizationAccess.userId }),
+            }),
           {
             params: m.orgSlugParams,
             query: m.listConsultationsQuery,
@@ -122,6 +112,7 @@ export function consultationsModule(deps: {
             service.getById(
               organizationAccess.organizationId,
               params.consultationId,
+              clinicalOwnerFilter(organizationAccess),
             ),
           {
             params: m.consultationIdParams,
@@ -202,6 +193,7 @@ export function consultationsModule(deps: {
             transcriptionService.status(
               organizationAccess.organizationId,
               params.consultationId,
+              clinicalOwnerFilter(organizationAccess),
             ),
           {
             params: m.consultationIdParams,

@@ -497,9 +497,16 @@ export class DocumentsService {
   async getPdf(
     organizationId: string,
     documentId: string,
+    options: { authorId?: string } = {},
   ): Promise<Uint8Array> {
     const doc = await this.prisma.clinicalDocument.findFirst({
-      where: { id: documentId, organizationId },
+      where: {
+        id: documentId,
+        organizationId,
+        // Sem `clinical:read_all`, documento de outro autor é indistinguível
+        // de inexistente.
+        ...(options?.authorId ? { authorId: options.authorId } : {}),
+      },
     });
     if (!doc) {
       throw new ApiError("NOT_FOUND", 404, "Documento não encontrado.");
@@ -569,6 +576,7 @@ export class DocumentsService {
     organizationId: string,
     actorUserId: string,
     documentId: string,
+    options: { canIssueOthers?: boolean } = {},
   ) {
     try {
       return await this.prisma.$transaction(async (tx) => {
@@ -577,6 +585,14 @@ export class DocumentsService {
         });
         if (!original)
           throw new ApiError("NOT_FOUND", 404, "Documento não encontrado.");
+        if (!options.canIssueOthers && original.authorId !== actorUserId) {
+          throw new ApiError(
+            "PERMISSION_DENIED",
+            403,
+            "Apenas o autor do documento pode retificá-lo.",
+            { requiredPermission: "clinical:read_all" },
+          );
+        }
         if (
           original.status !== "ISSUED" ||
           !original.preparedRevisionId ||
@@ -692,6 +708,7 @@ export class DocumentsService {
     actorRole: Role | undefined,
     documentId: string,
     body: VoidDocumentBody,
+    options: { canVoidOthers?: boolean } = {},
   ): Promise<VoidDocumentResponse> {
     const reason = typeof body?.reason === "string" ? body.reason.trim() : "";
     if (reason.length < 10) {
@@ -708,15 +725,6 @@ export class DocumentsService {
         "PERMISSION_DENIED",
         403,
         "Você não possui permissão para realizar esta ação.",
-        { requiredPermission: "documents:void" },
-      );
-    }
-
-    if (actorRole === "ADMIN") {
-      throw new ApiError(
-        "PERMISSION_DENIED",
-        403,
-        "Habilitação profissional necessária para anular documentos clínicos.",
         { requiredPermission: "documents:void" },
       );
     }
@@ -742,12 +750,15 @@ export class DocumentsService {
           );
         }
 
-        if (actorRole === "PROFESSIONAL" && doc.authorId !== actorUserId) {
+        // Sem `clinical:read_all`, só o autor anula o próprio documento.
+        const canVoidForeign =
+          options.canVoidOthers ?? actorRole !== "PROFESSIONAL";
+        if (!canVoidForeign && doc.authorId !== actorUserId) {
           throw new ApiError(
             "PERMISSION_DENIED",
             403,
-            "Apenas o profissional autor do documento ou um administrador pode anulá-lo.",
-            { requiredPermission: "documents:void" },
+            "Apenas o autor do documento pode anulá-lo.",
+            { requiredPermission: "clinical:read_all" },
           );
         }
 
@@ -1104,11 +1115,15 @@ export class DocumentsService {
     organizationId: string,
     documentId: string,
     requestedVersion?: number,
+    options: { authorId?: string } = {},
   ): Promise<DocumentResponse> {
     const doc = (await this.prisma.clinicalDocument.findFirst({
       where: {
         id: documentId,
         organizationId,
+        // Sem `clinical:read_all`, documento de outro autor é indistinguível
+        // de inexistente.
+        ...(options?.authorId ? { authorId: options.authorId } : {}),
       },
       include: {
         patient: { select: { id: true, fullName: true } },
@@ -1157,11 +1172,15 @@ export class DocumentsService {
     organizationId: string,
     documentId: string,
     query?: ListVersionsQuery,
+    options: { authorId?: string } = {},
   ): Promise<DocumentVersionsResponse> {
     const doc = (await this.prisma.clinicalDocument.findFirst({
       where: {
         id: documentId,
         organizationId,
+        // Sem `clinical:read_all`, documento de outro autor é indistinguível
+        // de inexistente.
+        ...(options?.authorId ? { authorId: options.authorId } : {}),
       },
       include: {
         versions: {
@@ -1207,11 +1226,15 @@ export class DocumentsService {
     organizationId: string,
     documentId: string,
     versionIdOrNumber: string,
+    options: { authorId?: string } = {},
   ): Promise<DocumentVersionDetailResponse> {
     const doc = await this.prisma.clinicalDocument.findFirst({
       where: {
         id: documentId,
         organizationId,
+        // Sem `clinical:read_all`, documento de outro autor é indistinguível
+        // de inexistente.
+        ...(options?.authorId ? { authorId: options.authorId } : {}),
       },
       select: {
         id: true,

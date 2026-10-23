@@ -698,7 +698,12 @@ model Membership {
   id             String           @id @default(uuid()) @db.Uuid
   userId         String           @db.Uuid
   organizationId String           @db.Uuid
+  /// Preset do membro: ADMIN, PROFESSIONAL ou RECEPTIONIST. Sozinho não
+  /// concede nada — o acesso vem de `permissions`.
   role           MembershipRole
+  /// Permissões efetivas. Vazio = usar o preset do papel. Preenchido =
+  /// personalizado (o usuário ajustou a predefinição).
+  permissions    String[]         @default([])
   status         MembershipStatus @default(ACTIVE)
   version        Int              @default(1)
   createdAt      DateTime         @default(now())

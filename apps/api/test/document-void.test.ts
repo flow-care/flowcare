@@ -9,6 +9,7 @@ import type {
   Prisma,
   PrismaClient,
 } from "../src/generated/prisma/client";
+import { ALL_PERMISSIONS } from "../src/lib/permissions";
 import type {
   DocumentResponse,
   DocumentVersionsResponse,
@@ -84,6 +85,7 @@ interface StoredAuditLog {
 function createFixture() {
   let role: MembershipRole = "PROFESSIONAL";
   let membershipStatus: MembershipStatus = "ACTIVE";
+  let permissions: string[] | null = null;
   const allowedOrgSlugs = new Set<string>(["clinica-a"]);
   let sessionActive = true;
 
@@ -127,6 +129,7 @@ function createFixture() {
           organizationId:
             where.organization.slug === "clinica-b" ? clinicBId : clinicAId,
           role: effectiveRole,
+          permissions,
           status: membershipStatus,
         };
       },
@@ -435,6 +438,9 @@ function createFixture() {
     setMembershipStatus: (value: MembershipStatus) => {
       membershipStatus = value;
     },
+    setPermissions: (value: string[] | null) => {
+      permissions = value;
+    },
     setSessionActive: (value: boolean) => {
       sessionActive = value;
     },
@@ -632,12 +638,13 @@ describe("document voiding (#278)", () => {
     };
     expect(bodyRec.error.code).toBe("PERMISSION_DENIED");
 
-    // 2. ADMIN role without clinical qualifications -> 403 PERMISSION_DENIED
+    // 2. ADMIN não autor do documento, sem `clinical:read_all` -> 403
     f.setRole("ADMIN");
     const resAdmin = await f.request(
       "POST",
       `/organizations/clinica-a/documents/${doc.id}/void`,
-      { reason: "Administrador leigo tentando anular" },
+      { reason: "Administrador tentando anular documento de terceiro" },
+      { userId: profBId },
     );
     expect(resAdmin.status).toBe(403);
     const bodyAdmin = (await resAdmin.json()) as {
@@ -669,7 +676,7 @@ describe("document voiding (#278)", () => {
     expect(bodyInactive.error.code).toBe("MEMBERSHIP_INACTIVE");
   });
 
-  test("permission checks: PROFESSIONAL non-author is rejected (403), author is allowed (200), ADMIN_PROFESSIONAL is allowed (200)", async () => {
+  test("permission checks: autor anula o próprio documento; anular o de terceiro exige clinical:read_all", async () => {
     const f = createFixture();
     // Document authored by Dra. Maria Santos (profAId)
     const doc = f.seedDocument({ status: "ISSUED", authorId: profAId });
@@ -688,17 +695,37 @@ describe("document voiding (#278)", () => {
     };
     expect(bodyProfB.error.code).toBe("PERMISSION_DENIED");
 
-    // Dra. Diretora Clínica (adminProfId) is ADMIN_PROFESSIONAL -> allowed even if not author
-    const resAdminProf = await f.request(
+    // A autora (profAId) anula o próprio documento
+    const resAuthor = await f.request(
       "POST",
       `/organizations/clinica-a/documents/${doc.id}/void`,
+      { reason: "Correção solicitada pelo próprio profissional" },
+      { userId: profAId },
+    );
+    expect(resAuthor.status).toBe(200);
+
+    // Admin que não é autor, sem `clinical:read_all` -> 403
+    const doc2 = f.seedDocument({ status: "ISSUED", authorId: profAId });
+    const resAdminProf = await f.request(
+      "POST",
+      `/organizations/clinica-a/documents/${doc2.id}/void`,
       { reason: "Anulação formal autorizada pela diretoria clínica" },
       { userId: adminProfId },
     );
-    expect(resAdminProf.status).toBe(200);
-    const bodyAdminProf = (await resAdminProf.json()) as VoidDocumentResponse;
-    expect(bodyAdminProf.status).toBe("VOIDED");
-    expect(bodyAdminProf.voidReason).toBe(
+    expect(resAdminProf.status).toBe(403);
+
+    // Com `clinical:read_all` concedida explicitamente -> 200
+    f.setPermissions([...ALL_PERMISSIONS]);
+    const resWithScope = await f.request(
+      "POST",
+      `/organizations/clinica-a/documents/${doc2.id}/void`,
+      { reason: "Anulação formal autorizada pela diretoria clínica" },
+      { userId: adminProfId },
+    );
+    expect(resWithScope.status).toBe(200);
+    const bodyWithScope = (await resWithScope.json()) as VoidDocumentResponse;
+    expect(bodyWithScope.status).toBe("VOIDED");
+    expect(bodyWithScope.voidReason).toBe(
       "Anulação formal autorizada pela diretoria clínica",
     );
   });

@@ -10,6 +10,7 @@ import type {
   PrismaClient,
   TemplateStatus,
 } from "../src/generated/prisma/client";
+import { ALL_PERMISSIONS } from "../src/lib/permissions";
 import type {
   DocumentResponse,
   DocumentVersionDetailResponse,
@@ -89,6 +90,7 @@ interface StoredAuditLog {
 
 function createFixture() {
   let role: MembershipRole = "PROFESSIONAL";
+  let permissions: string[] | null = [...ALL_PERMISSIONS];
   let membershipStatus: MembershipStatus = "ACTIVE";
   let allowedOrgSlugs = new Set<string>(["clinica-a"]);
   let sessionActive = true;
@@ -148,6 +150,7 @@ function createFixture() {
           organizationId:
             where.organization.slug === "clinica-b" ? clinicBId : clinicAId,
           role,
+          permissions,
           status: membershipStatus,
         };
       },
@@ -483,6 +486,9 @@ function createFixture() {
     request,
     setRole: (newRole: MembershipRole) => {
       role = newRole;
+    },
+    setPermissions: (value: string[] | null) => {
+      permissions = value;
     },
     setMembershipStatus: (status: MembershipStatus) => {
       membershipStatus = status;
@@ -1303,6 +1309,9 @@ describe("Document history, paginated list, and version snapshot endpoints (#277
     expect(createRes.status).toBe(201);
     const doc = (await createRes.json()) as DocumentResponse;
     const versionId = doc.versions[0]?.id ?? "";
+
+    // Sem lista personalizada: vale o preset de cada papel.
+    f.setPermissions(null);
 
     // 1. RECEPTIONIST role -> 403 on list, details, versions, snapshot
     f.setRole("RECEPTIONIST");

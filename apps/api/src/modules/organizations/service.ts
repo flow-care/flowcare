@@ -1,6 +1,11 @@
 import { fileType } from "elysia";
 import type { PrismaClient } from "../../generated/prisma/client";
 import { ApiError } from "../../lib/api-error";
+import {
+  effectivePermissions,
+  materializePermissions,
+  normalizePreset,
+} from "../../lib/permissions";
 import { slugify } from "../../lib/slug";
 import { recordAuditEvent } from "../../services/audit-logger";
 import {
@@ -198,6 +203,7 @@ export class OrganizationsService {
       where: { userId, status: "ACTIVE" },
       select: {
         role: true,
+        permissions: true,
         organization: {
           select: { id: true, name: true, slug: true },
         },
@@ -206,14 +212,52 @@ export class OrganizationsService {
       take: MAX_USER_ORGANIZATIONS,
     });
 
+    // Uma consulta só para saber quantos membros ativos cada clínica tem:
+    // clínica solo concede todas as permissões ao único membro. Fixtures que
+    // não implementam `groupBy` caem no default conservador (2 membros).
+    const memberCount = new Map<string, number>();
+    const groupBy = (
+      this.prisma.membership as unknown as {
+        groupBy?: (
+          args: unknown,
+        ) => Promise<
+          Array<{ organizationId: string; _count: { _all: number } }>
+        >;
+      }
+    ).groupBy;
+    if (typeof groupBy === "function") {
+      const counts = await groupBy.call(this.prisma.membership, {
+        by: ["organizationId"],
+        where: {
+          organizationId: { in: memberships.map((m) => m.organization.id) },
+          status: "ACTIVE",
+        },
+        _count: { _all: true },
+      });
+      for (const row of counts)
+        memberCount.set(row.organizationId, row._count._all);
+    }
+
     return {
-      data: memberships.map(({ role, organization }) => ({
-        id: organization.id,
-        name: organization.name,
-        slug: organization.slug,
-        role,
-        status: "ACTIVE",
-      })),
+      data: memberships.map(({ role, permissions, organization }) => {
+        const isSoloClinic = (memberCount.get(organization.id) ?? 2) <= 1;
+        return {
+          id: organization.id,
+          name: organization.name,
+          slug: organization.slug,
+          role,
+          status: "ACTIVE" as const,
+          preset: normalizePreset(role),
+          permissions: materializePermissions(
+            effectivePermissions({
+              role,
+              storedPermissions: permissions,
+              isSoloClinic,
+            }),
+          ),
+          isSoloClinic,
+        };
+      }),
     };
   }
 

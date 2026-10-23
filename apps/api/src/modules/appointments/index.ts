@@ -1,7 +1,10 @@
 import { Elysia, status } from "elysia";
 import type { PrismaClient } from "../../generated/prisma/client";
 import { authPlugin } from "../../plugins/auth";
-import { organizationAccessPlugin } from "../../plugins/organization-access";
+import {
+  canReadAllAgenda,
+  organizationAccessPlugin,
+} from "../../plugins/organization-access";
 import * as m from "./model";
 import { AppointmentsService } from "./service";
 
@@ -142,7 +145,13 @@ export function appointmentsModule(deps: {
         .get(
           "",
           ({ organizationAccess, query }) =>
-            service.list(organizationAccess.organizationId, query),
+            service.list(organizationAccess.organizationId, {
+              ...query,
+              // Sem `appointments:read_all` a agenda é sempre "somente meu".
+              ...(canReadAllAgenda(organizationAccess)
+                ? {}
+                : { professionalId: organizationAccess.userId }),
+            }),
           {
             params: m.organizationParams,
             query: m.listQuery,

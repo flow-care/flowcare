@@ -674,12 +674,18 @@ export class ConsultationsService {
   async getById(
     organizationId: string,
     consultationId: string,
+    options: { professionalId?: string } = {},
   ): Promise<ConsultationDetailResponse> {
     const timeZone = await this.resolveTimeZone(organizationId);
     const consultation = await this.prisma.consultation.findFirst({
       where: {
         id: consultationId,
         organizationId,
+        // Sem `clinical:read_all`, atendimento de outro profissional é
+        // indistinguível de inexistente.
+        ...(options.professionalId
+          ? { professionalId: options.professionalId }
+          : {}),
       },
       include: {
         patient: {

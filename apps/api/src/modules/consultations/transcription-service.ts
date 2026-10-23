@@ -267,9 +267,16 @@ export class ConsultationTranscriptionService {
   async status(
     organizationId: string,
     consultationId: string,
+    options: { professionalId?: string } = {},
   ): Promise<TranscriptionStatusResponse> {
     const consultation = await this.prisma.consultation.findFirst({
-      where: { id: consultationId, organizationId },
+      where: {
+        id: consultationId,
+        organizationId,
+        ...(options.professionalId
+          ? { professionalId: options.professionalId }
+          : {}),
+      },
       select: { id: true },
     });
     if (!consultation) {

@@ -46,6 +46,12 @@ export const memberItem = t.Object({
   userName: t.String(),
   email: t.String(),
   role: membershipRoleSchema,
+  /** Preset normalizado: ADMIN, PROFESSIONAL ou RECEPTIONIST. */
+  preset: t.UnionEnum(["ADMIN", "PROFESSIONAL", "RECEPTIONIST"]),
+  /** Permissões efetivas (preset, lista personalizada ou clínica solo). */
+  permissions: t.Array(t.String()),
+  /** `true` quando a lista foi personalizada e difere do preset. */
+  isCustomized: t.Boolean(),
   status: t.UnionEnum(["ACTIVE", "SUSPENDED", "INVITED"]),
   version: t.Integer(),
   createdAt: t.String(),
@@ -53,6 +59,43 @@ export const memberItem = t.Object({
 
 export const listMembersResponse = t.Object({
   data: t.Array(memberItem),
+  /** Clínica solo: o único membro ativo tem todas as permissões. */
+  isSoloClinic: t.Boolean(),
+  presetPermissions: t.Object({
+    ADMIN: t.Array(t.String()),
+    PROFESSIONAL: t.Array(t.String()),
+    RECEPTIONIST: t.Array(t.String()),
+  }),
+});
+
+export const permissionCatalogResponse = t.Object({
+  groups: t.Array(
+    t.Object({
+      id: t.String(),
+      label: t.String(),
+      description: t.String(),
+      permissions: t.Array(
+        t.Object({
+          name: t.String(),
+          label: t.String(),
+          description: t.String(),
+        }),
+      ),
+    }),
+  ),
+  presets: t.Object({
+    ADMIN: t.Array(t.String()),
+    PROFESSIONAL: t.Array(t.String()),
+    RECEPTIONIST: t.Array(t.String()),
+  }),
+});
+
+export const updateMemberPermissionsBody = t.Object({
+  /** Lista completa de permissões. Vazia restaura o preset do papel. */
+  permissions: t.Optional(t.Array(t.String())),
+  /** Troca o preset e limpa a personalização. */
+  preset: t.Optional(t.UnionEnum(["ADMIN", "PROFESSIONAL", "RECEPTIONIST"])),
+  version: t.Integer({ minimum: 1 }),
 });
 
 export const memberUserSummarySchema = t.Object({
@@ -100,3 +143,6 @@ export type ListMembersResponse = typeof listMembersResponse.static;
 export type MemberUserSummary = typeof memberUserSummarySchema.static;
 export type MemberSummary = typeof memberSummarySchema.static;
 export type UpdateMemberRoleResponse = typeof updateMemberRoleResponse.static;
+export type UpdateMemberPermissionsBody =
+  typeof updateMemberPermissionsBody.static;
+export type PermissionCatalogResponse = typeof permissionCatalogResponse.static;

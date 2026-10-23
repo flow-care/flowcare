@@ -5,11 +5,21 @@ import type {
   PrismaClient,
 } from "../../generated/prisma/client";
 import { ApiError } from "../../lib/api-error";
+import {
+  effectivePermissions,
+  isCustomized,
+  isPermission,
+  materializePermissions,
+  normalizePreset,
+  PRESET_PERMISSIONS,
+  type Preset,
+} from "../../lib/permissions";
 import { hasOrganizationCapability } from "../../plugins/organization-access";
 import { recordAuditEvent } from "../../services/audit-logger";
 import type {
   ListMembersResponse,
   RemoveMemberResponse,
+  UpdateMemberPermissionsBody,
   UpdateMemberRoleBody,
   UpdateMemberRoleResponse,
 } from "./model";
@@ -55,6 +65,8 @@ export class TeamService {
       orderBy: { createdAt: "asc" },
     });
 
+    const isSoloClinic = memberships.length <= 1;
+
     return {
       data: memberships.map((membership) => ({
         id: membership.id,
@@ -62,11 +74,193 @@ export class TeamService {
         userName: membership.user.fullName,
         email: membership.user.email,
         role: membership.role,
+        preset: normalizePreset(membership.role),
+        permissions: materializePermissions(
+          effectivePermissions({
+            role: membership.role,
+            storedPermissions: membership.permissions,
+            isSoloClinic,
+          }),
+        ),
+        isCustomized: isCustomized(membership.role, membership.permissions),
         status: membership.status,
         version: membership.version,
         createdAt: membership.createdAt.toISOString(),
       })),
+      isSoloClinic,
+      presetPermissions: {
+        ADMIN: materializePermissions(PRESET_PERMISSIONS.ADMIN),
+        PROFESSIONAL: materializePermissions(PRESET_PERMISSIONS.PROFESSIONAL),
+        RECEPTIONIST: materializePermissions(PRESET_PERMISSIONS.RECEPTIONIST),
+      },
     };
+  }
+
+  /**
+   * Personaliza as permissões de um membro sem trocar o papel.
+   *
+   * - `preset` troca o rótulo e restaura a predefinição (zera a lista);
+   * - `permissions` grava a lista personalizada (vazia = volta ao preset).
+   *
+   * Ninguém edita as próprias permissões — auto-concessão de `clinical:read_all`
+   * passaria por cima da auditoria.
+   */
+  async updateMemberPermissions(input: {
+    organizationId: string;
+    actorUserId: string;
+    memberId: string;
+    body: UpdateMemberPermissionsBody;
+  }): Promise<UpdateMemberRoleResponse> {
+    const { organizationId, actorUserId, memberId, body } = input;
+
+    return this.runInTx(async (tx) => {
+      const current = await tx.membership.findFirst({
+        where: { id: memberId, organizationId },
+        include: { user: true },
+      });
+      if (!current) {
+        throw new ApiError("NOT_FOUND", 404, "Membro não encontrado.");
+      }
+      if (current.userId === actorUserId) {
+        throw new ApiError(
+          "FORBIDDEN",
+          403,
+          "Não é permitido alterar as próprias permissões.",
+        );
+      }
+      if (current.version !== body.version) {
+        throw new ApiError(
+          "VERSION_CONFLICT",
+          409,
+          "O membro foi modificado por outro usuário. Recarregue os dados e tente novamente.",
+        );
+      }
+
+      const unknown = (body.permissions ?? []).filter(
+        (permission) => !isPermission(permission),
+      );
+      if (unknown.length > 0) {
+        throw new ApiError("VALIDATION_ERROR", 400, "Permissão desconhecida.", {
+          permission: unknown[0],
+        });
+      }
+
+      const nextRole = body.preset ? body.preset : current.role;
+      const nextPermissions =
+        body.preset !== undefined
+          ? []
+          : materializePermissions(
+              new Set(
+                (body.permissions ?? []).filter(isPermission) as Parameters<
+                  typeof materializePermissions
+                >[0],
+              ),
+            );
+
+      const before = effectivePermissions({
+        role: current.role,
+        storedPermissions: current.permissions,
+      });
+      const after = effectivePermissions({
+        role: nextRole,
+        storedPermissions: nextPermissions,
+      });
+
+      const granted = [...after].filter(
+        (permission) => !before.has(permission),
+      );
+      const revoked = [...before].filter(
+        (permission) => !after.has(permission),
+      );
+
+      const updateResult = await tx.membership.updateMany({
+        where: { id: current.id, organizationId, version: body.version },
+        data: {
+          role: nextRole,
+          permissions: nextPermissions,
+          version: { increment: 1 },
+          updatedAt: new Date(),
+        },
+      });
+      if (updateResult.count === 0) {
+        throw new ApiError(
+          "VERSION_CONFLICT",
+          409,
+          "O membro foi modificado por outro usuário. Recarregue os dados e tente novamente.",
+        );
+      }
+
+      const updated = await tx.membership.findFirst({
+        where: { id: current.id, organizationId },
+        include: { user: true },
+      });
+      if (!updated) {
+        throw new ApiError("NOT_FOUND", 404, "Membro não encontrado.");
+      }
+
+      await recordAuditEvent(tx, {
+        organizationId,
+        actorUserId,
+        action: "MEMBER_PERMISSIONS_CHANGED",
+        targetType: "MEMBERSHIP",
+        targetId: current.id,
+        metadata: {
+          targetUserId: current.userId,
+          previousRole: current.role,
+          newRole: updated.role,
+          previousPermissions: [...before],
+          newPermissions: [...after],
+          granted,
+          revoked,
+          version: updated.version,
+        },
+      });
+
+      // Conceder ou tirar acesso ao prontuário de terceiros é decisão sensível:
+      // fica em registro próprio para a auditoria.
+      const scopeChanged =
+        before.has("clinical:read_all") !== after.has("clinical:read_all");
+      if (scopeChanged) {
+        await recordAuditEvent(tx, {
+          organizationId,
+          actorUserId,
+          action: after.has("clinical:read_all")
+            ? "CLINICAL_SCOPE_GRANTED"
+            : "CLINICAL_SCOPE_REVOKED",
+          targetType: "MEMBERSHIP",
+          targetId: current.id,
+          metadata: { targetUserId: current.userId },
+        });
+      }
+
+      const now = new Date();
+      const createdAt = (updated.createdAt ?? now).toISOString();
+      const updatedAt = (updated.updatedAt ?? now).toISOString();
+      const member = {
+        id: updated.id,
+        userId: updated.userId,
+        organizationId: updated.organizationId,
+        role: updated.role,
+        status: updated.status,
+        version: updated.version,
+        createdAt,
+        updatedAt,
+      };
+      return {
+        ...member,
+        user: updated.user
+          ? {
+              id: updated.user.id,
+              fullName: updated.user.fullName,
+              email: updated.user.email,
+              professionalRole: updated.user.professionalRole ?? null,
+              professionalTitle: updated.user.professionalTitle ?? null,
+              registrationNumber: updated.user.registrationNumber ?? null,
+            }
+          : undefined,
+        member,
+      };
+    });
   }
 
   async updateMemberRole(
@@ -104,6 +298,14 @@ export class TeamService {
           "VERSION_CONFLICT",
           409,
           "O membro foi modificado por outro usuário. Recarregue os dados e tente novamente.",
+        );
+      }
+
+      if ((newRole as string) === "ADMIN_PROFESSIONAL") {
+        throw new ApiError(
+          "VALIDATION_ERROR",
+          400,
+          "O papel ADMIN_PROFESSIONAL foi descontinuado. Use Admin e ajuste as permissões.",
         );
       }
 

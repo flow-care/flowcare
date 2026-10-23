@@ -138,35 +138,16 @@ describe("document issue and rectification (#275)", () => {
     const prisma = {
       membership: { findFirst: async () => membership },
     } as unknown as PrismaClient;
-    const qualified = async () => true;
     await expect(
-      resolveOrganizationAccess(
-        prisma,
-        actor,
-        "clinic",
-        "documents:issue",
-        qualified,
-      ),
+      resolveOrganizationAccess(prisma, actor, "clinic", "documents:issue"),
     ).rejects.toMatchObject({ httpStatus: 403 });
     await expect(
-      resolveOrganizationAccess(
-        prisma,
-        actor,
-        "clinic",
-        "documents:write",
-        qualified,
-      ),
+      resolveOrganizationAccess(prisma, actor, "clinic", "documents:write"),
     ).rejects.toMatchObject({ httpStatus: 403 });
     membership.role = "PROFESSIONAL";
     membership.status = "SUSPENDED";
     await expect(
-      resolveOrganizationAccess(
-        prisma,
-        actor,
-        "clinic",
-        "documents:issue",
-        qualified,
-      ),
+      resolveOrganizationAccess(prisma, actor, "clinic", "documents:issue"),
     ).rejects.toMatchObject({ httpStatus: 403 });
     membership.status = "ACTIVE";
     const result = await resolveOrganizationAccess(
@@ -174,7 +155,6 @@ describe("document issue and rectification (#275)", () => {
       actor,
       "clinic",
       "documents:issue",
-      qualified,
     );
     expect(result.organizationId).toBe(org);
   });

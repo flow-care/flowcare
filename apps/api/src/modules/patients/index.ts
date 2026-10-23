@@ -1,7 +1,10 @@
 import { Elysia, status } from "elysia";
 import type { PrismaClient } from "../../generated/prisma/client";
 import { authPlugin } from "../../plugins/auth";
-import { organizationAccessPlugin } from "../../plugins/organization-access";
+import {
+  canReadAllClinical,
+  organizationAccessPlugin,
+} from "../../plugins/organization-access";
 import type { ProfilePhotoStore } from "../../services/profile-photo-store";
 import {
   archivePatientAttachmentBody,
@@ -66,8 +69,11 @@ export function patientsModule(deps: {
       "/organizations/:orgSlug/patients/:id/overview",
       ({ organizationAccess, params }) =>
         service.getOverview(organizationAccess.organizationId, params.id, {
-          canReadClinicalHistory: organizationAccess.capabilities.has(
+          canReadClinicalHistory: organizationAccess.permissions.has(
             "patients:read_history",
+          ),
+          canReadHistorySummary: organizationAccess.permissions.has(
+            "patients:read_history_summary",
           ),
         }),
       {
@@ -239,6 +245,7 @@ export function patientsModule(deps: {
           params.id,
           auth.userId,
           query,
+          { readAll: canReadAllClinical(organizationAccess) },
         ),
       {
         params: patientIdParams,
@@ -255,6 +262,7 @@ export function patientsModule(deps: {
           params.id,
           auth.userId,
           query,
+          { readAll: canReadAllClinical(organizationAccess) },
         ),
       {
         params: patientIdParams,

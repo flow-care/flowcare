@@ -4,6 +4,10 @@ import type { Env } from "../src/config/env";
 import type { PrismaClient } from "../src/generated/prisma/client";
 import { organizationsModule } from "../src/modules/organizations";
 import { OrganizationsService } from "../src/modules/organizations/service";
+import {
+  materializePermissions,
+  PRESET_PERMISSIONS,
+} from "../src/lib/permissions";
 import { signSessionToken } from "../src/services/session-token";
 
 const memberships = [
@@ -106,6 +110,9 @@ test("lists only own active clinics, with a bounded and minimal response", async
         slug: "pet-saude",
         role: "ADMIN",
         status: "ACTIVE",
+        preset: "ADMIN",
+        permissions: materializePermissions(PRESET_PERMISSIONS.ADMIN),
+        isSoloClinic: false,
       },
       {
         id: "org-2",
@@ -113,6 +120,9 @@ test("lists only own active clinics, with a bounded and minimal response", async
         slug: "clinica-norte",
         role: "PROFESSIONAL",
         status: "ACTIVE",
+        preset: "PROFESSIONAL",
+        permissions: materializePermissions(PRESET_PERMISSIONS.PROFESSIONAL),
+        isSoloClinic: false,
       },
     ],
   });
@@ -161,6 +171,9 @@ test("organization route derives account identity from the session and rejects u
         slug: "alheia",
         role: "ADMIN",
         status: "ACTIVE",
+        preset: "ADMIN",
+        permissions: materializePermissions(PRESET_PERMISSIONS.ADMIN),
+        isSoloClinic: false,
       },
     ],
   });

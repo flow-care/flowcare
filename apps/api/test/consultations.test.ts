@@ -8,6 +8,7 @@ import type {
   MembershipStatus,
   PrismaClient,
 } from "../src/generated/prisma/client";
+import { ALL_PERMISSIONS } from "../src/lib/permissions";
 import type { ListConsultationsResponse } from "../src/modules/consultations/model";
 import { normalizePatientName } from "../src/modules/patients/service";
 import { signSessionToken } from "../src/services/session-token";
@@ -58,6 +59,7 @@ interface StoredConsultation {
 
 function createFixture() {
   let role: MembershipRole = "PROFESSIONAL";
+  let permissions: string[] | null = [...ALL_PERMISSIONS];
   let membershipStatus: MembershipStatus = "ACTIVE";
   let membershipOrgSlug: string | null = "clinica-a";
   let sessionActive = true;
@@ -287,6 +289,7 @@ function createFixture() {
           organizationId:
             where.organization.slug === "clinica-b" ? clinicBId : clinicAId,
           role,
+          permissions,
           status: membershipStatus,
         };
       },
@@ -353,6 +356,9 @@ function createFixture() {
     get,
     setRole: (value: MembershipRole) => {
       role = value;
+    },
+    setPermissions: (value: string[] | null) => {
+      permissions = value;
     },
     setMembershipStatus: (value: MembershipStatus) => {
       membershipStatus = value;
@@ -582,6 +588,8 @@ describe("consultations module (#262)", () => {
       error: { code: "MEMBERSHIP_INACTIVE" },
     });
     f.setMembershipStatus("ACTIVE");
+    // Sem lista personalizada: vale o preset de cada papel.
+    f.setPermissions(null);
 
     // RECEPTIONIST -> 403 PERMISSION_DENIED
     for (const deniedRole of ["RECEPTIONIST"] as const) {
