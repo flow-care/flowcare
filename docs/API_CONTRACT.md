@@ -697,11 +697,11 @@ O identificador `revisionId` da versão vigente deve ser armazenado pela futura 
 
 #### `POST /organizations/:orgSlug/consultations` (alias: `POST /organizations/:orgSlug/consultations/start`)
 * **Descrição:** Inicia uma nova consulta clínica vinculada a paciente e, opcionalmente, a um agendamento prévio (ou atendimento avulso/walk-in), prevenindo duplicidade de consultas para o mesmo agendamento e garantindo isolamento multi-tenant estrito. Caso já exista um atendimento ativo para o agendamento informado, a operação é idempotente e retorna o atendimento existente (`200 OK`) sem duplicar registros ou auditoria. Quando vinculado a um agendamento em estado `CONFIRMED` ou `RESERVED`, transiciona o agendamento para `IN_PROGRESS` (e fila para `IN_SERVICE`). Grava `CONSULTATION_STARTED` em `AuditLog` na mesma transação.
-* **Permissão:** `consultations:write` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL`). Papéis exclusivamente administrativos (`ADMIN` sem atuação clínica e `RECEPTIONIST`) são recusados com `403 PERMISSION_DENIED`.
+* **Permissão:** `consultations:write` (presets Admin, Profissional e quem tiver a permissão concedida). `RECEPTIONIST` sem a permissão recebe `403 PERMISSION_DENIED`.
 * **Body:**
   ```json
   {
-    "patientId": "<uuid>",
+    "patientId": "<uuid opcional quando appointmentId é informado>",
     "appointmentId": "<uuid opcional>",
     "scheduledAt": "2026-10-15T13:00:00.000Z",
     "notes": "Observações iniciais do atendimento",
@@ -709,13 +709,15 @@ O identificador `revisionId` da versão vigente deve ser armazenado pela futura 
   }
   ```
 * **Validações e regras:**
+  * É obrigatório informar `patientId` **ou** `appointmentId`; sem nenhum dos dois a resposta é `400 VALIDATION_ERROR` (`details.field: "patientId"`).
+  * Quando só o `appointmentId` é informado, o paciente é resolvido pelo agendamento — é o caminho "Iniciar atendimento" da agenda.
   * O paciente deve pertencer à clínica ativa (`404 NOT_FOUND` se inexistente ou de outra clínica).
   * Se `appointmentId` for informado:
     * O agendamento deve pertencer à clínica ativa (`404 NOT_FOUND` se inexistente ou de outra clínica).
-    * O `patientId` do agendamento deve coincidir com o `patientId` informado (`400 VALIDATION_ERROR` com `details.field: "patientId"`).
+    * Se `patientId` também for informado, precisa coincidir com o do agendamento (`400 VALIDATION_ERROR` com `details.field: "patientId"`).
     * Se já existir consulta ativa para este agendamento, responde `200 OK` com o registro existente.
     * Agendamento em estado `CONFIRMED` ou `RESERVED` é atualizado para `status: "IN_PROGRESS"` (e `queueStatus: "IN_SERVICE"` caso esteja na fila).
-  * O profissional responsável é o usuário autenticado (`auth.userId`), ou o profissional especificado caso possua vínculo clínico ativo na clínica.
+  * O profissional responsável é, nesta ordem: o `professionalId` informado, o profissional do agendamento, ou o usuário autenticado (`auth.userId`). Qualquer um diferente de quem chama precisa ter vínculo clínico ativo na clínica.
   * Define `startedAt: new Date()`, `status: "IN_PROGRESS"`, `anamnesisStatus: "PENDING"`, `version: 0`.
   * Na mesma transação, registra `AuditLog` (`action: "CONSULTATION_STARTED"`, `targetType: "CONSULTATION"`, `targetId: consultation.id`, `metadata: { patientId, professionalId, appointmentId, notes }`).
 * **Respostas:** `201 Created` (para novo atendimento) ou `200 OK` (caso já exista consulta ativa vinculada ao agendamento), `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 MEMBERSHIP_INACTIVE`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`.
