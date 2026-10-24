@@ -114,8 +114,8 @@ const mockConsultationBase = {
 };
 
 describe("Anamnesis Review & Medical Approval (#271)", () => {
-  describe("1. AI Suggestion Banner Presence", () => {
-    test("displays 'Sugestão gerada por IA — requer validação médica' banner when anamnesis is DRAFT", () => {
+  describe("1. Documento chegando pronto (sem aviso de IA)", () => {
+    test("não exibe avisos de IA nem instruções de preenchimento no documento", () => {
       const html = renderToStaticMarkup(
         createElement(AnamnesisReviewView, {
           orgSlug: "clinica-teste",
@@ -124,13 +124,11 @@ describe("Anamnesis Review & Medical Approval (#271)", () => {
         }),
       );
 
-      expect(html).toContain(
-        "Sugestão gerada por IA — requer validação médica",
-      );
-      expect(html).toContain('data-testid="ai-suggestion-banner"');
-      expect(html).toContain(
-        "requer leitura atenta, correções e validação formal",
-      );
+      // O documento é gerado ao finalizar o atendimento; o profissional
+      // revisa, não preenche, então nenhum aviso de "sugestão" aparece.
+      expect(html).not.toContain("Sugestão gerada por IA");
+      expect(html).not.toContain("requer validação médica");
+      expect(html).not.toContain('data-testid="ai-suggestion-banner"');
       expect(html).not.toContain('data-testid="verified-stamp-banner"');
     });
 

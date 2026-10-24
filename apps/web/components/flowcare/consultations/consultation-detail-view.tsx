@@ -10,6 +10,7 @@ import {
   ExternalLink,
   FileCheck,
   FileText,
+  Loader2,
   Mic,
   NotebookPen,
   ShieldAlert,
@@ -18,6 +19,9 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useState } from "react";
+import { toast } from "sonner";
+import { generateDocumentAction } from "@/app/app/[orgSlug]/consultations/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -60,10 +64,48 @@ export function ConsultationDetailView({
   const searchParams = useSearchParams();
 
   // Validate active tab
+  const isApproved = consultation.anamnesisStatus === "APPROVED";
+  const [documentReady, setDocumentReady] = useState(
+    isApproved ||
+      Boolean(
+        (consultation.anamnesisDraft as { __generatedAt?: string } | null)
+          ?.__generatedAt,
+      ),
+  );
+  const [isFinishing, setIsFinishing] = useState(false);
+
+  const handleFinishAttendance = async () => {
+    if (isFinishing) return;
+    setIsFinishing(true);
+    try {
+      const result = await generateDocumentAction(orgSlug, consultation.id);
+      if (!result.success) {
+        toast.error(
+          result.error ?? "Não foi possível finalizar o atendimento.",
+        );
+        return;
+      }
+      setDocumentReady(true);
+      handleTabChange("review");
+      const empty = result.emptyBlocks ?? [];
+      toast.success(
+        empty.length > 0
+          ? `Documento gerado. Sem informação em: ${empty.join(", ")}.`
+          : "Documento gerado a partir do seu registro e da gravação.",
+      );
+    } finally {
+      setIsFinishing(false);
+    }
+  };
+
   const validTabs = ["overview", "anamnesis", "review"];
   const currentTabFromUrl = searchParams.get("tab");
-  const currentTab = validTabs.includes(currentTabFromUrl || "")
-    ? (currentTabFromUrl as string)
+  const requestedTab =
+    currentTabFromUrl === "review" && !documentReady
+      ? "anamnesis"
+      : currentTabFromUrl;
+  const currentTab = validTabs.includes(requestedTab || "")
+    ? (requestedTab as string)
     : validTabs.includes(activeTab)
       ? activeTab
       : "overview";
@@ -174,8 +216,26 @@ export function ConsultationDetailView({
             </div>
           </div>
 
-          {/* Shortcut action button */}
-          <div className="flex items-center gap-2">
+          {/* Ações: finalizar (gera o documento) e atalho do fluxo */}
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {!isApproved && (
+              <Button
+                type="button"
+                className="gap-2 shadow-sm"
+                onClick={handleFinishAttendance}
+                disabled={isFinishing}
+                data-testid="finish-attendance-button"
+              >
+                {isFinishing ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="size-4" />
+                )}
+                <span>
+                  {isFinishing ? "Finalizando…" : "Finalizar atendimento"}
+                </span>
+              </Button>
+            )}
             {consultation.anamnesisStatus === "APPROVED" ? (
               <Button asChild className="gap-2 shadow-sm" variant="outline">
                 <Link
