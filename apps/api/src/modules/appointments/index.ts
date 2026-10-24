@@ -1,7 +1,10 @@
 import { Elysia, status } from "elysia";
 import type { PrismaClient } from "../../generated/prisma/client";
 import { authPlugin } from "../../plugins/auth";
-import { organizationAccessPlugin } from "../../plugins/organization-access";
+import {
+  canReadAllAgenda,
+  organizationAccessPlugin,
+} from "../../plugins/organization-access";
 import * as m from "./model";
 import { AppointmentsService } from "./service";
 
@@ -142,7 +145,14 @@ export function appointmentsModule(deps: {
         .get(
           "",
           ({ organizationAccess, query }) =>
-            service.list(organizationAccess.organizationId, query),
+            service.list(organizationAccess.organizationId, {
+              ...query,
+              // "Somente meu" explícito, ou obrigatório sem permissão de ver
+              // a agenda da clínica toda.
+              ...(query.mine || !canReadAllAgenda(organizationAccess)
+                ? { professionalId: organizationAccess.userId }
+                : {}),
+            }),
           {
             params: m.organizationParams,
             query: m.listQuery,

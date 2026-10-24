@@ -56,11 +56,13 @@ const { RolesView } = await import(
   "../app/app/[orgSlug]/settings/roles/roles-view"
 );
 
-const {
-  RolesSettingsForbidden,
-  RolesSettingsError,
-  default: RolesSettingsPage,
-} = await import("../app/app/[orgSlug]/settings/roles/page");
+const { RolesSettingsForbidden, RolesSettingsError } = await import(
+  "../app/app/[orgSlug]/settings/roles/roles-states"
+);
+
+const { default: RolesSettingsPage } = await import(
+  "../app/app/[orgSlug]/settings/roles/page"
+);
 
 const originalFetch = globalThis.fetch;
 const originalApiUrl = process.env.API_INTERNAL_URL;

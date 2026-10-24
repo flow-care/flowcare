@@ -21,6 +21,8 @@ const organizationId = "11111111-1111-4111-8111-111111111111";
 function fixture() {
   let role: MembershipRole = "ADMIN";
   let status: MembershipStatus = "ACTIVE";
+  let permissions: string[] | null = null;
+  let activeMembers = 2;
   let membershipExists = true;
   let sessionExists = true;
   const queries: unknown[] = [];
@@ -33,9 +35,10 @@ function fixture() {
       findFirst: async (query: unknown) => {
         queries.push(query);
         return membershipExists
-          ? { id: "membership-a", organizationId, role, status }
+          ? { id: "membership-a", organizationId, role, status, permissions }
           : null;
       },
+      count: async () => activeMembers,
     },
   } as unknown as PrismaClient;
   const app = new Elysia()
@@ -85,6 +88,12 @@ function fixture() {
     setStatus: (value: MembershipStatus) => {
       status = value;
     },
+    setPermissions: (value: string[] | null) => {
+      permissions = value;
+    },
+    setActiveMembers: (value: number) => {
+      activeMembers = value;
+    },
     setMembership: (value: boolean) => {
       membershipExists = value;
     },
@@ -96,14 +105,25 @@ function fixture() {
 
 describe("organization access", () => {
   test("matches the fixed MVP capacity matrix", () => {
-    for (const role of ["ADMIN", "RECEPTIONIST"] as const) {
-      expect(hasOrganizationCapability(role, "patients:read_history")).toBe(
-        false,
-      );
-      expect(hasOrganizationCapability(role, "patients:attachments:read")).toBe(
-        false,
-      );
-      expect(hasOrganizationCapability(role, "consultations:read")).toBe(false);
+    // Decisão de 22/10/2026: ADMIN acumula administração e conteúdo clínico,
+    // porque é o papel do criador/dono da clínica.
+    for (const capability of [
+      "patients:read_history",
+      "patients:attachments:read",
+      "consultations:read",
+      "consultations:write",
+      "consultations:approve",
+      "documents:read",
+      "templates:read",
+    ] as const) {
+      expect(hasOrganizationCapability("ADMIN", capability)).toBe(true);
+    }
+    for (const capability of [
+      "patients:read_history",
+      "patients:attachments:read",
+      "consultations:read",
+    ] as const) {
+      expect(hasOrganizationCapability("RECEPTIONIST", capability)).toBe(false);
     }
     expect(hasOrganizationCapability("PROFESSIONAL", "team:manage")).toBe(
       false,
@@ -152,21 +172,71 @@ describe("organization access", () => {
     expect(await response.json()).toEqual({ error: { code: "NOT_FOUND" } });
   });
 
-  test("clinical actions fail closed until a resource eligibility check is supplied", async () => {
+  test("permissão personalizada decide o acesso, não o papel", async () => {
     const f = fixture();
-    f.setRole("ADMIN_PROFESSIONAL");
+    // Recepção com a permissão clínica concedida explicitamente.
+    f.setRole("RECEPTIONIST");
+    f.setPermissions(["consultations:write"]);
+    const allowed = await f.request(`${slug}/clinical`);
+    expect(allowed.status).toBe(200);
+
+    // E o inverso: profissional sem a permissão perde a rota.
+    f.setRole("PROFESSIONAL");
+    f.setPermissions(["patients:read"]);
     const denied = await f.request(`${slug}/clinical`);
     expect(denied.status).toBe(403);
     expect(await denied.json()).toEqual({
       error: { code: "PERMISSION_DENIED" },
     });
-    const approved = await resolveOrganizationAccess(
+  });
+
+  test("lista vazia volta a valer o preset do papel", async () => {
+    const f = fixture();
+    f.setRole("PROFESSIONAL");
+    f.setPermissions([]);
+    const allowed = await f.request(`${slug}/clinical`);
+    expect(allowed.status).toBe(200);
+    const blocked = await f.request(`${slug}/settings`);
+    expect(blocked.status).toBe(403);
+  });
+
+  test("clínica solo concede todas as permissões ao único membro", async () => {
+    const f = fixture();
+    f.setRole("RECEPTIONIST");
+    f.setActiveMembers(1);
+    expect((await f.request(`${slug}/settings`)).status).toBe(200);
+    expect((await f.request(`${slug}/clinical`)).status).toBe(200);
+  });
+
+  test("clínica solo deixa de valer quando entra o segundo membro", async () => {
+    const f = fixture();
+    f.setRole("RECEPTIONIST");
+    f.setActiveMembers(1);
+    expect((await f.request(`${slug}/settings`)).status).toBe(200);
+    f.setActiveMembers(2);
+    expect((await f.request(`${slug}/settings`)).status).toBe(403);
+  });
+
+  test("clinical:read_all não vem em preset nenhum e é concedida por lista", async () => {
+    const f = fixture();
+    f.setRole("ADMIN");
+    f.setActiveMembers(3);
+    const preset = await resolveOrganizationAccess(
       f.prisma,
       "user-a",
       slug,
-      "consultations:write",
-      async () => true,
+      "consultations:read",
     );
-    expect(approved.organizationId).toBe(organizationId);
+    expect(preset.permissions.has("clinical:read_all")).toBe(false);
+
+    f.setPermissions([...preset.permissions, "clinical:read_all"]);
+    const granted = await resolveOrganizationAccess(
+      f.prisma,
+      "user-a",
+      slug,
+      "consultations:read",
+    );
+    expect(granted.permissions.has("clinical:read_all")).toBe(true);
+    expect(granted.userId).toBe("user-a");
   });
 });

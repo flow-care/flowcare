@@ -8,13 +8,109 @@ import {
   type ConsultationDetail,
   ConsultationsApiError,
   completeAudioUpload,
+  generateConsultationDocument,
   getAudioPresignedUrl,
   getTranscriptionStatus,
+  saveConsultationNotes,
+  startConsultation,
   startTranscriptionJob,
   type TranscriptionJobResponse,
   type TranscriptionStatusResult,
   updateAnamnesisDraft,
 } from "@/server/consultations";
+
+export interface GenerateDocumentActionResult {
+  success: boolean;
+  document?: Record<string, string>;
+  emptyBlocks?: string[];
+  version?: number;
+  error?: string;
+}
+
+export async function generateDocumentAction(
+  orgSlug: string,
+  consultationId: string,
+): Promise<GenerateDocumentActionResult> {
+  try {
+    const result = await generateConsultationDocument(orgSlug, consultationId);
+    revalidatePath(`/app/${orgSlug}/consultations/${consultationId}`);
+    return {
+      success: true,
+      document: result.document,
+      emptyBlocks: result.emptyBlocks,
+      version: result.version,
+    };
+  } catch (error) {
+    if (error instanceof ConsultationsApiError) {
+      return { success: false, error: error.message };
+    }
+    return { success: false, error: "Não foi possível gerar o documento." };
+  }
+}
+
+export interface SaveNotesActionResult {
+  success: boolean;
+  savedAt?: string;
+  error?: string;
+  code?: string;
+}
+
+export async function saveNotesAction(
+  orgSlug: string,
+  consultationId: string,
+  input: { rich: unknown; text: string },
+): Promise<SaveNotesActionResult> {
+  try {
+    const result = await saveConsultationNotes(orgSlug, consultationId, input);
+    return { success: true, savedAt: result.notesSavedAt };
+  } catch (error) {
+    if (error instanceof ConsultationsApiError) {
+      return { success: false, error: error.message, code: error.code };
+    }
+    return { success: false, error: "Não foi possível salvar o registro." };
+  }
+}
+
+export interface StartConsultationActionResult {
+  success: boolean;
+  consultationId?: string;
+  created?: boolean;
+  error?: string;
+}
+
+/**
+ * Abre o atendimento a partir de um agendamento ou de um paciente.
+ *
+ * Devolve o id em vez de redirecionar: quem chama decide a navegação (sheet da
+ * agenda, ficha do paciente) e consegue mostrar o erro no lugar do clique.
+ */
+export async function startConsultationAction(
+  orgSlug: string,
+  input: { patientId?: string; appointmentId?: string },
+): Promise<StartConsultationActionResult> {
+  try {
+    const result = await startConsultation(orgSlug, input);
+    revalidatePath(`/app/${orgSlug}/consultations`);
+    revalidatePath(`/app/${orgSlug}/appointments`);
+    revalidatePath(`/app/${orgSlug}/dashboard`);
+    if (input.patientId) {
+      revalidatePath(`/app/${orgSlug}/patients/${input.patientId}`);
+    }
+    return {
+      success: true,
+      consultationId: result.consultation.id,
+      created: result.created,
+    };
+  } catch (error) {
+    if (error instanceof ConsultationsApiError) {
+      return { success: false, error: error.message };
+    }
+    return {
+      success: false,
+      error: "Não foi possível iniciar o atendimento. Tente novamente.",
+    };
+  }
+}
 
 export interface StartTranscriptionActionResult {
   success: boolean;

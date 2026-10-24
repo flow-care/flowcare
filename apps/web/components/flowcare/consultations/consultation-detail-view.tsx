@@ -10,13 +10,18 @@ import {
   ExternalLink,
   FileCheck,
   FileText,
+  Loader2,
   Mic,
+  NotebookPen,
   ShieldAlert,
   Stethoscope,
   User,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useState } from "react";
+import { toast } from "sonner";
+import { generateDocumentAction } from "@/app/app/[orgSlug]/consultations/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -36,6 +41,7 @@ import {
   AnamnesisStatusBadge,
   ConsultationStatusBadge,
 } from "./consultation-badges";
+import { ConsultationNotesEditor } from "./consultation-notes-editor";
 import { formatDateTime, formatScheduledAt } from "./format-date";
 
 export interface ConsultationDetailViewProps {
@@ -58,10 +64,48 @@ export function ConsultationDetailView({
   const searchParams = useSearchParams();
 
   // Validate active tab
+  const isApproved = consultation.anamnesisStatus === "APPROVED";
+  const [documentReady, setDocumentReady] = useState(
+    isApproved ||
+      Boolean(
+        (consultation.anamnesisDraft as { __generatedAt?: string } | null)
+          ?.__generatedAt,
+      ),
+  );
+  const [isFinishing, setIsFinishing] = useState(false);
+
+  const handleFinishAttendance = async () => {
+    if (isFinishing) return;
+    setIsFinishing(true);
+    try {
+      const result = await generateDocumentAction(orgSlug, consultation.id);
+      if (!result.success) {
+        toast.error(
+          result.error ?? "Não foi possível finalizar o atendimento.",
+        );
+        return;
+      }
+      setDocumentReady(true);
+      handleTabChange("review");
+      const empty = result.emptyBlocks ?? [];
+      toast.success(
+        empty.length > 0
+          ? `Documento gerado. Sem informação em: ${empty.join(", ")}.`
+          : "Documento gerado a partir do seu registro e da gravação.",
+      );
+    } finally {
+      setIsFinishing(false);
+    }
+  };
+
   const validTabs = ["overview", "anamnesis", "review"];
   const currentTabFromUrl = searchParams.get("tab");
-  const currentTab = validTabs.includes(currentTabFromUrl || "")
-    ? (currentTabFromUrl as string)
+  const requestedTab =
+    currentTabFromUrl === "review" && !documentReady
+      ? "anamnesis"
+      : currentTabFromUrl;
+  const currentTab = validTabs.includes(requestedTab || "")
+    ? (requestedTab as string)
     : validTabs.includes(activeTab)
       ? activeTab
       : "overview";
@@ -172,8 +216,26 @@ export function ConsultationDetailView({
             </div>
           </div>
 
-          {/* Shortcut action button */}
-          <div className="flex items-center gap-2">
+          {/* Ações: finalizar (gera o documento) e atalho do fluxo */}
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {!isApproved && (
+              <Button
+                type="button"
+                className="gap-2 shadow-sm"
+                onClick={handleFinishAttendance}
+                disabled={isFinishing}
+                data-testid="finish-attendance-button"
+              >
+                {isFinishing ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="size-4" />
+                )}
+                <span>
+                  {isFinishing ? "Finalizando…" : "Finalizar atendimento"}
+                </span>
+              </Button>
+            )}
             {consultation.anamnesisStatus === "APPROVED" ? (
               <Button asChild className="gap-2 shadow-sm" variant="outline">
                 <Link
@@ -221,12 +283,12 @@ export function ConsultationDetailView({
             <span>Resumo</span>
           </TabsTrigger>
           <TabsTrigger value="anamnesis" className="gap-2">
-            <Mic className="size-4" />
-            <span>Gravação</span>
+            <NotebookPen className="size-4" />
+            <span>Registro</span>
           </TabsTrigger>
           <TabsTrigger value="review" className="gap-2">
             <FileText className="size-4" />
-            <span>Revisão</span>
+            <span>Documento</span>
           </TabsTrigger>
         </TabsList>
 
@@ -465,8 +527,28 @@ export function ConsultationDetailView({
           </div>
         </TabsContent>
 
-        {/* Tab 2: Gravação (anamnesis) */}
+        {/* Tab 2: Registro — escrever livremente e, se quiser, gravar */}
         <TabsContent value="anamnesis" className="space-y-6 outline-none">
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="text-base font-semibold text-foreground">
+                Registro do atendimento
+              </h2>
+              <p className="text-xs text-muted-foreground">
+                Escreva como num documento. Gravar é opcional e pode rodar ao
+                mesmo tempo.
+              </p>
+            </div>
+            <ConsultationNotesEditor
+              orgSlug={orgSlug}
+              consultationId={consultation.id}
+              initialRich={consultation.notesRich}
+              initialText={consultation.notesText}
+              serverSavedAt={consultation.notesSavedAt}
+              readOnly={consultation.anamnesisStatus === "APPROVED"}
+            />
+          </div>
+
           <AudioAnamnesisView
             orgSlug={orgSlug}
             consultation={consultation}

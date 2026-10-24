@@ -63,7 +63,7 @@ import {
 import { formatTeamDate, getRoleBadgeConfig } from "@/lib/team-display";
 import type { MembershipRole } from "@/lib/team-members";
 import { isSoleAdminMember } from "@/lib/team-removal";
-import type { TeamInvite, TeamMember } from "@/server/team";
+import type { PermissionCatalog, TeamInvite, TeamMember } from "@/server/team";
 import {
   type CreateInviteActionResult,
   removeMemberAction,
@@ -72,6 +72,7 @@ import {
 } from "./actions";
 import { EditMemberSheet } from "./edit-member-sheet";
 import { InviteMemberSheet } from "./invite-member-sheet";
+import { MemberPermissionsSheet } from "./member-permissions-sheet";
 import { RemoveMemberDialog } from "./remove-member-dialog";
 import { useTeamNavigation } from "./team-navigation";
 
@@ -81,6 +82,8 @@ export interface TeamSettingsViewProps {
   orgSlug: string;
   initialMembers: TeamMember[];
   initialInvites: TeamInvite[];
+  permissionCatalog?: PermissionCatalog | null;
+  isSoloClinic?: boolean;
   defaultTab?: "members" | "invites";
   initialSheet?: string;
   initialMemberId?: string;
@@ -148,6 +151,8 @@ export function TeamSettingsView({
   orgSlug,
   initialMembers,
   initialInvites,
+  permissionCatalog = null,
+  isSoloClinic = false,
   defaultTab = "members",
   initialSheet,
   initialMemberId,
@@ -171,8 +176,11 @@ export function TeamSettingsView({
     (searchParams?.get("sheet") ?? initialSheet) === "invite";
   const isEditSheetOpen =
     (searchParams?.get("sheet") ?? initialSheet) === "edit";
+  const isPermissionsSheetOpen =
+    (searchParams?.get("sheet") ?? initialSheet) === "permissions";
   const editMemberId = searchParams?.get("memberId") ?? initialMemberId;
   const activeEditMember = members.find((m) => m.id === editMemberId) ?? null;
+  const activePermissionsMember = activeEditMember;
 
   const handleCloseInviteSheet = () => {
     if (searchParams) {
@@ -183,6 +191,10 @@ export function TeamSettingsView({
     } else {
       router.push(`/app/${encodeURIComponent(orgSlug)}/settings/team`);
     }
+  };
+
+  const handleClosePermissionsSheet = () => {
+    handleCloseEditSheet();
   };
 
   const handleCloseEditSheet = () => {
@@ -514,12 +526,22 @@ export function TeamSettingsView({
                           {member.email}
                         </TableCell>
                         <TableCell>
-                          <Badge
-                            variant="outline"
-                            className={roleConfig.className}
-                          >
-                            {roleConfig.label}
-                          </Badge>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <Badge
+                              variant="outline"
+                              className={roleConfig.className}
+                            >
+                              {roleConfig.label}
+                            </Badge>
+                            {member.isCustomized && (
+                              <Badge
+                                variant="outline"
+                                className="border-primary/40 bg-primary/10 text-[11px] text-primary"
+                              >
+                                Personalizado
+                              </Badge>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground">
                           {formatTeamDate(member.createdAt)}
@@ -546,6 +568,20 @@ export function TeamSettingsView({
                                 </TooltipContent>
                               </Tooltip>
                             )}
+
+                            <Button
+                              asChild
+                              variant="outline"
+                              size="sm"
+                              className="h-8 gap-1.5 px-2.5 text-xs"
+                            >
+                              <Link
+                                href={`/app/${encodeURIComponent(orgSlug)}/settings/team?sheet=permissions&memberId=${encodeURIComponent(member.id)}`}
+                              >
+                                <ShieldCheck className="size-3.5" />
+                                <span>Permissões</span>
+                              </Link>
+                            </Button>
 
                             <Button
                               asChild
@@ -750,6 +786,17 @@ export function TeamSettingsView({
         />
 
         {/* Sheet for Editing Member Role */}
+        <MemberPermissionsSheet
+          open={isPermissionsSheetOpen}
+          onOpenChange={(open) => {
+            if (!open) handleClosePermissionsSheet();
+          }}
+          orgSlug={orgSlug}
+          member={activePermissionsMember}
+          catalog={permissionCatalog}
+          isSoloClinic={isSoloClinic}
+        />
+
         <EditMemberSheet
           isOpen={isEditSheetOpen}
           onClose={handleCloseEditSheet}

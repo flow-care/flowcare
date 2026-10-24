@@ -1,6 +1,6 @@
 # ADR-002: Contrato B2B do Sintesy
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Origem histórica:** issue #13 (taxonomia anterior)
 - **Fonte vigente:** contrato da API do Flowcare + issue atual que implementar a integração
 

@@ -38,6 +38,9 @@ function fixture() {
     async signedUploadUrl(key) {
       return `https://private.example/${key}?expires=600`;
     },
+    async signedDownloadUrl(key, expiresInSeconds) {
+      return `https://private.example/${key}?expires=${expiresInSeconds}`;
+    },
   };
 
   const prisma = {

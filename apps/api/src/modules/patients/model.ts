@@ -186,6 +186,14 @@ export const patientClinicalSummary = t.Object({
   medicalNotes: t.Nullable(t.String()),
 });
 
+/** Resumo de histórico para quem não pode ver conteúdo clínico (recepção). */
+export const patientHistorySummary = t.Object({
+  totalVisits: t.Integer(),
+  lastVisitAt: t.Nullable(t.String()),
+  lastProfessionalName: t.Nullable(t.String()),
+  upcomingCount: t.Integer(),
+});
+
 export const patientOverviewResponse = t.Object({
   patient: t.Object({
     id: t.String(),
@@ -216,6 +224,7 @@ export const patientOverviewResponse = t.Object({
   clinicalAlerts: t.Optional(t.Array(t.String())),
   medicalNotes: t.Optional(t.Nullable(t.String())),
   clinicalSummary: t.Optional(patientClinicalSummary),
+  historySummary: t.Optional(patientHistorySummary),
 });
 
 export const uploadPatientAttachmentBody = t.Object(

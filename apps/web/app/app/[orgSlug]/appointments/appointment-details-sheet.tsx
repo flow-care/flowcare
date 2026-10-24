@@ -6,15 +6,16 @@ import {
   CalendarIcon,
   ClockIcon,
   FileTextIcon,
+  Loader2Icon,
   MailIcon,
   PencilIcon,
   PhoneIcon,
   PlayIcon,
   StethoscopeIcon,
   Trash2Icon,
+  UserCheckIcon,
   UserIcon,
 } from "lucide-react";
-import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -49,6 +50,7 @@ import {
   CANCELLATION_REASONS,
   type CancellationReasonType,
   canCancelAppointment,
+  canConfirmArrival,
   canEditAppointment,
   canStartAppointment,
   formatAppointmentTime,
@@ -62,7 +64,11 @@ import type {
   AppointmentDetails,
   AppointmentItem,
 } from "@/server/appointments";
-import { cancelAppointmentAction } from "./actions";
+import { startConsultationAction } from "../consultations/actions";
+import {
+  cancelAppointmentAction,
+  updateReceptionQueueStatusAction,
+} from "./actions";
 
 export interface AppointmentDetailsSheetProps {
   isOpen: boolean;
@@ -88,6 +94,33 @@ export function AppointmentDetailsSheet({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+
+  const [isStartingConsultation, setIsStartingConsultation] = useState(false);
+
+  const handleStartConsultation = async () => {
+    if (!details?.id || isStartingConsultation) return;
+    setIsStartingConsultation(true);
+    try {
+      const result = await startConsultationAction(orgSlug, {
+        appointmentId: details.id,
+      });
+      if (!result.success || !result.consultationId) {
+        toast.error(result.error ?? "Não foi possível iniciar o atendimento.");
+        return;
+      }
+      if (result.created === false) {
+        toast.info(
+          "Este atendimento já estava aberto. Continuando de onde parou.",
+        );
+      }
+      onClose();
+      router.push(
+        `/app/${orgSlug}/consultations/${result.consultationId}?tab=anamnesis`,
+      );
+    } finally {
+      setIsStartingConsultation(false);
+    }
+  };
 
   const handleOpenEdit = () => {
     if (!details?.id) return;
@@ -135,6 +168,8 @@ export function AppointmentDetailsSheet({
   >("");
   const [cancelJustification, setCancelJustification] = useState<string>("");
   const [isCanceling, setIsCanceling] = useState<boolean>(false);
+  const [isConfirmingArrival, setIsConfirmingArrival] =
+    useState<boolean>(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
 
   // Fetch full details whenever the sheet opens or appointmentId changes
@@ -227,6 +262,46 @@ export function AppointmentDetailsSheet({
     setCancelJustification("");
     setCancelError(null);
     setIsCancelDialogOpen(true);
+  };
+
+  const handleConfirmArrival = async () => {
+    if (!details || isConfirmingArrival) return;
+    setIsConfirmingArrival(true);
+
+    try {
+      const res = await updateReceptionQueueStatusAction(
+        orgSlug,
+        details.id,
+        "ARRIVED",
+        details.version ?? 0,
+      );
+
+      if (!res.success) {
+        toast.error(res.error || "Não foi possível confirmar a chegada.");
+        return;
+      }
+
+      setDetails((prev) =>
+        prev
+          ? {
+              ...prev,
+              queueStatus: res.data.queueStatus,
+              arrivedAt: res.data.arrivedAt ?? prev.arrivedAt ?? null,
+              version: res.data.version,
+            }
+          : null,
+      );
+      toast.success("Chegada confirmada. Paciente liberado para a recepção.");
+      router.refresh();
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Erro ao confirmar a chegada do paciente.",
+      );
+    } finally {
+      setIsConfirmingArrival(false);
+    }
   };
 
   const handleConfirmCancel = async () => {
@@ -379,6 +454,11 @@ export function AppointmentDetailsSheet({
     details.durationMinutes,
   );
 
+  const _queueStatus = details.queueStatus ?? "WAITING";
+  const awaitingArrival = canConfirmArrival(
+    details.queueStatus,
+    details.status,
+  );
   const canStart = canStartAppointment(userRole, details.status);
   const canCancel = canCancelAppointment(details.status);
   const canEdit = canEditAppointment(details.status);
@@ -554,13 +634,40 @@ export function AppointmentDetailsSheet({
                 </div>
                 {details.arrivedAt ? (
                   <p className="text-xs text-muted-foreground pl-6">
-                    Chegada registrada às {details.arrivedAt.slice(11, 16)}
+                    Chegada registrada às{" "}
+                    {new Date(details.arrivedAt).toLocaleTimeString("pt-BR", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
                   </p>
                 ) : (
                   <p className="text-xs text-muted-foreground pl-6">
                     Aguardando confirmação de presença na recepção.
                   </p>
                 )}
+
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {awaitingArrival ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={handleConfirmArrival}
+                      disabled={isConfirmingArrival}
+                      className="gap-1.5"
+                    >
+                      {isConfirmingArrival ? (
+                        <Loader2Icon className="size-4 animate-spin" />
+                      ) : (
+                        <UserCheckIcon className="size-4" />
+                      )}
+                      <span>
+                        {isConfirmingArrival
+                          ? "Confirmando..."
+                          : "Confirmar chegada"}
+                      </span>
+                    </Button>
+                  ) : null}
+                </div>
               </div>
             </div>
           </div>
@@ -570,15 +677,19 @@ export function AppointmentDetailsSheet({
             {/* Iniciar atendimento: only clinical roles */}
             {canStart && (
               <Button
-                asChild
+                type="button"
+                onClick={handleStartConsultation}
+                disabled={isStartingConsultation}
                 className="w-full bg-primary text-primary-foreground hover:bg-primary/90 font-medium"
               >
-                <Link
-                  href={`/app/${orgSlug}/consultations?startAppointmentId=${details.id}`}
-                >
+                {isStartingConsultation ? (
+                  <Loader2Icon className="size-4 mr-2 animate-spin" />
+                ) : (
                   <PlayIcon className="size-4 mr-2" />
-                  Iniciar atendimento
-                </Link>
+                )}
+                {isStartingConsultation
+                  ? "Abrindo atendimento..."
+                  : "Iniciar atendimento"}
               </Button>
             )}
 

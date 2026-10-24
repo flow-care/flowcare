@@ -36,6 +36,11 @@ import {
   zonedDateTimeToUtc,
 } from "@/lib/appointments";
 import { maskCpf } from "@/lib/patient-formatters";
+import {
+  isServerActionMissingError,
+  recoverFromStaleBuild,
+  STALE_BUILD_MESSAGE,
+} from "@/lib/stale-build";
 import type {
   PatientSearchResultItem,
   ProfessionalItem,
@@ -86,6 +91,7 @@ export function NewAppointmentSheet({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [conflictWarning, setConflictWarning] = useState<string | null>(null);
   const [generalError, setGeneralError] = useState<string | null>(null);
+  const [scheduleNotConfigured, setScheduleNotConfigured] = useState(false);
   const [idempotencyKey, setIdempotencyKey] = useState(() =>
     typeof crypto !== "undefined" && crypto.randomUUID
       ? crypto.randomUUID()
@@ -160,6 +166,7 @@ export function NewAppointmentSheet({
     setIsSubmitting(true);
     setConflictWarning(null);
     setGeneralError(null);
+    setScheduleNotConfigured(false);
 
     try {
       const scheduledAtUtc = zonedDateTimeToUtc(date, time, timeZone);
@@ -177,8 +184,20 @@ export function NewAppointmentSheet({
       onClose();
       onSuccess?.();
     } catch (err) {
+      if (isServerActionMissingError(err)) {
+        setGeneralError(STALE_BUILD_MESSAGE);
+        recoverFromStaleBuild();
+        return;
+      }
+
       const error = err as { code?: string; message?: string };
-      if (error?.code === "SLOT_CONFLICT") {
+      if (error?.code === "SCHEDULE_NOT_CONFIGURED") {
+        setScheduleNotConfigured(true);
+        setGeneralError(
+          error.message ||
+            "A clínica ainda não tem horário de atendimento configurado.",
+        );
+      } else if (error?.code === "SLOT_CONFLICT") {
         setConflictWarning(
           error.message ||
             "O horário selecionado conflita com outro agendamento do profissional.",
@@ -478,6 +497,14 @@ export function NewAppointmentSheet({
             >
               <AlertCircleIcon className="size-4 shrink-0 mt-0.5" />
               <span className="text-xs">{generalError}</span>
+              {scheduleNotConfigured && (
+                <Link
+                  href={`/app/${orgSlug}/settings/schedules`}
+                  className="ml-auto shrink-0 text-xs font-medium underline underline-offset-2"
+                >
+                  Configurar horários
+                </Link>
+              )}
             </div>
           )}
 

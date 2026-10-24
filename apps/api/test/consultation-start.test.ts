@@ -430,6 +430,51 @@ function createFixture() {
   };
 }
 
+describe("Clinical Consultation Start from the agenda", () => {
+  test("starts with only the appointment and resolves the patient", async () => {
+    const f = createFixture();
+
+    const res = await f.post("/organizations/clinica-a/consultations", {
+      appointmentId: appointment1ClinicAId,
+    });
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as ConsultationDetailResponse;
+    expect(body.patientId).toBe(patient1ClinicAId);
+    expect(body.appointmentId).toBe(appointment1ClinicAId);
+    expect(body.professionalId).toBe(profAId);
+    expect(body.status).toBe("IN_PROGRESS");
+  });
+
+  test("reopening the same appointment returns the existing consultation", async () => {
+    const f = createFixture();
+
+    const first = await f.post("/organizations/clinica-a/consultations", {
+      appointmentId: appointment1ClinicAId,
+    });
+    expect(first.status).toBe(201);
+    const firstBody = (await first.json()) as ConsultationDetailResponse;
+
+    const second = await f.post("/organizations/clinica-a/consultations", {
+      appointmentId: appointment1ClinicAId,
+    });
+    expect(second.status).toBe(200);
+    const secondBody = (await second.json()) as ConsultationDetailResponse;
+    expect(secondBody.id).toBe(firstBody.id);
+    expect(
+      f.consultations.filter((c) => c.appointmentId === appointment1ClinicAId),
+    ).toHaveLength(1);
+  });
+
+  test("rejects a start without patient or appointment", async () => {
+    const f = createFixture();
+
+    const res = await f.post("/organizations/clinica-a/consultations", {});
+
+    expect(res.status).toBe(400);
+  });
+});
+
 describe("Clinical Consultation Start (Issue #263)", () => {
   test("starts consultation linked to patient and appointment in same clinic with 201 Created", async () => {
     const f = createFixture();
@@ -625,10 +670,10 @@ describe("Clinical Consultation Start (Issue #263)", () => {
     expect(f.auditLogs.length).toBe(0);
   });
 
-  test("enforces RBAC on POST: RECEPTIONIST and non-clinical ADMIN receive 403 PERMISSION_DENIED", async () => {
+  test("enforces RBAC on POST: RECEPTIONIST receives 403 PERMISSION_DENIED", async () => {
     const f = createFixture();
 
-    for (const deniedRole of ["RECEPTIONIST", "ADMIN"] as const) {
+    for (const deniedRole of ["RECEPTIONIST"] as const) {
       f.setRole(deniedRole);
       const res = await f.post("/organizations/clinica-a/consultations", {
         appointmentId: appointment1ClinicAId,
@@ -647,6 +692,21 @@ describe("Clinical Consultation Start (Issue #263)", () => {
 
     expect(f.consultations.length).toBe(0);
     expect(f.auditLogs.length).toBe(0);
+  });
+
+  test("allows ADMIN (clinic owner) to start consultation with 201 Created", async () => {
+    const f = createFixture();
+    f.setRole("ADMIN");
+
+    const res = await f.post("/organizations/clinica-a/consultations", {
+      appointmentId: appointment1ClinicAId,
+      patientId: patient1ClinicAId,
+    });
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as ConsultationDetailResponse;
+    expect(body.status).toBe("IN_PROGRESS");
+    expect(f.consultations.length).toBe(1);
   });
 
   test("allows ADMIN_PROFESSIONAL to start consultation with 201 Created", async () => {
@@ -691,7 +751,7 @@ describe("Clinical Consultation Start (Issue #263)", () => {
     expect(detail.professional?.fullName).toBe("Dra. Ana Costa");
   });
 
-  test("enforces RBAC on GET by ID: RECEPTIONIST and non-clinical ADMIN receive 403 PERMISSION_DENIED", async () => {
+  test("enforces RBAC on GET by ID: RECEPTIONIST receives 403 PERMISSION_DENIED", async () => {
     const f = createFixture();
 
     // Start consultation first as PROFESSIONAL
@@ -701,8 +761,8 @@ describe("Clinical Consultation Start (Issue #263)", () => {
     });
     const created = (await createRes.json()) as ConsultationDetailResponse;
 
-    // Try accessing as RECEPTIONIST and ADMIN
-    for (const deniedRole of ["RECEPTIONIST", "ADMIN"] as const) {
+    // Try accessing as RECEPTIONIST
+    for (const deniedRole of ["RECEPTIONIST"] as const) {
       f.setRole(deniedRole);
       const res = await f.get(
         `/organizations/clinica-a/consultations/${created.id}`,

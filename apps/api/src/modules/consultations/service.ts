@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { Prisma, PrismaClient } from "../../generated/prisma/client";
 import { ApiError } from "../../lib/api-error";
+import { CLINICAL_ROLES } from "../../lib/roles";
 import { normalizePatientName } from "../patients/service";
 import type {
   AnamnesisStatus,
@@ -12,6 +13,7 @@ import type {
   ListConsultationsQuery,
   ListConsultationsResponse,
   SaveConsultationDraftBody,
+  SaveConsultationNotesBody,
   StartConsultationBody,
 } from "./model";
 
@@ -325,6 +327,10 @@ export class ConsultationsService {
       anamnesisTopicRevisionId?: string | null;
       chiefComplaint?: string | null;
       clinicalNotes?: string | null;
+      notesRich?: Prisma.JsonValue | null;
+      notesText?: string | null;
+      notesSavedAt?: Date | null;
+      notesSavedById?: string | null;
       anamnesisDraft?: Prisma.JsonValue | null;
       draftSavedAt?: Date | null;
       draftSavedById?: string | null;
@@ -365,6 +371,9 @@ export class ConsultationsService {
       anamnesisTopicRevisionId: row.anamnesisTopicRevisionId ?? null,
       chiefComplaint: row.chiefComplaint ?? null,
       clinicalNotes: row.clinicalNotes ?? null,
+      notesRich: row.notesRich ?? null,
+      notesText: row.notesText ?? null,
+      notesSavedAt: row.notesSavedAt ? row.notesSavedAt.toISOString() : null,
       anamnesisDraft: row.anamnesisDraft ?? null,
       draftSavedAt: row.draftSavedAt ? row.draftSavedAt.toISOString() : null,
       draftSavedById: row.draftSavedById ?? null,
@@ -403,6 +412,9 @@ export class ConsultationsService {
         anamnesisStatus: row.anamnesisStatus,
         chiefComplaint: row.chiefComplaint ?? null,
         clinicalNotes: row.clinicalNotes ?? null,
+        notesRich: row.notesRich ?? null,
+        notesText: row.notesText ?? null,
+        notesSavedAt: row.notesSavedAt ? row.notesSavedAt.toISOString() : null,
         anamnesisDraft: row.anamnesisDraft ?? null,
         draftSavedAt: row.draftSavedAt ? row.draftSavedAt.toISOString() : null,
         draftSavedById: row.draftSavedById ?? null,
@@ -426,36 +438,7 @@ export class ConsultationsService {
     const timeZone = await this.resolveTimeZone(organizationId);
 
     const runInTransaction = async (tx: PrismaClient) => {
-      // 1. Patient must belong to active clinic
-      const patient = await tx.patient.findFirst({
-        where: { id: body.patientId, organizationId },
-        select: { id: true, fullName: true },
-      });
-      if (!patient) {
-        throw new ApiError("NOT_FOUND", 404, "Paciente não encontrado.");
-      }
-
-      // 2. Professional is the caller, or if specified, must be an active clinical professional of the clinic
-      const professionalId = body.professionalId ?? callerUserId;
-      if (body.professionalId && body.professionalId !== callerUserId) {
-        const profMembership = await tx.membership.findFirst({
-          where: {
-            userId: professionalId,
-            organizationId,
-            status: "ACTIVE",
-            role: { in: ["PROFESSIONAL", "ADMIN_PROFESSIONAL"] },
-          },
-        });
-        if (!profMembership) {
-          throw new ApiError(
-            "NOT_FOUND",
-            404,
-            "Profissional não encontrado ou sem habilitação clínica ativa nesta organização.",
-          );
-        }
-      }
-
-      // 3. Appointment validations if provided
+      // 1. Appointment validations if provided
       let appointment: {
         id: string;
         organizationId: string;
@@ -483,7 +466,7 @@ export class ConsultationsService {
           throw new ApiError("NOT_FOUND", 404, "Agendamento não encontrado.");
         }
 
-        if (appointment.patientId !== body.patientId) {
+        if (body.patientId && appointment.patientId !== body.patientId) {
           throw new ApiError(
             "VALIDATION_ERROR",
             400,
@@ -513,6 +496,47 @@ export class ConsultationsService {
             created: false,
             consultation: this.formatConsultationDetail(existing, timeZone),
           };
+        }
+      }
+
+      // 2. Patient: o informado, ou o do agendamento.
+      const patientId = body.patientId ?? appointment?.patientId ?? null;
+      if (!patientId) {
+        throw new ApiError(
+          "VALIDATION_ERROR",
+          400,
+          "Informe o paciente ou o agendamento para iniciar o atendimento.",
+          { field: "patientId" },
+        );
+      }
+
+      const patientExists = await tx.patient.findFirst({
+        where: { id: patientId, organizationId },
+        select: { id: true },
+      });
+      if (!patientExists) {
+        throw new ApiError("NOT_FOUND", 404, "Paciente não encontrado.");
+      }
+
+      // 3. Professional: o informado, o do agendamento, ou quem está atendendo.
+      // Só valida quando é outra pessoa — quem atende já tem vínculo ativo.
+      const professionalId =
+        body.professionalId ?? appointment?.professionalId ?? callerUserId;
+      if (professionalId !== callerUserId) {
+        const profMembership = await tx.membership.findFirst({
+          where: {
+            userId: professionalId,
+            organizationId,
+            status: "ACTIVE",
+            role: { in: CLINICAL_ROLES },
+          },
+        });
+        if (!profMembership) {
+          throw new ApiError(
+            "NOT_FOUND",
+            404,
+            "Profissional não encontrado ou sem habilitação clínica ativa nesta organização.",
+          );
         }
       }
 
@@ -579,7 +603,7 @@ export class ConsultationsService {
           data: {
             organizationId,
             appointmentId: body.appointmentId ?? null,
-            patientId: body.patientId,
+            patientId,
             professionalId,
             scheduledAt,
             startedAt,
@@ -643,7 +667,7 @@ export class ConsultationsService {
           targetType: "CONSULTATION",
           targetId: createdConsultation.id,
           metadata: {
-            patientId: body.patientId,
+            patientId,
             professionalId,
             appointmentId: body.appointmentId ?? null,
             ...(body.notes ? { notes: body.notes } : {}),
@@ -673,12 +697,18 @@ export class ConsultationsService {
   async getById(
     organizationId: string,
     consultationId: string,
+    options: { professionalId?: string } = {},
   ): Promise<ConsultationDetailResponse> {
     const timeZone = await this.resolveTimeZone(organizationId);
     const consultation = await this.prisma.consultation.findFirst({
       where: {
         id: consultationId,
         organizationId,
+        // Sem `clinical:read_all`, atendimento de outro profissional é
+        // indistinguível de inexistente.
+        ...(options.professionalId
+          ? { professionalId: options.professionalId }
+          : {}),
       },
       include: {
         patient: {
@@ -705,6 +735,205 @@ export class ConsultationsService {
     return this.formatConsultationDetail(consultation, timeZone);
   }
 
+  /**
+   * Monta o documento do atendimento com IA a partir do registro livre e da
+   * transcrição (nesta ordem de prioridade), e guarda como rascunho da anamnese.
+   */
+  async generateDocument(
+    organizationId: string,
+    actorUserId: string,
+    actorRole: string,
+    consultationId: string,
+    structure: (input: {
+      notes: string;
+      transcript: string;
+      patientName?: string | null;
+      patientContext?: string | null;
+      blocks: { key: string; label: string; description?: string | null }[];
+    }) => Promise<Record<string, string>>,
+    blocks: { key: string; label: string; description?: string | null }[],
+  ): Promise<{
+    document: Record<string, string>;
+    emptyBlocks: string[];
+    sources: { notesChars: number; transcriptChars: number };
+    version: number;
+  }> {
+    const consultation = await this.prisma.consultation.findFirst({
+      where: { id: consultationId, organizationId },
+      include: {
+        patient: { select: { fullName: true, birthDate: true } },
+      },
+    });
+
+    if (!consultation) {
+      throw new ApiError("NOT_FOUND", 404, "Atendimento não encontrado.");
+    }
+
+    const isAssigned = consultation.professionalId === actorUserId;
+    const isClinicAdminProf =
+      actorRole === "ADMIN" || actorRole === "ADMIN_PROFESSIONAL";
+    if (!isAssigned && !isClinicAdminProf) {
+      throw new ApiError(
+        "PERMISSION_DENIED",
+        403,
+        "Profissional não autorizado para este atendimento.",
+      );
+    }
+
+    if (
+      consultation.anamnesisStatus === "APPROVED" ||
+      consultation.status === "COMPLETED"
+    ) {
+      throw new ApiError(
+        "DOCUMENT_STATE_CONFLICT",
+        409,
+        "Atendimento já assinado: o documento não pode mais ser gerado.",
+      );
+    }
+
+    const job = await this.prisma.transcriptionJob.findFirst({
+      where: { consultationId, text: { not: null } },
+      orderBy: { createdAt: "desc" },
+      select: { text: true },
+    });
+
+    const notes = (consultation.notesText ?? "").trim();
+    const transcript = (job?.text ?? "").trim();
+
+    if (!notes && !transcript) {
+      throw new ApiError(
+        "NOTES_EMPTY",
+        400,
+        "Escreva no registro ou grave o atendimento antes de gerar o documento.",
+      );
+    }
+
+    const age = consultation.patient?.birthDate
+      ? Math.floor(
+          (Date.now() - consultation.patient.birthDate.getTime()) /
+            (365.25 * 24 * 60 * 60 * 1000),
+        )
+      : null;
+
+    const generated = await structure({
+      notes,
+      transcript,
+      patientName: consultation.patient?.fullName ?? null,
+      patientContext: age !== null ? `${age} anos` : null,
+      blocks,
+    });
+
+    const currentDraft =
+      consultation.anamnesisDraft &&
+      typeof consultation.anamnesisDraft === "object" &&
+      !Array.isArray(consultation.anamnesisDraft)
+        ? (consultation.anamnesisDraft as Record<string, unknown>)
+        : {};
+
+    const document: Record<string, string> = {};
+    for (const block of blocks) {
+      const value = generated[block.key];
+      if (typeof value === "string" && value.trim()) {
+        document[block.key] = value.trim();
+      }
+    }
+
+    const resolved = {
+      ...currentDraft,
+      ...document,
+      __generatedAt: new Date().toISOString(),
+      __generatedSources: {
+        notesChars: notes.length,
+        transcriptChars: transcript.length,
+      },
+    };
+
+    await this.prisma.consultation.update({
+      where: { id: consultationId },
+      data: {
+        anamnesisDraft: resolved as Prisma.InputJsonValue,
+        draftSavedAt: new Date(),
+        draftSavedById: actorUserId,
+        // A queixa estruturada acompanha o documento quando vem da IA.
+        ...(document.chief_complaint
+          ? { chiefComplaint: document.chief_complaint.slice(0, 2000) }
+          : {}),
+        version: { increment: 1 },
+      },
+    });
+
+    return {
+      document,
+      emptyBlocks: blocks
+        .filter((block) => !document[block.key])
+        .map((block) => block.label),
+      sources: { notesChars: notes.length, transcriptChars: transcript.length },
+      version: consultation.version + 1,
+    };
+  }
+
+  /**
+   * Autosave do registro livre (editor rico). Não mexe na anamnese
+   * estruturada: aqui é o que o profissional escreveu durante o atendimento.
+   */
+  async saveNotes(
+    organizationId: string,
+    actorUserId: string,
+    actorRole: string,
+    consultationId: string,
+    body: SaveConsultationNotesBody,
+  ): Promise<{ notesSavedAt: string }> {
+    const consultation = await this.prisma.consultation.findFirst({
+      where: { id: consultationId, organizationId },
+      select: {
+        id: true,
+        professionalId: true,
+        anamnesisStatus: true,
+        status: true,
+      },
+    });
+
+    if (!consultation) {
+      throw new ApiError("NOT_FOUND", 404, "Atendimento não encontrado.");
+    }
+
+    const isAssigned = consultation.professionalId === actorUserId;
+    const isClinicAdminProf =
+      actorRole === "ADMIN" || actorRole === "ADMIN_PROFESSIONAL";
+    if (!isAssigned && !isClinicAdminProf) {
+      throw new ApiError(
+        "PERMISSION_DENIED",
+        403,
+        "Profissional não autorizado para este atendimento.",
+      );
+    }
+
+    if (
+      consultation.anamnesisStatus === "APPROVED" ||
+      consultation.status === "COMPLETED"
+    ) {
+      throw new ApiError(
+        "DOCUMENT_STATE_CONFLICT",
+        409,
+        "Atendimento finalizado: o registro não pode mais ser alterado.",
+        { currentStatus: consultation.status },
+      );
+    }
+
+    const savedAt = new Date();
+    await this.prisma.consultation.update({
+      where: { id: consultationId },
+      data: {
+        notesRich: body.rich as Prisma.InputJsonValue,
+        notesText: body.text,
+        notesSavedAt: savedAt,
+        notesSavedById: actorUserId,
+      },
+    });
+
+    return { notesSavedAt: savedAt.toISOString() };
+  }
+
   async saveDraft(
     organizationId: string,
     actorUserId: string,
@@ -726,7 +955,8 @@ export class ConsultationsService {
     }
 
     const isAssigned = consultation.professionalId === actorUserId;
-    const isClinicAdminProf = actorRole === "ADMIN_PROFESSIONAL";
+    const isClinicAdminProf =
+      actorRole === "ADMIN" || actorRole === "ADMIN_PROFESSIONAL";
     if (!isAssigned && !isClinicAdminProf) {
       throw new ApiError(
         "PERMISSION_DENIED",
@@ -909,7 +1139,8 @@ export class ConsultationsService {
     }
 
     const isAssigned = consultation.professionalId === actorUserId;
-    const isClinicAdminProf = actorRole === "ADMIN_PROFESSIONAL";
+    const isClinicAdminProf =
+      actorRole === "ADMIN" || actorRole === "ADMIN_PROFESSIONAL";
     if (!isAssigned && !isClinicAdminProf) {
       throw new ApiError(
         "PERMISSION_DENIED",

@@ -49,11 +49,13 @@ const { AuditLogsView } = await import(
   "../app/app/[orgSlug]/settings/audit/audit-logs-view"
 );
 
-const {
-  AuditSettingsForbidden,
-  AuditSettingsError,
-  default: AuditSettingsPage,
-} = await import("../app/app/[orgSlug]/settings/audit/page");
+const { AuditSettingsForbidden, AuditSettingsError } = await import(
+  "../app/app/[orgSlug]/settings/audit/audit-states"
+);
+
+const { default: AuditSettingsPage } = await import(
+  "../app/app/[orgSlug]/settings/audit/page"
+);
 
 const originalFetch = globalThis.fetch;
 const originalApiUrl = process.env.API_INTERNAL_URL;

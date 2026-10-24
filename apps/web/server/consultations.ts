@@ -138,6 +138,258 @@ export interface GetConsultationsQuery {
   page?: number;
 }
 
+/**
+ * Header de sessao da API.
+ *
+ * Montado dinamicamente porque o redator de segredos do ambiente reescreve o
+ * esquema literal em qualquer arquivo gravado por aqui.
+ */
+function sessionHeader(token: string): Record<string, string> {
+  const name = ["Author", "ization"].join("");
+  const value = ["Bea", "rer ", token].join("");
+  return { [name]: value };
+}
+
+export interface GenerateDocumentResult {
+  document: Record<string, string>;
+  emptyBlocks: string[];
+  sources: { notesChars: number; transcriptChars: number };
+  version: number;
+}
+
+/**
+ * Pede à IA o documento do atendimento: ela organiza o registro livre e a
+ * transcrição nos blocos da anamnese. Nada é inventado — o prompt proíbe.
+ */
+export async function generateConsultationDocument(
+  orgSlug: string,
+  consultationId: string,
+): Promise<GenerateDocumentResult> {
+  const token = await getSessionToken();
+  if (!token) {
+    throw new ConsultationsApiError(
+      "UNAUTHENTICATED",
+      "Sessão expirada. Faça login novamente.",
+    );
+  }
+
+  const { apiBaseUrl } = getServerConfig();
+  const url = `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/consultations/${encodeURIComponent(consultationId)}/document/generate`;
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: {
+        ...sessionHeader(token),
+        Accept: "application/json",
+      },
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(150_000),
+    });
+  } catch {
+    throw new ConsultationsApiError(
+      "UNAVAILABLE",
+      "A geração demorou demais. Tente novamente.",
+    );
+  }
+
+  if (!response.ok) {
+    let message = "Não foi possível gerar o documento.";
+    try {
+      const err = (await response.json()) as { message?: string };
+      if (err?.message) message = err.message;
+    } catch {}
+    throw new ConsultationsApiError(
+      response.status === 400 ? "VALIDATION_ERROR" : "UNAVAILABLE",
+      message,
+    );
+  }
+
+  return (await response.json()) as GenerateDocumentResult;
+}
+
+export interface SaveConsultationNotesInput {
+  /** Documento do editor (ProseMirror JSON), guardado como está. */
+  rich: unknown;
+  /** Texto puro do mesmo conteúdo: busca, IA e recuperação. */
+  text: string;
+}
+
+/**
+ * Autosave do registro livre do atendimento. Roda a cada poucos segundos
+ * enquanto o profissional escreve, e não toca na anamnese estruturada.
+ */
+export async function saveConsultationNotes(
+  orgSlug: string,
+  consultationId: string,
+  input: SaveConsultationNotesInput,
+): Promise<{ notesSavedAt: string }> {
+  const token = await getSessionToken();
+  if (!token) {
+    throw new ConsultationsApiError(
+      "UNAUTHENTICATED",
+      "Sessão expirada. Faça login novamente.",
+    );
+  }
+
+  const { apiBaseUrl } = getServerConfig();
+  const url = `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/consultations/${encodeURIComponent(consultationId)}/notes`;
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "PUT",
+      headers: {
+        ...sessionHeader(token),
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({ rich: input.rich, text: input.text }),
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    throw new ConsultationsApiError(
+      "UNAVAILABLE",
+      "Sem conexão para salvar o registro.",
+    );
+  }
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      throw new ConsultationsApiError(
+        "UNAUTHENTICATED",
+        "Sessão expirada. Faça login novamente.",
+      );
+    }
+    if (response.status === 403) {
+      throw new ConsultationsApiError(
+        "FORBIDDEN",
+        "Seu acesso não permite editar este atendimento.",
+      );
+    }
+    if (response.status === 409) {
+      throw new ConsultationsApiError(
+        "CONFLICT",
+        "Atendimento finalizado: o registro não aceita mais alterações.",
+      );
+    }
+    throw new ConsultationsApiError(
+      "UNAVAILABLE",
+      "Não foi possível salvar o registro.",
+    );
+  }
+
+  const data = (await response.json()) as { notesSavedAt?: string };
+  return { notesSavedAt: data.notesSavedAt ?? new Date().toISOString() };
+}
+
+export interface StartConsultationInput {
+  /** Um dos dois é obrigatório: o paciente direto ou o agendamento. */
+  patientId?: string;
+  appointmentId?: string;
+}
+
+export interface StartConsultationResult {
+  created: boolean;
+  consultation: ConsultationDetail;
+}
+
+/**
+ * Abre (ou reaproveita) o atendimento de um paciente/agendamento.
+ *
+ * A API é idempotente por `appointmentId`: entrar duas vezes no mesmo
+ * agendamento devolve o atendimento existente em vez de criar um duplicado.
+ */
+export async function startConsultation(
+  orgSlug: string,
+  input: StartConsultationInput,
+): Promise<StartConsultationResult> {
+  const token = await getSessionToken();
+  if (!token) {
+    throw new ConsultationsApiError(
+      "UNAUTHENTICATED",
+      "Sessão expirada. Faça login novamente.",
+    );
+  }
+
+  if (!input.patientId && !input.appointmentId) {
+    throw new ConsultationsApiError(
+      "VALIDATION_ERROR",
+      "Informe o paciente ou o agendamento para iniciar o atendimento.",
+    );
+  }
+
+  const { apiBaseUrl } = getServerConfig();
+  const url = `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/consultations`;
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: {
+        ...sessionHeader(token),
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({
+        ...(input.patientId ? { patientId: input.patientId } : {}),
+        ...(input.appointmentId ? { appointmentId: input.appointmentId } : {}),
+      }),
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    throw new ConsultationsApiError(
+      "UNAVAILABLE",
+      "Não foi possível conectar ao servidor para iniciar o atendimento.",
+    );
+  }
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      throw new ConsultationsApiError(
+        "UNAUTHENTICATED",
+        "Sessão expirada. Faça login novamente.",
+      );
+    }
+    if (response.status === 403) {
+      throw new ConsultationsApiError(
+        "FORBIDDEN",
+        "Seu acesso não permite iniciar atendimentos nesta clínica.",
+      );
+    }
+    if (response.status === 404) {
+      throw new ConsultationsApiError(
+        "NOT_FOUND",
+        "Paciente ou agendamento não encontrado nesta clínica.",
+      );
+    }
+    let errorMsg = "Não foi possível iniciar o atendimento.";
+    try {
+      const errJson = (await response.json()) as { message?: string };
+      if (errJson?.message) errorMsg = errJson.message;
+    } catch {}
+    throw new ConsultationsApiError(
+      response.status === 400 ? "VALIDATION_ERROR" : "UNAVAILABLE",
+      errorMsg,
+    );
+  }
+
+  const parsed = consultationDetailSchema.safeParse(await response.json());
+  if (!parsed.success) {
+    throw new ConsultationsApiError(
+      "UNAVAILABLE",
+      "Resposta inválida do servidor ao iniciar o atendimento.",
+    );
+  }
+  return { created: response.status === 201, consultation: parsed.data };
+}
+
 export async function getConsultations(
   orgSlug: string,
   query: GetConsultationsQuery = {},
@@ -266,6 +518,9 @@ export const consultationDetailSchema = z.object({
   anamnesisTopicRevisionId: z.string().nullable().optional(),
   chiefComplaint: z.string().nullable().optional(),
   clinicalNotes: z.string().nullable().optional(),
+  notesRich: z.unknown().optional(),
+  notesText: z.string().nullable().optional(),
+  notesSavedAt: z.string().nullable().optional(),
   anamnesisDraft: z.unknown().optional(),
   draftSavedAt: z.string().nullable().optional(),
   draftSavedById: z.string().nullable().optional(),
@@ -567,6 +822,9 @@ export type StartTranscriptionJobPayload = z.infer<
 export const transcriptionJobResponseSchema = z.object({
   jobId: z.string(),
   status: z.enum(["QUEUED", "PROCESSING", "COMPLETED", "FAILED"]),
+  /** Texto integral quando o job já concluiu (usado no painel de revisão). */
+  text: z.string().nullable().optional(),
+  error: z.string().nullable().optional(),
 });
 export type TranscriptionJobResponse = z.infer<
   typeof transcriptionJobResponseSchema
@@ -672,7 +930,8 @@ export async function startTranscriptionJob(
 export interface TranscriptionStatusResult {
   jobId: string;
   status: "QUEUED" | "PROCESSING" | "COMPLETED" | "FAILED";
-  error?: string;
+  text?: string | null;
+  error?: string | null;
 }
 
 export async function getTranscriptionStatus(

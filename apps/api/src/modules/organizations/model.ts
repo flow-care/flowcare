@@ -26,6 +26,18 @@ export const organizationItem = t.Object({
     t.Literal("RECEPTIONIST"),
   ]),
   status: t.Literal("ACTIVE"),
+  /** Preset normalizado do vínculo (ADMIN, PROFESSIONAL, RECEPTIONIST). */
+  preset: t.Optional(
+    t.Union([
+      t.Literal("ADMIN"),
+      t.Literal("PROFESSIONAL"),
+      t.Literal("RECEPTIONIST"),
+    ]),
+  ),
+  /** Permissões efetivas do membro nesta clínica. */
+  permissions: t.Optional(t.Array(t.String())),
+  /** Clínica solo: o único membro ativo tem todas as permissões. */
+  isSoloClinic: t.Optional(t.Boolean()),
 });
 
 export const organizationsResponse = t.Object({

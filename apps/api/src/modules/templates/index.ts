@@ -1,5 +1,6 @@
 import { Elysia } from "elysia";
 import type { PrismaClient } from "../../generated/prisma/client";
+import { isClinicalRole } from "../../lib/roles";
 import { authPlugin } from "../../plugins/auth";
 import {
   type OrganizationAccess,
@@ -10,27 +11,11 @@ import { Unauthenticated } from "../auth/errors";
 import * as m from "./model";
 import { TemplatesService } from "./service";
 
-async function defaultClinicalEligibility(
-  context: OrganizationAccess,
-  capability: OrganizationCapability,
-): Promise<boolean> {
-  return (
-    (capability === "templates:read" || capability === "templates:write") &&
-    (context.role === "ADMIN_PROFESSIONAL" || context.role === "PROFESSIONAL")
-  );
-}
-
 export function templatesModule(deps: {
   prisma: PrismaClient;
   jwtSecret: string;
-  clinicalEligibility?: (
-    context: OrganizationAccess,
-    capability: OrganizationCapability,
-  ) => Promise<boolean>;
 }) {
   const service = new TemplatesService(deps.prisma);
-  const clinicalEligibility =
-    deps.clinicalEligibility ?? defaultClinicalEligibility;
 
   return new Elysia({ name: "templates" })
     .use(authPlugin(deps))
@@ -38,7 +23,6 @@ export function templatesModule(deps: {
       organizationAccessPlugin({
         prisma: deps.prisma,
         jwtSecret: deps.jwtSecret,
-        clinicalEligibility,
       }),
     )
     .get(

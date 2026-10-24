@@ -255,6 +255,23 @@ export function formatAppointmentTime(
   return `${time} – ${endTime}`;
 }
 
+/**
+ * Confirmar chegada só faz sentido para quem ainda não chegou e para um
+ * agendamento que ainda vai acontecer. Sem isso o detalhe mostra
+ * "Aguardando confirmação de presença" sem nenhuma ação possível.
+ */
+export function canConfirmArrival(
+  queueStatus: string | null | undefined,
+  appointmentStatus: string,
+): boolean {
+  const queue = (queueStatus ?? "WAITING").toUpperCase();
+  return (
+    queue === "WAITING" &&
+    appointmentStatus !== "CANCELLED" &&
+    appointmentStatus !== "COMPLETED"
+  );
+}
+
 export function formatQueueStatus(status?: string | null): string {
   switch (status) {
     case "WAITING":
@@ -278,7 +295,12 @@ export function canStartAppointment(
   userRole?: string,
   appointmentStatus?: string,
 ): boolean {
-  if (userRole !== "ADMIN_PROFESSIONAL" && userRole !== "PROFESSIONAL") {
+  // ADMIN acumula o grupo clínico (quem cria a clínica atende e controla tudo).
+  if (
+    userRole !== "ADMIN" &&
+    userRole !== "ADMIN_PROFESSIONAL" &&
+    userRole !== "PROFESSIONAL"
+  ) {
     return false;
   }
   if (!appointmentStatus) return true;

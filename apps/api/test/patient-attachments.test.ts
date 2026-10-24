@@ -673,8 +673,8 @@ describe("#253 private patient attachments", () => {
     );
     expect(crossIdArchive.status).toBe(404);
 
-    // 3. Non-clinical ADMIN and RECEPTIONIST in Clinic A are denied with 403 PERMISSION_DENIED
-    for (const userId of ["user-admin-a", "user-recep-a"]) {
+    // 3. RECEPTIONIST in Clinic A is denied with 403 PERMISSION_DENIED
+    for (const userId of ["user-recep-a"]) {
       const listDenied = await request(
         "/organizations/clinica-a/patients/patient-clinic-a/attachments",
         { userId },

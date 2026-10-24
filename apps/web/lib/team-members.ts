@@ -51,6 +51,50 @@ export const updateMemberRoleSchema = z.object({
 
 export type UpdateMemberRoleInput = z.infer<typeof updateMemberRoleSchema>;
 
+export const PRESETS = ["ADMIN", "PROFESSIONAL", "RECEPTIONIST"] as const;
+export type Preset = (typeof PRESETS)[number];
+
+export const PRESET_LABELS: Record<Preset, string> = {
+  ADMIN: "Admin",
+  PROFESSIONAL: "Profissional",
+  RECEPTIONIST: "Recepção",
+};
+
+/**
+ * Personalização das permissões: lista completa ou troca de preset.
+ * `permissions: []` e `preset` restore restauram a predefinição.
+ */
+export const updateMemberPermissionsSchema = z.object({
+  permissions: z.array(z.string()).max(64).optional(),
+  preset: z.enum(PRESETS).optional(),
+  version: z
+    .number()
+    .int("A versão deve ser um número inteiro.")
+    .min(1, "A versão do registro deve ser maior ou igual a 1."),
+});
+
+export type UpdateMemberPermissionsInput = z.infer<
+  typeof updateMemberPermissionsSchema
+>;
+
+/** Permissões que dão acesso ao prontuário de outra pessoa. */
+export const SENSITIVE_PERMISSION = "clinical:read_all";
+
+export const SENSITIVE_PERMISSION_WARNING =
+  "Com esta permissão a pessoa vê o prontuário, os documentos e os anexos de todos os profissionais — inclusive de pacientes que não são dela. A concessão fica registrada na auditoria.";
+
+export function describePermissionImpact(
+  before: readonly string[],
+  after: readonly string[],
+): { granted: string[]; revoked: string[] } {
+  const beforeSet = new Set(before);
+  const afterSet = new Set(after);
+  return {
+    granted: after.filter((permission) => !beforeSet.has(permission)),
+    revoked: before.filter((permission) => !afterSet.has(permission)),
+  };
+}
+
 export interface RoleChangeImpact {
   hasChanged: boolean;
   gainedAdmin: boolean;

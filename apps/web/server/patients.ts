@@ -442,6 +442,15 @@ export type PatientConsultationOverview = z.infer<
   typeof patientConsultationOverviewSchema
 >;
 
+export const patientHistorySummarySchema = z.object({
+  totalVisits: z.number(),
+  lastVisitAt: z.string().nullable().optional(),
+  lastProfessionalName: z.string().nullable().optional(),
+  upcomingCount: z.number().optional(),
+});
+
+export type PatientHistorySummary = z.infer<typeof patientHistorySummarySchema>;
+
 export const patientOverviewSchema = z.object({
   patient: patientDetailSchema,
   contact: z
@@ -484,6 +493,8 @@ export const patientOverviewSchema = z.object({
   upcomingAppointments: z.array(patientAppointmentOverviewSchema).default([]),
   recentConsultations: z.array(patientConsultationOverviewSchema).default([]),
   isRestricted: z.boolean().default(false),
+  /** Resumo do histórico sem conteúdo clínico (datas, profissional, tipo). */
+  historySummary: patientHistorySummarySchema.optional(),
 });
 
 export type PatientOverview = z.infer<typeof patientOverviewSchema>;
@@ -635,6 +646,7 @@ export async function getPatientOverview(
   )
     ? (rawData.clinicalAlerts as string[])
     : patient.clinicalAlerts;
+  let historySummary: PatientHistorySummary | undefined;
   let medicalNotes: string | null =
     (typeof rawData.medicalNotes === "string" ? rawData.medicalNotes : null) ??
     patient.medicalNotes ??
@@ -728,6 +740,25 @@ export async function getPatientOverview(
                 clinicalAlerts = ovData.clinicalAlerts as string[];
               if (typeof ovData.medicalNotes === "string")
                 medicalNotes = ovData.medicalNotes;
+              if (
+                ovData.historySummary &&
+                typeof ovData.historySummary === "object"
+              ) {
+                const hs = ovData.historySummary as Record<string, unknown>;
+                historySummary = {
+                  totalVisits: Number(hs.totalVisits ?? 0),
+                  lastVisitAt:
+                    typeof hs.lastVisitAt === "string" ? hs.lastVisitAt : null,
+                  lastProfessionalName:
+                    typeof hs.lastProfessionalName === "string"
+                      ? hs.lastProfessionalName
+                      : null,
+                  upcomingCount:
+                    hs.upcomingCount !== undefined
+                      ? Number(hs.upcomingCount)
+                      : undefined,
+                };
+              }
               if (
                 Array.isArray(ovData.upcomingAppointments) &&
                 upcomingAppointments.length === 0
@@ -853,6 +884,7 @@ export async function getPatientOverview(
     upcomingAppointments,
     recentConsultations,
     isRestricted,
+    ...(historySummary ? { historySummary } : {}),
   };
 }
 

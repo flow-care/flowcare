@@ -20,7 +20,7 @@ describe("clinical documents permissions", () => {
   });
 
   test("blocks non-clinical roles from accessing documents", () => {
-    expect(canOpenSection("ADMIN", "documents")).toBe(false);
+    expect(canOpenSection("ADMIN", "documents")).toBe(true);
     expect(canOpenSection("RECEPTIONIST", "documents")).toBe(false);
   });
 });

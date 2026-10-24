@@ -1,5 +1,6 @@
 import type { PrismaClient } from "../../generated/prisma/client";
 import { ApiError } from "../../lib/api-error";
+import { CLINICAL_ROLES } from "../../lib/roles";
 import { recordAuditEvent } from "../../services/audit-logger";
 import type { ExceptionBody, WeeklyBody } from "./model";
 
@@ -145,7 +146,7 @@ export class ScheduleService {
           organizationId,
           userId: body.professionalId,
           status: "ACTIVE",
-          role: { in: ["PROFESSIONAL", "ADMIN_PROFESSIONAL"] },
+          role: { in: CLINICAL_ROLES },
         },
         select: { id: true },
       });

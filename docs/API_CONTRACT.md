@@ -697,11 +697,11 @@ O identificador `revisionId` da versão vigente deve ser armazenado pela futura 
 
 #### `POST /organizations/:orgSlug/consultations` (alias: `POST /organizations/:orgSlug/consultations/start`)
 * **Descrição:** Inicia uma nova consulta clínica vinculada a paciente e, opcionalmente, a um agendamento prévio (ou atendimento avulso/walk-in), prevenindo duplicidade de consultas para o mesmo agendamento e garantindo isolamento multi-tenant estrito. Caso já exista um atendimento ativo para o agendamento informado, a operação é idempotente e retorna o atendimento existente (`200 OK`) sem duplicar registros ou auditoria. Quando vinculado a um agendamento em estado `CONFIRMED` ou `RESERVED`, transiciona o agendamento para `IN_PROGRESS` (e fila para `IN_SERVICE`). Grava `CONSULTATION_STARTED` em `AuditLog` na mesma transação.
-* **Permissão:** `consultations:write` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL`). Papéis exclusivamente administrativos (`ADMIN` sem atuação clínica e `RECEPTIONIST`) são recusados com `403 PERMISSION_DENIED`.
+* **Permissão:** `consultations:write` (presets Admin, Profissional e quem tiver a permissão concedida). `RECEPTIONIST` sem a permissão recebe `403 PERMISSION_DENIED`.
 * **Body:**
   ```json
   {
-    "patientId": "<uuid>",
+    "patientId": "<uuid opcional quando appointmentId é informado>",
     "appointmentId": "<uuid opcional>",
     "scheduledAt": "2026-10-15T13:00:00.000Z",
     "notes": "Observações iniciais do atendimento",
@@ -709,13 +709,15 @@ O identificador `revisionId` da versão vigente deve ser armazenado pela futura 
   }
   ```
 * **Validações e regras:**
+  * É obrigatório informar `patientId` **ou** `appointmentId`; sem nenhum dos dois a resposta é `400 VALIDATION_ERROR` (`details.field: "patientId"`).
+  * Quando só o `appointmentId` é informado, o paciente é resolvido pelo agendamento — é o caminho "Iniciar atendimento" da agenda.
   * O paciente deve pertencer à clínica ativa (`404 NOT_FOUND` se inexistente ou de outra clínica).
   * Se `appointmentId` for informado:
     * O agendamento deve pertencer à clínica ativa (`404 NOT_FOUND` se inexistente ou de outra clínica).
-    * O `patientId` do agendamento deve coincidir com o `patientId` informado (`400 VALIDATION_ERROR` com `details.field: "patientId"`).
+    * Se `patientId` também for informado, precisa coincidir com o do agendamento (`400 VALIDATION_ERROR` com `details.field: "patientId"`).
     * Se já existir consulta ativa para este agendamento, responde `200 OK` com o registro existente.
     * Agendamento em estado `CONFIRMED` ou `RESERVED` é atualizado para `status: "IN_PROGRESS"` (e `queueStatus: "IN_SERVICE"` caso esteja na fila).
-  * O profissional responsável é o usuário autenticado (`auth.userId`), ou o profissional especificado caso possua vínculo clínico ativo na clínica.
+  * O profissional responsável é, nesta ordem: o `professionalId` informado, o profissional do agendamento, ou o usuário autenticado (`auth.userId`). Qualquer um diferente de quem chama precisa ter vínculo clínico ativo na clínica.
   * Define `startedAt: new Date()`, `status: "IN_PROGRESS"`, `anamnesisStatus: "PENDING"`, `version: 0`.
   * Na mesma transação, registra `AuditLog` (`action: "CONSULTATION_STARTED"`, `targetType: "CONSULTATION"`, `targetId: consultation.id`, `metadata: { patientId, professionalId, appointmentId, notes }`).
 * **Respostas:** `201 Created` (para novo atendimento) ou `200 OK` (caso já exista consulta ativa vinculada ao agendamento), `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 MEMBERSHIP_INACTIVE`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`.
@@ -741,14 +743,19 @@ O identificador `revisionId` da versão vigente deve ser armazenado pela futura 
 * **Respostas:** `200 OK` (`{ "audioId": "<uuid>", "status": "UPLOADED" }`), `400 VALIDATION_ERROR`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`, `422 BUSINESS_RULE_VIOLATION`.
 
 #### `POST /organizations/:orgSlug/consultations/:consultationId/transcribe`
-* **Descrição:** Dispara o processamento da transcrição e geração automática da minuta de anamnese por IA.
+* **Descrição:** Dispara a transcrição do áudio e a estruturação automática da minuta de anamnese. O áudio é enviado ao provedor por URL assinada e temporária; o texto integral é persistido no job e os tópicos extraídos são gravados em `anamnesisDraft` (somente quando a anamnese ainda está `PENDING`, nunca sobre rascunho editado ou anamnese aprovada). Com `SINTESEY_MODE=mock` o provedor é simulado.
 * **Permissão:** `consultations:write`.
 * **Cabeçalho Obrigatório:** `Idempotency-Key`
-* **Respostas:** `202 Accepted` (`{ "jobId": "job_tx_88", "status": "PROCESSING" }`).
+* **Respostas:** `202 Accepted` (`{ "jobId": "job_tx_88", "status": "PROCESSING" }`), `403 PERMISSION_DENIED`, `404 NOT_FOUND`, `422 BUSINESS_RULE_VIOLATION` (sem áudio com consentimento).
+
+#### `GET /organizations/:orgSlug/consultations/:consultationId/transcription`
+* **Descrição:** Consulta o job de transcrição mais recente da consulta. É o endpoint de polling da interface: devolve o estado atual e, quando `COMPLETED`, o texto integral para conferência antes da aprovação da anamnese.
+* **Permissão:** `consultations:read`.
+* **Respostas:** `200 OK` (`{ "jobId": "<uuid>", "status": "QUEUED|PROCESSING|COMPLETED|FAILED", "text": "…"|null, "error": null|"motivo da falha" }`), `403 PERMISSION_DENIED`, `404 NOT_FOUND` (consulta inexistente ou nenhuma transcrição solicitada).
 
 #### `PATCH /organizations/:orgSlug/consultations/:consultationId/draft`
 * **Descrição:** Salva edições no rascunho da anamnese médica com controle de versão e concorrência otimista. Possui aliases em `PUT /organizations/:orgSlug/consultations/:consultationId/draft` e `PATCH`/`PUT /organizations/:orgSlug/consultations/:consultationId/anamnesis/draft`.
-* **Permissão:** `consultations:write` (`PROFESSIONAL` e `ADMIN_PROFESSIONAL` autorizados/atribuídos).
+* **Permissão:** `consultations:write` (`ADMIN`, `ADMIN_PROFESSIONAL`, `PROFESSIONAL` autorizados/atribuídos).
 * **Body:** `{ "version": 3, "chiefComplaint": "Dor de cabeça persistente", "clinicalNotes": "...", "topics": { "hda": "...", "antecedentes": "..." } }` (topics aceita objeto chave-valor ou lista `[{ "key": "...", "value": "..." }]`).
 * **Respostas:** `200 OK` (dados da consulta atualizados com nova `version`, `anamnesisStatus: "DRAFT"`, `chiefComplaint`, `clinicalNotes`, `anamnesisDraft`), `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 PERMISSION_DENIED`, `404 NOT_FOUND`, `409 VERSION_CONFLICT`, `409 DOCUMENT_STATE_CONFLICT`.
 

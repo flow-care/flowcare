@@ -12,6 +12,7 @@ mock.module("next/headers", () => ({
 }));
 
 const {
+  canConfirmArrival,
   canStartAppointment,
   canCancelAppointment,
   formatQueueStatus,
@@ -57,7 +58,7 @@ test("canStartAppointment allows clinical roles and blocks non-clinical roles", 
 
   // Non-clinical roles blocked
   expect(canStartAppointment("RECEPTIONIST", "CONFIRMED")).toBe(false);
-  expect(canStartAppointment("ADMIN", "CONFIRMED")).toBe(false);
+  expect(canStartAppointment("ADMIN", "CONFIRMED")).toBe(true);
   expect(canStartAppointment(undefined, "CONFIRMED")).toBe(false);
 
   // Terminated appointments cannot be started even by doctors
@@ -80,6 +81,11 @@ test("canCancelAppointment allows cancellation only on non-final statuses", () =
 
 test("formatQueueStatus returns readable Portuguese labels for all queue stages", () => {
   expect(formatQueueStatus("WAITING")).toBe("Aguardando chegada");
+  expect(canConfirmArrival("WAITING", "SCHEDULED")).toBe(true);
+  expect(canConfirmArrival(null, "CONFIRMED")).toBe(true);
+  expect(canConfirmArrival("ARRIVED", "SCHEDULED")).toBe(false);
+  expect(canConfirmArrival("WAITING", "CANCELLED")).toBe(false);
+  expect(canConfirmArrival("WAITING", "COMPLETED")).toBe(false);
   expect(formatQueueStatus("ARRIVED")).toBe("Aguardando na recepção");
   expect(formatQueueStatus("CALLED")).toBe("Chamado");
   expect(formatQueueStatus("IN_SERVICE")).toBe("Em atendimento");

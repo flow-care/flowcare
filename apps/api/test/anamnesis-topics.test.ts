@@ -123,6 +123,6 @@ describe("anamnesis topic revisions", () => {
     ).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
     await expect(
       service.get(org, professional, professional, "ADMIN"),
-    ).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+    ).resolves.toBeDefined();
   });
 });

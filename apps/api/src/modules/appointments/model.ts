@@ -69,6 +69,8 @@ export const listQuery = t.Object({
   startDate: date,
   endDate: date,
   professionalId: t.Optional(uuid),
+  /** "Somente meu": força o profissional do usuário da sessão. */
+  mine: t.Optional(t.BooleanString()),
   status: t.Optional(appointmentStatus),
   limit: t.Optional(t.Integer({ minimum: 1, maximum: 100, default: 50 })),
   cursor: t.Optional(uuid),

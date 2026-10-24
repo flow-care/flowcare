@@ -116,7 +116,14 @@ export async function getDocuments(
       signal: AbortSignal.timeout(10_000),
     });
 
-    if (!response.ok) return null;
+    if (!response.ok) {
+      // Sem isto a página só mostra "falha ao comunicar com o servidor": o
+      // status real (403 de permissão, 5xx da API) ficaria invisível.
+      console.error(
+        `[documents] GET /organizations/${orgSlug}/documents respondeu ${response.status}`,
+      );
+      return null;
+    }
 
     const json = await response.json();
     const parsed = listDocumentsResponseSchema.safeParse(json);

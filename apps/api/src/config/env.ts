@@ -30,6 +30,17 @@ export interface Env {
   storageRegion?: string;
   storageAccessKeyId?: string | null;
   storageSecretAccessKey?: string | null;
+  /** Transcrição: "mock" mantém o provedor simulado; "live" fala com o Sintesy. */
+  sintesyMode?: "mock" | "live";
+  sintesyBaseUrl?: string;
+  sintesyB2bApiKey?: string | null;
+  /** Segredo do parceiro usado para validar `X-Sintesy-Signature`. */
+  sintesyWebhookSecret?: string | null;
+  sintesyCostPerMinCents?: number;
+  /** Extração de tópicos da anamnese (gateway OpenAI-compatible). */
+  gorouterBaseUrl?: string | null;
+  gorouterApiKey?: string | null;
+  gorouterModel?: string | null;
 }
 
 function required(name: string): string {
@@ -73,6 +84,47 @@ export function loadEnv(): Env {
   const storageSecretAccessKey =
     process.env.STORAGE_SECRET_ACCESS_KEY?.trim() || null;
   const storageRegion = optional("STORAGE_REGION", "auto");
+  // Atenção ao nome histórico da variável de produção: SINTESEY_* (com "E"),
+  // mantido para não quebrar o .env do servidor. SINTESY_* também é aceito.
+  const sintseyB2bApiKey =
+    process.env.SINTESEY_B2B_API_KEY?.trim() ||
+    process.env.SINTESY_B2B_API_KEY?.trim() ||
+    null;
+  const sintesyBaseUrl =
+    process.env.SINTESEY_BASE_URL?.trim() ||
+    process.env.SINTESY_BASE_URL?.trim() ||
+    "https://api.sintesy.me";
+  const sintesyModeRaw = (
+    process.env.SINTESEY_MODE ??
+    process.env.SINTESY_MODE ??
+    "mock"
+  )
+    .trim()
+    .toLowerCase();
+  if (sintesyModeRaw !== "mock" && sintesyModeRaw !== "live") {
+    throw new Error("[boot] SINTESEY_MODE deve ser mock ou live.");
+  }
+  if (sintesyModeRaw === "live" && !sintseyB2bApiKey) {
+    throw new Error(
+      "[boot] SINTESEY_MODE=live exige SINTESEY_B2B_API_KEY configurada.",
+    );
+  }
+  const sintesyWebhookSecret =
+    process.env.SINTESEY_WEBHOOK_SECRET?.trim() ||
+    process.env.SINTESY_WEBHOOK_SECRET?.trim() ||
+    null;
+  const sintesyCostPerMinCents = Number(
+    optional("SINTESEY_COST_PER_MIN_CENTS", "0"),
+  );
+  if (!Number.isInteger(sintesyCostPerMinCents) || sintesyCostPerMinCents < 0) {
+    throw new Error(
+      "[boot] SINTESEY_COST_PER_MIN_CENTS deve ser um inteiro de centavos.",
+    );
+  }
+  const gorouterBaseUrl =
+    process.env.GOROUTER_BASE_URL?.trim().replace(/\/$/, "") || null;
+  const gorouterApiKey = process.env.GOROUTER_API_KEY?.trim() || null;
+  const gorouterModel = process.env.GOROUTER_MODEL?.trim() || null;
   const storageValues = [
     storageEndpoint,
     storageBucket,
@@ -133,5 +185,13 @@ export function loadEnv(): Env {
     storageRegion,
     storageAccessKeyId,
     storageSecretAccessKey,
+    sintesyMode: sintesyModeRaw,
+    sintesyBaseUrl,
+    sintesyB2bApiKey: sintseyB2bApiKey,
+    sintesyWebhookSecret,
+    sintesyCostPerMinCents,
+    gorouterBaseUrl,
+    gorouterApiKey,
+    gorouterModel,
   };
 }

@@ -151,8 +151,8 @@ export default async function DashboardPage({
         </div>
       )}
 
-      {/* Indicators */}
-      {metrics && (
+      {/* Indicators — cards só aparecem quando há movimento no período */}
+      {metrics && metrics.totalAppointments > 0 && (
         <>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <Card>
@@ -226,32 +226,30 @@ export default async function DashboardPage({
               </CardContent>
             </Card>
           </div>
-
-          {/* Empty state when no appointments */}
-          {metrics.totalAppointments === 0 && (
-            <Empty className="rounded-xl border border-dashed border-border bg-card/40 py-8">
-              <EmptyMedia variant="icon">
-                <CalendarX2 className="size-5 text-muted-foreground" />
-              </EmptyMedia>
-              <EmptyHeader>
-                <EmptyTitle>Nenhum agendamento no período</EmptyTitle>
-                <EmptyDescription>
-                  Não encontramos consultas ou agendamentos cadastrados para o
-                  período selecionado.
-                </EmptyDescription>
-              </EmptyHeader>
-              <EmptyContent>
-                <Button asChild variant="outline" size="sm">
-                  <Link
-                    href={`/app/${encodeURIComponent(orgSlug)}/appointments`}
-                  >
-                    Acessar agenda
-                  </Link>
-                </Button>
-              </EmptyContent>
-            </Empty>
-          )}
         </>
+      )}
+
+      {/* Empty state: período sem movimento — nada de cards zerados */}
+      {metrics && metrics.totalAppointments === 0 && (
+        <Empty className="rounded-xl border border-dashed border-border bg-card/40 py-8">
+          <EmptyMedia variant="icon">
+            <CalendarX2 className="size-5 text-muted-foreground" />
+          </EmptyMedia>
+          <EmptyHeader>
+            <EmptyTitle>Nenhum agendamento no período</EmptyTitle>
+            <EmptyDescription>
+              Não encontramos consultas ou agendamentos cadastrados para o
+              período selecionado.
+            </EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent>
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/app/${encodeURIComponent(orgSlug)}/appointments`}>
+                Acessar agenda
+              </Link>
+            </Button>
+          </EmptyContent>
+        </Empty>
       )}
 
       {/* Quick actions */}

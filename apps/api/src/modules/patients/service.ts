@@ -497,7 +497,12 @@ export class PatientsService {
   async getOverview(
     organizationId: string,
     patientId: string,
-    options: { canReadClinicalHistory: boolean; now?: Date },
+    options: {
+      canReadClinicalHistory: boolean;
+      /** Resumo sem dado sensível (datas/profissional), para a recepção. */
+      canReadHistorySummary?: boolean;
+      now?: Date;
+    },
   ): Promise<PatientOverviewResponse> {
     const patient = (await this.prisma.patient.findFirst({
       where: { id: patientId, organizationId },
@@ -586,7 +591,15 @@ export class PatientsService {
     };
 
     if (!options.canReadClinicalHistory) {
-      return baseOverview;
+      if (!options.canReadHistorySummary) return baseOverview;
+      return {
+        ...baseOverview,
+        historySummary: await this.buildHistorySummary(
+          organizationId,
+          patient.id,
+          now,
+        ),
+      };
     }
 
     const allergies = [...(patient.allergies ?? [])];
@@ -1149,12 +1162,68 @@ export class PatientsService {
     return request.patient;
   }
 
+  /**
+   * Resumo "por cima" do histórico: quando, com quem e quantas vezes. Nada de
+   * queixa, diagnóstico, documento ou anexo.
+   */
+  private async buildHistorySummary(
+    organizationId: string,
+    patientId: string,
+    now: Date,
+  ) {
+    // Fixtures antigas não implementam `count`; ausência vira zero.
+    const canCountConsultations =
+      typeof this.prisma.consultation?.count === "function";
+    const canFindConsultations =
+      typeof this.prisma.consultation?.findFirst === "function";
+    const canCountAppointments =
+      typeof this.prisma.appointment?.count === "function";
+    const [totalVisits, lastVisit, upcomingCount] = await Promise.all([
+      canCountConsultations
+        ? this.prisma.consultation.count({
+            where: { organizationId, patientId },
+          })
+        : Promise.resolve(0),
+      canFindConsultations
+        ? this.prisma.consultation.findFirst({
+            where: { organizationId, patientId, completedAt: { not: null } },
+            orderBy: { completedAt: "desc" },
+            select: {
+              completedAt: true,
+              professional: { select: { fullName: true } },
+            },
+          })
+        : Promise.resolve(null),
+      canCountAppointments
+        ? this.prisma.appointment.count({
+            where: {
+              organizationId,
+              patientId,
+              status: { in: ["RESERVED", "CONFIRMED"] },
+              scheduledAt: { gte: now },
+            },
+          })
+        : Promise.resolve(0),
+    ]);
+
+    return {
+      totalVisits,
+      lastVisitAt: lastVisit?.completedAt?.toISOString() ?? null,
+      lastProfessionalName: lastVisit?.professional?.fullName ?? null,
+      upcomingCount,
+    };
+  }
+
   async getTimeline(
     organizationId: string,
     patientId: string,
     actorUserId: string,
     query: PatientTimelineQuery = {},
+    options: { readAll?: boolean } = {},
   ): Promise<PatientTimelineResponse> {
+    // Sem `clinical:read_all` o histórico mostra só o que é do próprio membro:
+    // consultas em que ele atendeu e documentos que ele assinou.
+    const ownOnly = !options.readAll;
     const patient = await this.prisma.patient.findFirst({
       where: { id: patientId, organizationId },
       select: { id: true },
@@ -1248,6 +1317,7 @@ export class PatientsService {
           where: {
             organizationId,
             patientId,
+            ...(ownOnly ? { professionalId: actorUserId } : {}),
             ...(startAt || endAt
               ? {
                   scheduledAt: {
@@ -1316,6 +1386,7 @@ export class PatientsService {
           where: {
             organizationId,
             patientId,
+            ...(ownOnly ? { authorId: actorUserId } : {}),
             ...(startAt || endAt
               ? {
                   createdAt: {

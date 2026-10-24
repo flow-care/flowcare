@@ -6,10 +6,14 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   ClockIcon,
+  Loader2Icon,
+  PlayIcon,
   PlusIcon,
+  UserIcon,
 } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,6 +25,7 @@ import {
 } from "@/components/ui/empty";
 import {
   addDays,
+  canStartAppointment,
   formatAppointmentTime,
   formatDateLabel,
   formatWeekRangeLabel,
@@ -32,6 +37,7 @@ import {
 import type { AppointmentItem, ProfessionalItem } from "@/server/appointments";
 import type { PendingConfirmationItem } from "@/server/confirmations";
 import type { ReceptionQueueItem } from "@/server/reception";
+import { startConsultationAction } from "../consultations/actions";
 import { AppointmentDetailsSheet } from "./appointment-details-sheet";
 import { EditAppointmentSheet } from "./edit-appointment-sheet";
 import { NewAppointmentSheet } from "./new-appointment-sheet";
@@ -52,6 +58,9 @@ interface AppointmentsScheduleProps {
   professionals?: ProfessionalItem[];
   receptionQueue?: ReceptionQueueItem[];
   receptionError?: string | null;
+  /** "mine" = filtro "Somente meu" ativo (padrão de quem vê a clínica toda). */
+  agendaScope?: "mine" | "all";
+  canSeeAllAgenda?: boolean;
 }
 
 export function AppointmentsSchedule({
@@ -68,6 +77,8 @@ export function AppointmentsSchedule({
   professionals = [],
   receptionQueue,
   receptionError,
+  agendaScope = "mine",
+  canSeeAllAgenda = false,
 }: AppointmentsScheduleProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -162,6 +173,38 @@ export function AppointmentsSchedule({
   };
 
   const isNewOpen = sheet === "new";
+
+  const [startingAppointmentId, setStartingAppointmentId] = useState<
+    string | null
+  >(null);
+
+  const handleStartConsultation = async (appointmentId: string) => {
+    if (startingAppointmentId) return;
+    setStartingAppointmentId(appointmentId);
+    try {
+      const result = await startConsultationAction(orgSlug, { appointmentId });
+      if (!result.success || !result.consultationId) {
+        toast.error(result.error ?? "Não foi possível iniciar o atendimento.");
+        return;
+      }
+      router.push(
+        `/app/${orgSlug}/consultations/${result.consultationId}?tab=anamnesis`,
+      );
+    } finally {
+      setStartingAppointmentId(null);
+    }
+  };
+
+  const showScopeToggle = view === "day" || view === "week";
+  const isMineOnly = agendaScope !== "all";
+
+  const toggleScope = () => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (isMineOnly) params.set("scope", "all");
+    else params.delete("scope");
+    const queryString = params.toString();
+    router.push(queryString ? `${pathname}?${queryString}` : pathname);
+  };
 
   const selectedAppointment = useMemo(() => {
     if (!appointmentId) return null;
@@ -259,6 +302,20 @@ export function AppointmentsSchedule({
             </div>
           )}
 
+          {showScopeToggle && canSeeAllAgenda && (
+            <Button
+              variant={isMineOnly ? "default" : "outline"}
+              size="sm"
+              onClick={toggleScope}
+              className="h-8 gap-1.5 px-3 text-xs font-medium"
+              data-testid="agenda-scope-toggle"
+              aria-pressed={isMineOnly}
+            >
+              <UserIcon className="size-3.5" />
+              Somente meu
+            </Button>
+          )}
+
           {/* View Switcher: Dia / Semana / Fila da Recepção / Confirmações */}
           <div className="flex items-center rounded-lg border border-border bg-card p-1 shadow-2xs">
             <Button
@@ -321,6 +378,9 @@ export function AppointmentsSchedule({
               {view === "day"
                 ? "Não há consultas agendadas para o dia selecionado."
                 : "Não há consultas agendadas para esta semana."}
+              {isMineOnly && canSeeAllAgenda
+                ? ' O filtro "Somente meu" está ativo — desligue para ver a clínica toda.'
+                : ""}
             </EmptyDescription>
           </EmptyHeader>
           <div className="mt-4 flex justify-center">
@@ -346,49 +406,66 @@ export function AppointmentsSchedule({
             );
 
             return (
-              <button
-                key={appointment.id}
-                type="button"
-                onClick={() => handleOpenDetails(appointment.id)}
-                className={cn(
-                  "group w-full text-left flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-xl border border-border bg-card text-card-foreground shadow-2xs hover:border-primary/50 hover:bg-accent/5 transition-all cursor-pointer",
-                  appointment.id === highlightedAppointmentId &&
-                    "ring-2 ring-primary ring-offset-2 ring-offset-background border-primary/60",
-                )}
-              >
-                <div className="flex items-start sm:items-center gap-4">
-                  <div className="flex flex-col items-center justify-center min-w-[5.5rem] px-2.5 py-1.5 rounded-lg bg-muted text-muted-foreground text-xs font-medium">
-                    <span className="font-semibold text-foreground text-sm">
-                      {appointment.localScheduledAt.slice(11, 16)}
-                    </span>
-                    <span className="text-[11px]">
-                      {appointment.durationMinutes} min
-                    </span>
+              <div key={appointment.id} className="flex items-stretch gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleOpenDetails(appointment.id)}
+                  className={cn(
+                    "group w-full text-left flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-xl border border-border bg-card text-card-foreground shadow-2xs hover:border-primary/50 hover:bg-accent/5 transition-all cursor-pointer",
+                    appointment.id === highlightedAppointmentId &&
+                      "ring-2 ring-primary ring-offset-2 ring-offset-background border-primary/60",
+                  )}
+                >
+                  <div className="flex items-start sm:items-center gap-4">
+                    <div className="flex flex-col items-center justify-center min-w-[5.5rem] px-2.5 py-1.5 rounded-lg bg-muted text-muted-foreground text-xs font-medium">
+                      <span className="font-semibold text-foreground text-sm">
+                        {appointment.localScheduledAt.slice(11, 16)}
+                      </span>
+                      <span className="text-[11px]">
+                        {appointment.durationMinutes} min
+                      </span>
+                    </div>
+
+                    <div className="flex flex-col gap-0.5">
+                      <h3 className="font-semibold text-foreground text-base group-hover:text-primary transition-colors">
+                        {appointment.patientName ?? "Paciente"}
+                      </h3>
+                      <p className="text-sm text-muted-foreground">
+                        {appointment.professionalName ?? "Profissional"}
+                      </p>
+                    </div>
                   </div>
 
-                  <div className="flex flex-col gap-0.5">
-                    <h3 className="font-semibold text-foreground text-base group-hover:text-primary transition-colors">
-                      {appointment.patientName ?? "Paciente"}
-                    </h3>
-                    <p className="text-sm text-muted-foreground">
-                      {appointment.professionalName ?? "Profissional"}
-                    </p>
+                  <div className="flex items-center gap-3 self-start sm:self-center">
+                    <span className="text-xs text-muted-foreground hidden md:inline-flex items-center gap-1">
+                      <ClockIcon className="size-3.5" />
+                      {timeRange}
+                    </span>
+                    <Badge
+                      variant={statusInfo.variant}
+                      data-status={statusInfo.key}
+                    >
+                      {statusInfo.label}
+                    </Badge>
                   </div>
-                </div>
-
-                <div className="flex items-center gap-3 self-start sm:self-center">
-                  <span className="text-xs text-muted-foreground hidden md:inline-flex items-center gap-1">
-                    <ClockIcon className="size-3.5" />
-                    {timeRange}
-                  </span>
-                  <Badge
-                    variant={statusInfo.variant}
-                    data-status={statusInfo.key}
+                </button>
+                {canStartAppointment(userRole, appointment.status) && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="shrink-0 gap-1.5 px-3 text-xs"
+                    disabled={startingAppointmentId === appointment.id}
+                    onClick={() => void handleStartConsultation(appointment.id)}
                   >
-                    {statusInfo.label}
-                  </Badge>
-                </div>
-              </button>
+                    {startingAppointmentId === appointment.id ? (
+                      <Loader2Icon className="size-3.5 animate-spin" />
+                    ) : (
+                      <PlayIcon className="size-3.5" />
+                    )}
+                    Atender
+                  </Button>
+                )}
+              </div>
             );
           })}
           <Button

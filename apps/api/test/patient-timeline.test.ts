@@ -650,7 +650,7 @@ describe("Patient Timeline (#254)", () => {
     expect(body.data[1]?.id).toBe("attachment-1");
   });
 
-  test("denies RECEPTIONIST and non-clinical ADMIN with 403 PERMISSION_DENIED", async () => {
+  test("denies RECEPTIONIST with 403 PERMISSION_DENIED", async () => {
     const { request } = setup();
 
     // RECEPTIONIST
@@ -666,24 +666,17 @@ describe("Patient Timeline (#254)", () => {
     expect(bodyRecep.error.details?.requiredPermission).toBe(
       "patients:read_history",
     );
+  });
 
-    // ADMIN without clinical profile
+  test("permits ADMIN, ADMIN_PROFESSIONAL and PROFESSIONAL", async () => {
+    const { request } = setup();
+
+    // ADMIN (dono da clínica) também lê a timeline clínica
     const resAdmin = await request(
       "/organizations/clinica-a/patients/patient-1/timeline",
       { userId: "user-admin-a" },
     );
-    expect(resAdmin.status).toBe(403);
-    const bodyAdmin = (await resAdmin.json()) as {
-      error: { code: string; details?: { requiredPermission?: string } };
-    };
-    expect(bodyAdmin.error.code).toBe("PERMISSION_DENIED");
-    expect(bodyAdmin.error.details?.requiredPermission).toBe(
-      "patients:read_history",
-    );
-  });
-
-  test("permits ADMIN_PROFESSIONAL and PROFESSIONAL", async () => {
-    const { request } = setup();
+    expect(resAdmin.status).toBe(200);
 
     // ADMIN_PROFESSIONAL
     const resAdminProf = await request(

@@ -20,6 +20,10 @@ export const teamMemberSchema = z.object({
   userName: z.string(),
   email: z.string(),
   role: membershipRoleSchema,
+  preset: z.enum(["ADMIN", "PROFESSIONAL", "RECEPTIONIST"]).optional(),
+  /** Permissões efetivas; vazio quando a API antiga não manda a lista. */
+  permissions: z.array(z.string()).default([]),
+  isCustomized: z.boolean().default(false),
   status: z.enum(["ACTIVE", "SUSPENDED", "INVITED"]).default("ACTIVE"),
   createdAt: z.string(),
   version: z.number().int(),
@@ -29,7 +33,39 @@ export type TeamMember = z.infer<typeof teamMemberSchema>;
 
 export const listMembersResponseSchema = z.object({
   data: z.array(teamMemberSchema),
+  isSoloClinic: z.boolean().optional(),
+  presetPermissions: z
+    .object({
+      ADMIN: z.array(z.string()),
+      PROFESSIONAL: z.array(z.string()),
+      RECEPTIONIST: z.array(z.string()),
+    })
+    .optional(),
 });
+
+export const permissionCatalogSchema = z.object({
+  groups: z.array(
+    z.object({
+      id: z.string(),
+      label: z.string(),
+      description: z.string(),
+      permissions: z.array(
+        z.object({
+          name: z.string(),
+          label: z.string(),
+          description: z.string(),
+        }),
+      ),
+    }),
+  ),
+  presets: z.object({
+    ADMIN: z.array(z.string()),
+    PROFESSIONAL: z.array(z.string()),
+    RECEPTIONIST: z.array(z.string()),
+  }),
+});
+
+export type PermissionCatalog = z.infer<typeof permissionCatalogSchema>;
 
 export const teamInviteSchema = z.object({
   id: z.string(),
@@ -65,6 +101,7 @@ export type CreateInviteResponse = z.infer<typeof createInviteResponseSchema>;
 export interface TeamData {
   members: TeamMember[];
   invites: TeamInvite[];
+  isSoloClinic: boolean;
 }
 
 export class TeamApiError extends Error {
@@ -174,7 +211,107 @@ export async function getTeamMembersAndInvites(
   return {
     members: parsedMembers.data.data,
     invites: parsedInvites.data.data,
+    isSoloClinic: parsedMembers.data.isSoloClinic ?? false,
   };
+}
+
+/** Catálogo de permissões (rótulos, grupos e presets) vindo da API. */
+export async function getPermissionCatalog(
+  orgSlug: string,
+): Promise<PermissionCatalog | null> {
+  const token = await getSessionToken();
+  if (!token) return null;
+  const { apiBaseUrl } = getServerConfig();
+  try {
+    const response = await fetch(
+      `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/permissions/catalog`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json",
+        },
+        cache: "no-store",
+        redirect: "error",
+        signal: AbortSignal.timeout(10_000),
+      },
+    );
+    if (!response.ok) {
+      // Não engolir o status: um 403 aqui já custou um diagnóstico inteiro.
+      console.warn(
+        `[team] GET permissions/catalog respondeu ${response.status}`,
+      );
+      return null;
+    }
+    const parsed = permissionCatalogSchema.safeParse(await response.json());
+    return parsed.success ? parsed.data : null;
+  } catch (error) {
+    console.warn("[team] falha ao carregar catálogo de permissões", error);
+    return null;
+  }
+}
+
+export async function updateMemberPermissions(
+  orgSlug: string,
+  memberId: string,
+  payload: {
+    permissions?: string[];
+    preset?: "ADMIN" | "PROFESSIONAL" | "RECEPTIONIST";
+    version: number;
+  },
+): Promise<UpdateMemberRoleResponse> {
+  const token = await getSessionToken();
+  if (!token) {
+    throw new TeamApiError(
+      "UNAUTHENTICATED",
+      "Entre novamente para continuar.",
+    );
+  }
+
+  const { apiBaseUrl } = getServerConfig();
+  let response: Response;
+  try {
+    response = await fetch(
+      `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/members/${encodeURIComponent(memberId)}/permissions`,
+      {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(payload),
+        cache: "no-store",
+        redirect: "error",
+        signal: AbortSignal.timeout(10_000),
+      },
+    );
+  } catch {
+    throw new TeamApiError(
+      "UNAVAILABLE",
+      "Não foi possível salvar as permissões. Tente novamente.",
+    );
+  }
+
+  const data: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const code =
+      (data as { error?: { code?: string } } | null)?.error?.code ??
+      "UNAVAILABLE";
+    throw new TeamApiError(
+      code,
+      (data as { error?: { message?: string } } | null)?.error?.message ??
+        "Não foi possível salvar as permissões.",
+    );
+  }
+
+  const parsed = updateMemberRoleResponseSchema.safeParse(data);
+  if (!parsed.success) {
+    throw new TeamApiError(
+      "INVALID_RESPONSE",
+      "Resposta inválida do servidor ao salvar permissões.",
+    );
+  }
+  return parsed.data;
 }
 
 export async function resendInvite(

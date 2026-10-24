@@ -4,7 +4,7 @@ import { useSearchParams } from "next/navigation";
 import { createContext, useCallback, useContext } from "react";
 import { NewClinicSheet } from "./new-clinic-sheet";
 
-type AppSheet = "new";
+type AppSheet = "new-clinic";
 const SheetContext = createContext<(sheet: AppSheet | null) => void>(() => {});
 
 export function useAppSheet() {
@@ -25,8 +25,8 @@ export function AppSheetHost({ children }: { children: React.ReactNode }) {
     <SheetContext.Provider value={setSheet}>
       {children}
       <NewClinicSheet
-        open={activeSheet === "new"}
-        onOpenChange={(open) => setSheet(open ? "new" : null)}
+        open={activeSheet === "new-clinic"}
+        onOpenChange={(open) => setSheet(open ? "new-clinic" : null)}
         onCreated={() => setSheet(null)}
       />
     </SheetContext.Provider>

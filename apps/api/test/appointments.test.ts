@@ -115,7 +115,11 @@ type StoredAppointment = {
   createdAt: Date;
 };
 
-function bookingFixture(timezone = "America/Fortaleza", exception = false) {
+function bookingFixture(
+  timezone = "America/Fortaleza",
+  exception = false,
+  emptySchedule = false,
+) {
   const appointments: StoredAppointment[] = [];
   const auditEvents: Array<Record<string, unknown>> = [];
   const requests = new Map<
@@ -247,7 +251,9 @@ function bookingFixture(timezone = "America/Fortaleza", exception = false) {
       }: {
         where: { organizationId: string; dayOfWeek: string };
       }) =>
-        where.organizationId === organizationId && where.dayOfWeek === "MONDAY"
+        !emptySchedule &&
+        where.organizationId === organizationId &&
+        where.dayOfWeek === "MONDAY"
           ? [
               {
                 startTime: "08:00",
@@ -256,6 +262,7 @@ function bookingFixture(timezone = "America/Fortaleza", exception = false) {
               },
             ]
           : [],
+      count: async () => (emptySchedule ? 0 : 1),
     },
     professionalSchedulePause: {
       findMany: async ({
@@ -760,6 +767,23 @@ describe("appointment booking (#237)", () => {
         timeZone: "America/Fortaleza",
       },
     });
+  });
+
+  test("reports a clinic without any configured schedule instead of blaming the chosen slot", async () => {
+    const f = bookingFixture("America/Fortaleza", false, true);
+
+    await expect(
+      f.service.create(organizationId, "key-no-schedule", {
+        patientId,
+        professionalId,
+        scheduledAt: "2026-10-12T11:00:00.000Z",
+        durationMinutes: 30,
+      }),
+    ).rejects.toMatchObject({
+      code: "SCHEDULE_NOT_CONFIGURED",
+      httpStatus: 409,
+      details: { reason: "SCHEDULE_NOT_CONFIGURED" },
+    } satisfies Partial<ApiError>);
   });
 
   test("enforces HTTP schema validation, idempotency header, and organization access on POST /organizations/:orgSlug/appointments", async () => {

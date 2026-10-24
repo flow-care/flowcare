@@ -91,7 +91,8 @@ export const consultationIdParams = t.Object({
 });
 
 export const startConsultationBody = t.Object({
-  patientId: uuid,
+  /** Opcional quando `appointmentId` é informado: a clínica resolve o paciente. */
+  patientId: t.Optional(uuid),
   appointmentId: t.Optional(uuid),
   scheduledAt: t.Optional(t.String()),
   notes: t.Optional(t.String({ maxLength: 5000 })),
@@ -113,6 +114,13 @@ export const saveConsultationDraftBody = t.Object({
   chiefComplaint: t.Optional(t.Nullable(t.String({ maxLength: 5000 }))),
   clinicalNotes: t.Optional(t.Nullable(t.String({ maxLength: 20000 }))),
   topics: t.Optional(anamnesisTopicsInput),
+});
+
+export const saveConsultationNotesBody = t.Object({
+  /** Documento do editor (ProseMirror JSON) — guardado como está. */
+  rich: t.Any(),
+  /** Texto puro do mesmo conteúdo, para busca e IA. */
+  text: t.String({ maxLength: 200_000 }),
 });
 
 export const approveConsultationBody = t.Object({
@@ -138,6 +146,9 @@ export const consultationDetailResponse = t.Object({
   anamnesisTopicRevisionId: t.Optional(t.Nullable(t.String())),
   chiefComplaint: t.Optional(t.Nullable(t.String())),
   clinicalNotes: t.Optional(t.Nullable(t.String())),
+  notesRich: t.Optional(t.Nullable(t.Any())),
+  notesText: t.Optional(t.Nullable(t.String())),
+  notesSavedAt: t.Optional(t.Nullable(t.String())),
   anamnesisDraft: t.Optional(t.Nullable(t.Any())),
   draftSavedAt: t.Optional(t.Nullable(t.String())),
   draftSavedById: t.Optional(t.Nullable(t.String())),
@@ -225,6 +236,14 @@ export const transcriptionResponse = t.Object({
   status: transcriptionJobStatus,
 });
 
+/** Status do job com o texto quando concluído (usado pelo polling da web). */
+export const transcriptionStatusResponse = t.Object({
+  jobId: t.String(),
+  status: transcriptionJobStatus,
+  text: t.Optional(t.Nullable(t.String())),
+  error: t.Optional(t.Nullable(t.String())),
+});
+
 export type OrgSlugParams = typeof orgSlugParams.static;
 export type ConsultationIdParams = typeof consultationIdParams.static;
 export type ConsultationStatus = typeof consultationStatus.static;
@@ -245,7 +264,10 @@ export type PrepareAudioBody = typeof prepareAudioBody.static;
 export type IdempotencyHeaders = typeof idempotencyHeaders.static;
 export type TranscriptionJobStatus = typeof transcriptionJobStatus.static;
 export type TranscriptionResponse = typeof transcriptionResponse.static;
+export type TranscriptionStatusResponse =
+  typeof transcriptionStatusResponse.static;
 export type AnamnesisTopicsInput = typeof anamnesisTopicsInput.static;
+export type SaveConsultationNotesBody = typeof saveConsultationNotesBody.static;
 export type SaveConsultationDraftBody = typeof saveConsultationDraftBody.static;
 export type ApproveConsultationBody = typeof approveConsultationBody.static;
 export type ApproveConsultationResponse =

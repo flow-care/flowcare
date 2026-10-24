@@ -1,7 +1,10 @@
 import { Elysia } from "elysia";
 import type { PrismaClient } from "../../generated/prisma/client";
+import { isClinicalRole } from "../../lib/roles";
 import { authPlugin } from "../../plugins/auth";
 import {
+  canReadAllClinical,
+  clinicalOwnerPicker,
   type OrganizationAccess,
   type OrganizationCapability,
   organizationAccessPlugin,
@@ -9,31 +12,12 @@ import {
 import * as m from "./model";
 import { DocumentsService } from "./service";
 
-async function defaultClinicalEligibility(
-  context: OrganizationAccess,
-  capability: OrganizationCapability,
-): Promise<boolean> {
-  return (
-    (capability === "documents:read" ||
-      capability === "documents:write" ||
-      capability === "documents:issue" ||
-      capability === "documents:void") &&
-    (context.role === "ADMIN_PROFESSIONAL" || context.role === "PROFESSIONAL")
-  );
-}
-
 export function documentsModule(deps: {
   prisma: PrismaClient;
   jwtSecret: string;
   pdf?: ConstructorParameters<typeof DocumentsService>[1];
-  clinicalEligibility?: (
-    context: OrganizationAccess,
-    capability: OrganizationCapability,
-  ) => Promise<boolean>;
 }) {
   const service = new DocumentsService(deps.prisma, deps.pdf);
-  const clinicalEligibility =
-    deps.clinicalEligibility ?? defaultClinicalEligibility;
 
   return new Elysia({ name: "documents" })
     .use(authPlugin(deps))
@@ -41,7 +25,6 @@ export function documentsModule(deps: {
       organizationAccessPlugin({
         prisma: deps.prisma,
         jwtSecret: deps.jwtSecret,
-        clinicalEligibility,
       }),
     )
     .group("/organizations/:orgSlug", (group) =>
@@ -49,7 +32,13 @@ export function documentsModule(deps: {
         .get(
           "/documents",
           ({ organizationAccess, query }) =>
-            service.list(organizationAccess.organizationId, query),
+            service.list(organizationAccess.organizationId, {
+              ...query,
+              // Sem `clinical:read_all`, só os documentos que ele assinou.
+              ...(canReadAllClinical(organizationAccess)
+                ? {}
+                : { authorId: organizationAccess.userId }),
+            }),
           {
             params: m.orgSlugParams,
             query: m.listDocumentsQuery,
@@ -100,6 +89,7 @@ export function documentsModule(deps: {
               organizationAccess.organizationId,
               params.documentId,
               query?.version,
+              clinicalOwnerPicker(organizationAccess),
             ),
           {
             params: m.documentIdParams,
@@ -114,6 +104,7 @@ export function documentsModule(deps: {
             const pdfBytes = await service.getPdf(
               organizationAccess.organizationId,
               params.documentId,
+              clinicalOwnerPicker(organizationAccess),
             );
             set.headers["content-type"] = "application/pdf";
             set.headers["content-disposition"] =
@@ -138,6 +129,7 @@ export function documentsModule(deps: {
               organizationAccess.organizationId,
               params.documentId,
               query,
+              clinicalOwnerPicker(organizationAccess),
             ),
           {
             params: m.documentIdParams,
@@ -153,6 +145,7 @@ export function documentsModule(deps: {
               organizationAccess.organizationId,
               params.documentId,
               params.versionId,
+              clinicalOwnerPicker(organizationAccess),
             ),
           {
             params: m.documentVersionParams,
@@ -277,6 +270,7 @@ export function documentsModule(deps: {
               organizationAccess.organizationId,
               auth.userId,
               params.documentId,
+              { canIssueOthers: canReadAllClinical(organizationAccess) },
             );
             set.status = 201;
             return result;
@@ -296,6 +290,7 @@ export function documentsModule(deps: {
               organizationAccess.role,
               params.documentId,
               body,
+              { canVoidOthers: canReadAllClinical(organizationAccess) },
             ),
           {
             params: m.documentIdParams,

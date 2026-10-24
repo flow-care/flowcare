@@ -917,13 +917,13 @@ describe("Document emission snapshot module (#274)", () => {
     };
     expect(recBody.error.code).toBe("PERMISSION_DENIED");
 
-    // ADMIN role (pure administrative, without clinical qualification) trying to prepare snapshot
+    // ADMIN (dono da clínica) acumula o papel clínico e pode preparar snapshot
     f.setRole("ADMIN");
     const adminRes = await f.request(
       "POST",
       `/organizations/clinica-a/documents/${draftA.id}/snapshot`,
     );
-    expect(adminRes.status).toBe(403);
+    expect(adminRes.status).toBe(200);
 
     // ADMIN_PROFESSIONAL role succeeds
     f.setRole("ADMIN_PROFESSIONAL");

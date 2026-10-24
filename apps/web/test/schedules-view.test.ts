@@ -52,11 +52,13 @@ const { SchedulesView } = await import(
   "../app/app/[orgSlug]/settings/schedules/schedules-view"
 );
 
-const {
-  SchedulesForbidden,
-  SchedulesError,
-  default: SchedulesSettingsPage,
-} = await import("../app/app/[orgSlug]/settings/schedules/page");
+const { SchedulesForbidden, SchedulesError } = await import(
+  "../app/app/[orgSlug]/settings/schedules/schedules-states"
+);
+
+const { default: SchedulesSettingsPage } = await import(
+  "../app/app/[orgSlug]/settings/schedules/page"
+);
 
 const originalFetch = globalThis.fetch;
 const originalApiUrl = process.env.API_INTERNAL_URL;

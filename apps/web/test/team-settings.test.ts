@@ -58,6 +58,10 @@ const {
 } = await import("../app/app/[orgSlug]/settings/team/team-settings-view");
 
 const { TeamSettingsForbidden, TeamSettingsError } = await import(
+  "../app/app/[orgSlug]/settings/team/team-states"
+);
+
+const { default: TeamSettingsPage } = await import(
   "../app/app/[orgSlug]/settings/team/page"
 );
 

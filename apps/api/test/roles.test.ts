@@ -606,7 +606,14 @@ describe("Task #316: Custom Organization Roles", () => {
     const bodyA = (await resA.json()) as ListRolesResponse;
 
     // Verify system roles in Clinic A
-    expect(bodyA.systemRoles).toHaveLength(4);
+    // Três predefinições: Admin, Profissional e Recepção (ADMIN_PROFESSIONAL
+    // deixou de existir como preset).
+    expect(bodyA.systemRoles).toHaveLength(3);
+    expect(bodyA.systemRoles.map((r) => r.role).sort()).toEqual([
+      "ADMIN",
+      "PROFESSIONAL",
+      "RECEPTIONIST",
+    ]);
     const adminRole = bodyA.systemRoles.find((r) => r.role === "ADMIN");
     expect(adminRole?.memberCount).toBe(1); // user-admin is ACTIVE ADMIN
     expect(adminRole?.isSystem).toBe(true);

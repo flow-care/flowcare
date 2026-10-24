@@ -1,39 +1,40 @@
 import { Elysia } from "elysia";
 import type { PrismaClient } from "../../generated/prisma/client";
+import { ApiError } from "../../lib/api-error";
+import { isClinicalRole } from "../../lib/roles";
 import { authPlugin } from "../../plugins/auth";
 import {
+  canReadAllClinical,
+  clinicalOwnerFilter,
   type OrganizationAccess,
   type OrganizationCapability,
   organizationAccessPlugin,
 } from "../../plugins/organization-access";
 import type { ConsultationAudioStore } from "../../services/consultation-audio-store";
+import {
+  DOCUMENT_BLOCKS,
+  type ExtractionProvider,
+} from "../../services/extraction-provider";
 import type { TranscriptionProvider } from "../../services/transcription-provider";
 import { ConsultationAudioService } from "./audio-service";
 import * as m from "./model";
 import { ConsultationsService } from "./service";
 import { ConsultationTranscriptionService } from "./transcription-service";
 
-async function defaultClinicalEligibility(
-  context: OrganizationAccess,
-  capability: OrganizationCapability,
-): Promise<boolean> {
-  return (
-    (capability === "consultations:read" ||
-      capability === "consultations:write" ||
-      capability === "consultations:approve") &&
-    (context.role === "ADMIN_PROFESSIONAL" || context.role === "PROFESSIONAL")
-  );
-}
+const DOCUMENT_BLOCK_LABELS: Record<string, string> = {
+  chief_complaint: "Queixa principal",
+  hda: "História da doença atual (HDA)",
+  antecedents: "Antecedentes pessoais e familiares",
+  physical_exam: "Exame físico",
+  assessment: "Conduta e hipótese diagnóstica",
+};
 
 export function consultationsModule(deps: {
   prisma: PrismaClient;
   jwtSecret: string;
   audioStore?: ConsultationAudioStore | null;
   transcriptionProvider?: TranscriptionProvider | null;
-  clinicalEligibility?: (
-    context: OrganizationAccess,
-    capability: OrganizationCapability,
-  ) => Promise<boolean>;
+  extractionProvider?: ExtractionProvider | null;
 }) {
   const service = new ConsultationsService(deps.prisma);
   const audioService = new ConsultationAudioService(
@@ -43,9 +44,9 @@ export function consultationsModule(deps: {
   const transcriptionService = new ConsultationTranscriptionService(
     deps.prisma,
     deps.transcriptionProvider ?? null,
+    deps.audioStore ?? null,
+    deps.extractionProvider ?? null,
   );
-  const clinicalEligibility =
-    deps.clinicalEligibility ?? defaultClinicalEligibility;
 
   return new Elysia({ name: "consultations" })
     .use(authPlugin(deps))
@@ -53,7 +54,6 @@ export function consultationsModule(deps: {
       organizationAccessPlugin({
         prisma: deps.prisma,
         jwtSecret: deps.jwtSecret,
-        clinicalEligibility,
       }),
     )
     .group("/organizations/:orgSlug", (group) =>
@@ -61,7 +61,14 @@ export function consultationsModule(deps: {
         .get(
           "/consultations",
           ({ organizationAccess, query }) =>
-            service.list(organizationAccess.organizationId, query),
+            service.list(organizationAccess.organizationId, {
+              ...query,
+              // Escopo clínico: quem não tem `clinical:read_all` lista apenas
+              // os próprios atendimentos.
+              ...(canReadAllClinical(organizationAccess)
+                ? {}
+                : { professionalId: organizationAccess.userId }),
+            }),
           {
             params: m.orgSlugParams,
             query: m.listConsultationsQuery,
@@ -117,6 +124,7 @@ export function consultationsModule(deps: {
             service.getById(
               organizationAccess.organizationId,
               params.consultationId,
+              clinicalOwnerFilter(organizationAccess),
             ),
           {
             params: m.consultationIdParams,
@@ -191,6 +199,20 @@ export function consultationsModule(deps: {
             response: { 202: m.transcriptionResponse },
           },
         )
+        .get(
+          "/consultations/:consultationId/transcription",
+          ({ organizationAccess, params }) =>
+            transcriptionService.status(
+              organizationAccess.organizationId,
+              params.consultationId,
+              clinicalOwnerFilter(organizationAccess),
+            ),
+          {
+            params: m.consultationIdParams,
+            organizationAccess: "consultations:read",
+            response: { 200: m.transcriptionStatusResponse },
+          },
+        )
         .patch(
           "/consultations/:consultationId/draft",
           ({ auth, organizationAccess, params, body }) =>
@@ -240,6 +262,53 @@ export function consultationsModule(deps: {
             body: m.saveConsultationDraftBody,
             organizationAccess: "consultations:write",
             response: { 200: m.consultationDetailResponse },
+          },
+        )
+        .post(
+          "/consultations/:consultationId/document/generate",
+          async ({ auth, organizationAccess, params }) => {
+            if (!deps.extractionProvider?.structureDocument) {
+              throw new ApiError(
+                "PROVIDER_UNAVAILABLE",
+                503,
+                "A geração de documento não está configurada nesta instalação.",
+              );
+            }
+            const structurer = deps.extractionProvider.structureDocument.bind(
+              deps.extractionProvider,
+            );
+            return service.generateDocument(
+              organizationAccess.organizationId,
+              auth.userId,
+              organizationAccess.role,
+              params.consultationId,
+              structurer,
+              DOCUMENT_BLOCKS.map((key) => ({
+                key,
+                label: DOCUMENT_BLOCK_LABELS[key] ?? key,
+                description: null,
+              })),
+            );
+          },
+          {
+            params: m.consultationIdParams,
+            organizationAccess: "consultations:write",
+          },
+        )
+        .put(
+          "/consultations/:consultationId/notes",
+          async ({ auth, organizationAccess, params, body }) =>
+            service.saveNotes(
+              organizationAccess.organizationId,
+              auth.userId,
+              organizationAccess.role,
+              params.consultationId,
+              body,
+            ),
+          {
+            params: m.consultationIdParams,
+            body: m.saveConsultationNotesBody,
+            organizationAccess: "consultations:write",
           },
         )
         .put(

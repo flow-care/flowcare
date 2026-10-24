@@ -1,62 +1,35 @@
 import { Elysia } from "elysia";
 import type { MembershipRole, PrismaClient } from "../generated/prisma/client";
 import { ApiError } from "../lib/api-error";
+import {
+  effectivePermissions,
+  PERMISSION_GROUPS,
+  type Permission,
+  PRESET_PERMISSIONS,
+  type Preset,
+} from "../lib/permissions";
 import { Unauthenticated } from "../modules/auth/errors";
 import { authPlugin } from "./auth";
 
-export const capacityGroups = {
-  common: [
-    "organizations:read",
-    "patients:read",
-    "patients:write",
-    "appointments:read",
-    "appointments:write",
-    "reception:read",
-    "dashboard:read",
-  ],
-  administration: [
-    "team:read",
-    "team:invite",
-    "team:manage",
-    "roles:read",
-    "usage:read",
-    "settings:read",
-    "settings:write",
-    "audit:read",
-  ],
-  clinical: [
-    "patients:read_history",
-    "patients:attachments:read",
-    "patients:attachments:write",
-    "consultations:read",
-    "consultations:write",
-    "consultations:approve",
-    "documents:read",
-    "documents:write",
-    "documents:issue",
-    "documents:void",
-    "templates:read",
-    "templates:write",
-  ],
-  logistics: ["reception:write", "communications:read", "communications:write"],
-} as const;
+/**
+ * Grupos e capacidades vêm de `lib/permissions` — a fonte única. Este arquivo
+ * mantém o nome histórico (`OrganizationCapability`) usado nas rotas.
+ */
+export const capacityGroups = PERMISSION_GROUPS;
 
-export type OrganizationCapability =
-  (typeof capacityGroups)[keyof typeof capacityGroups][number];
+export type OrganizationCapability = Permission;
 export type Role = MembershipRole;
 
+/**
+ * Presets por papel (legado). Serve para telas e metadados; a autorização real
+ * usa `permissions` do vínculo, resolvida por `resolveOrganizationAccess`.
+ * `ADMIN_PROFESSIONAL` é legado e se comporta como ADMIN.
+ */
 export const capabilities: Record<Role, ReadonlySet<OrganizationCapability>> = {
-  ADMIN: new Set([
-    ...capacityGroups.common,
-    ...capacityGroups.administration,
-    ...capacityGroups.logistics,
-  ]),
-  ADMIN_PROFESSIONAL: new Set(Object.values(capacityGroups).flat()),
-  PROFESSIONAL: new Set([...capacityGroups.common, ...capacityGroups.clinical]),
-  RECEPTIONIST: new Set([
-    ...capacityGroups.common,
-    ...capacityGroups.logistics,
-  ]),
+  ADMIN: PRESET_PERMISSIONS.ADMIN,
+  ADMIN_PROFESSIONAL: PRESET_PERMISSIONS.ADMIN,
+  PROFESSIONAL: PRESET_PERMISSIONS.PROFESSIONAL,
+  RECEPTIONIST: PRESET_PERMISSIONS.RECEPTIONIST,
 };
 
 export interface CapabilityCatalogItem {
@@ -82,6 +55,12 @@ export const CUSTOM_ROLE_CAPABILITIES_CATALOG: readonly CapabilityCatalogItem[] 
       name: "patients:write",
       group: "common",
       description: "Cadastro e atualização cadastral de pacientes",
+    },
+    {
+      name: "patients:read_history_summary",
+      group: "common",
+      description:
+        "Resumo do histórico do paciente (datas, profissional e tipo), sem conteúdo clínico",
     },
     {
       name: "appointments:read",
@@ -205,6 +184,12 @@ export const CUSTOM_ROLE_CAPABILITIES_CATALOG: readonly CapabilityCatalogItem[] 
       group: "clinical",
       description: "Criação e edição de modelos de documentos clínicos",
     },
+    {
+      name: "clinical:read_all",
+      group: "clinical",
+      description:
+        "Acesso ao prontuário, documentos e anexos de todos os profissionais (sem esta permissão, apenas os próprios)",
+    },
     // logistics
     {
       name: "reception:write",
@@ -252,124 +237,187 @@ export const SYSTEM_ROLES_METADATA = [
   {
     role: "ADMIN" as const,
     name: "Administrador",
-    description: "Gerencia clínica, equipe, agenda, operação e consumo.",
-    capabilities: Array.from(capabilities.ADMIN),
-    isSystem: true as const,
-  },
-  {
-    role: "ADMIN_PROFESSIONAL" as const,
-    name: "Administrador e Profissional",
-    description: "Reúne administração e atuação clínica na clínica.",
-    capabilities: Array.from(capabilities.ADMIN_PROFESSIONAL),
+    description:
+      "Controla clínica, equipe e configurações. Vê o prontuário dos próprios atendimentos.",
+    capabilities: Array.from(PRESET_PERMISSIONS.ADMIN),
     isSystem: true as const,
   },
   {
     role: "PROFESSIONAL" as const,
-    name: "Profissional de Saúde",
-    description: "Atua em atendimentos, prontuários e documentos clínicos.",
-    capabilities: Array.from(capabilities.PROFESSIONAL),
+    name: "Profissional",
+    description:
+      "Atende, registra prontuário e emite documentos. Sem acesso às configurações do negócio.",
+    capabilities: Array.from(PRESET_PERMISSIONS.PROFESSIONAL),
     isSystem: true as const,
   },
   {
     role: "RECEPTIONIST" as const,
-    name: "Recepcionista",
+    name: "Recepção",
     description:
-      "Cuida do cadastro de pacientes, agenda, fila e mensagens logísticas.",
-    capabilities: Array.from(capabilities.RECEPTIONIST),
+      "Cuida de pacientes, agenda, fila e mensagens. Sem acesso ao conteúdo clínico.",
+    capabilities: Array.from(PRESET_PERMISSIONS.RECEPTIONIST),
     isSystem: true as const,
   },
 ] as const;
 
-// Only these actions require a separate clinical qualification decision. The
-// route implementing a clinical resource must supply its own resource-specific
-// check; without one, clinical actions fail closed.
-const qualifiedClinicalActions = new Set<OrganizationCapability>([
-  "consultations:read",
-  "consultations:write",
-  "consultations:approve",
-  "documents:read",
-  "documents:write",
-  "documents:issue",
-  "documents:void",
-  "templates:read",
-  "templates:write",
-]);
-
 export function hasOrganizationCapability(
   role: Role,
   capability: OrganizationCapability,
+  permissions?: readonly string[] | null,
 ) {
+  if (permissions && permissions.length > 0) {
+    return permissions.includes(capability);
+  }
   return capabilities[role].has(capability);
 }
 
 export type OrganizationAccess = {
   organizationId: string;
   membershipId: string;
+  /** Usuário da sessão: é o "eu" do escopo clínico. */
+  userId: string;
   role: Role;
+  /** Preset escolhido, normalizado para os três disponíveis. */
+  preset: Preset;
+  /** Permissões efetivas — a fonte de verdade da autorização. */
+  permissions: ReadonlySet<Permission>;
+  /** @deprecated alias de `permissions`, mantido para os chamadores antigos. */
   capabilities: ReadonlySet<OrganizationCapability>;
+  /** Clínica com um único membro ativo: essa pessoa tem acesso a tudo. */
+  isSoloClinic: boolean;
+  memberCount: number;
 };
+
+/**
+ * Quantos membros ativos a clínica tem. Fixtures de teste que não implementam
+ * `count` caem no default conservador (2), para nunca tratar como clínica solo
+ * por acidente.
+ */
+async function countActiveMembers(
+  prisma: PrismaClient,
+  organizationId: string,
+): Promise<number> {
+  const counter = (
+    prisma.membership as unknown as {
+      count?: (args: unknown) => Promise<number>;
+    }
+  ).count;
+  if (typeof counter !== "function") return 2;
+  return counter.call(prisma.membership, {
+    where: { organizationId, status: "ACTIVE" },
+  });
+}
 
 export async function resolveOrganizationAccess(
   prisma: PrismaClient,
   userId: string,
   slug: string,
   capability: OrganizationCapability | readonly OrganizationCapability[],
-  clinicalEligibility?: (
-    context: OrganizationAccess,
-    capability: OrganizationCapability,
-  ) => Promise<boolean>,
 ): Promise<OrganizationAccess> {
   const caps = (
     Array.isArray(capability) ? capability : [capability]
   ) as readonly OrganizationCapability[];
   const membership = await prisma.membership.findFirst({
     where: { userId, organization: { slug } },
-    select: { id: true, organizationId: true, role: true, status: true },
+    select: {
+      id: true,
+      organizationId: true,
+      role: true,
+      status: true,
+      permissions: true,
+    },
   });
   if (!membership)
     throw new ApiError("NOT_FOUND", 404, "Clínica não encontrada.");
   if (membership.status !== "ACTIVE")
     throw new ApiError("MEMBERSHIP_INACTIVE", 403, "Vínculo inativo.");
-  const hasAccess = caps.some((c) =>
-    hasOrganizationCapability(membership.role, c),
+
+  const memberCount = await countActiveMembers(
+    prisma,
+    membership.organizationId,
   );
-  if (!hasAccess)
+  const isSoloClinic = memberCount <= 1;
+  const permissions = effectivePermissions({
+    role: membership.role,
+    storedPermissions: membership.permissions,
+    isSoloClinic,
+  });
+
+  const missing = caps.filter((c) => !permissions.has(c));
+  if (missing.length > 0) {
     throw new ApiError(
       "PERMISSION_DENIED",
       403,
       "Você não possui permissão para realizar esta ação.",
-      { requiredPermission: caps[0] },
+      { requiredPermission: missing[0] },
     );
+  }
 
-  const context: OrganizationAccess = {
+  return {
     organizationId: membership.organizationId,
     membershipId: membership.id,
+    userId,
     role: membership.role,
-    capabilities: capabilities[membership.role],
+    preset: normalizePresetFromRole(membership.role),
+    permissions,
+    capabilities: permissions,
+    isSoloClinic,
+    memberCount,
   };
-  for (const cap of caps) {
-    if (
-      qualifiedClinicalActions.has(cap) &&
-      !(await clinicalEligibility?.(context, cap))
-    )
-      throw new ApiError(
-        "PERMISSION_DENIED",
-        403,
-        "Habilitação profissional necessária.",
-        { requiredPermission: cap },
-      );
-  }
-  return context;
+}
+
+function normalizePresetFromRole(role: Role): Preset {
+  if (role === "PROFESSIONAL") return "PROFESSIONAL";
+  if (role === "RECEPTIONIST") return "RECEPTIONIST";
+  return "ADMIN";
+}
+
+/**
+ * Escopo de leitura clínica. Sem `clinical:read_all` o membro só alcança o que
+ * é dele: consultas em que é o profissional e documentos que assinou.
+ */
+export type ClinicalScope = { userId: string; readAll: boolean };
+
+export function clinicalScope(access: OrganizationAccess): ClinicalScope {
+  return {
+    userId: access.userId,
+    readAll: access.permissions.has("clinical:read_all"),
+  };
+}
+
+/** Escopo da agenda: ver a clínica toda ou apenas os próprios agendamentos. */
+export function canReadAllAgenda(access: OrganizationAccess): boolean {
+  return access.permissions.has("appointments:read_all");
+}
+
+export function canReadAllClinical(access: OrganizationAccess): boolean {
+  return access.permissions.has("clinical:read_all");
+}
+
+/**
+ * Filtro de autor para documentos: vazio quando o membro pode ver tudo.
+ * Recebe `OrganizationAccess` e devolve `{}` ou `{ authorId }`.
+ */
+export function clinicalOwnerPicker(access: OrganizationAccess): {
+  authorId?: string;
+} {
+  return canReadAllClinical(access) ? {} : { authorId: access.userId };
+}
+
+/**
+ * Filtro de dono para leitura clínica: vazio quando o membro pode ver tudo.
+ * Sem `clinical:read_all`, só consultas em que ele é o profissional.
+ */
+export function clinicalOwnerFilter(access: OrganizationAccess): {
+  professionalId?: string;
+} {
+  return canReadAllClinical(access) ? {} : { professionalId: access.userId };
 }
 
 /** Install after authPlugin; each route opts into the capability it needs. */
 export function organizationAccessPlugin(deps: {
   prisma: PrismaClient;
   jwtSecret: string;
-  clinicalEligibility?: (
-    context: OrganizationAccess,
-    capability: OrganizationCapability,
-  ) => Promise<boolean>;
 }) {
   return new Elysia({ name: "organization-access" })
     .use(authPlugin(deps))
@@ -385,7 +433,6 @@ export function organizationAccessPlugin(deps: {
               auth.userId,
               (params as { orgSlug: string }).orgSlug,
               capability,
-              deps.clinicalEligibility,
             ),
           };
         },

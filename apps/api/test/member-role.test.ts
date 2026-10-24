@@ -522,8 +522,8 @@ describe("Task #317: Member Role Update with Last Administrator Protection and O
       "Dados profissionais exigidos para atribuição de papel clínico.",
     );
 
-    // Also test assigning ADMIN_PROFESSIONAL to user without clinical credentials
-    const resAdminProf = await request(
+    // O preset aposentado é recusado com mensagem própria
+    const resRetired = await request(
       "/organizations/clinica-alpha/members/mem-recep-no-cred/role",
       {
         method: "PATCH",
@@ -534,10 +534,9 @@ describe("Task #317: Member Role Update with Last Administrator Protection and O
         }),
       },
     );
-
-    expect(resAdminProf.status).toBe(422);
-    const bodyAdminProf = (await resAdminProf.json()) as any;
-    expect(bodyAdminProf.error.code).toBe("CLINICAL_QUALIFICATION_REQUIRED");
+    expect(resRetired.status).toBe(400);
+    const bodyRetired = (await resRetired.json()) as any;
+    expect(bodyRetired.error.code).toBe("VALIDATION_ERROR");
 
     // State not modified
     const mem = memberships.find((m) => m.id === "mem-recep-no-cred");
@@ -550,14 +549,14 @@ describe("Task #317: Member Role Update with Last Administrator Protection and O
     const { request, auditLogs, memberships } = setup();
 
     // user-admin-2 has CRM/SP 111111 and "Médico Clínico", currently ADMIN
-    // Promoted to ADMIN_PROFESSIONAL
+    // Passa a atender como PROFESSIONAL
     const res = await request(
       "/organizations/clinica-alpha/members/mem-admin-2/role",
       {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          role: "ADMIN_PROFESSIONAL",
+          role: "PROFESSIONAL",
           version: 1,
         }),
       },
@@ -565,11 +564,11 @@ describe("Task #317: Member Role Update with Last Administrator Protection and O
 
     expect(res.status).toBe(200);
     const body = (await res.json()) as any;
-    expect(body.role).toBe("ADMIN_PROFESSIONAL");
+    expect(body.role).toBe("PROFESSIONAL");
     expect(body.version).toBe(2);
 
     const mem = memberships.find((m) => m.id === "mem-admin-2");
-    expect(mem?.role).toBe("ADMIN_PROFESSIONAL");
+    expect(mem?.role).toBe("PROFESSIONAL");
     expect(mem?.version).toBe(2);
     expect(auditLogs.length).toBe(1);
   });
