@@ -8,6 +8,7 @@ import {
   type ConsultationDetail,
   ConsultationsApiError,
   completeAudioUpload,
+  generateConsultationDocument,
   getAudioPresignedUrl,
   getTranscriptionStatus,
   saveConsultationNotes,
@@ -17,6 +18,35 @@ import {
   type TranscriptionStatusResult,
   updateAnamnesisDraft,
 } from "@/server/consultations";
+
+export interface GenerateDocumentActionResult {
+  success: boolean;
+  document?: Record<string, string>;
+  emptyBlocks?: string[];
+  version?: number;
+  error?: string;
+}
+
+export async function generateDocumentAction(
+  orgSlug: string,
+  consultationId: string,
+): Promise<GenerateDocumentActionResult> {
+  try {
+    const result = await generateConsultationDocument(orgSlug, consultationId);
+    revalidatePath(`/app/${orgSlug}/consultations/${consultationId}`);
+    return {
+      success: true,
+      document: result.document,
+      emptyBlocks: result.emptyBlocks,
+      version: result.version,
+    };
+  } catch (error) {
+    if (error instanceof ConsultationsApiError) {
+      return { success: false, error: error.message };
+    }
+    return { success: false, error: "Não foi possível gerar o documento." };
+  }
+}
 
 export interface SaveNotesActionResult {
   success: boolean;

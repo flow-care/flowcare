@@ -736,6 +736,143 @@ export class ConsultationsService {
   }
 
   /**
+   * Monta o documento do atendimento com IA a partir do registro livre e da
+   * transcrição (nesta ordem de prioridade), e guarda como rascunho da anamnese.
+   */
+  async generateDocument(
+    organizationId: string,
+    actorUserId: string,
+    actorRole: string,
+    consultationId: string,
+    structure: (input: {
+      notes: string;
+      transcript: string;
+      patientName?: string | null;
+      patientContext?: string | null;
+      blocks: { key: string; label: string; description?: string | null }[];
+    }) => Promise<Record<string, string>>,
+    blocks: { key: string; label: string; description?: string | null }[],
+  ): Promise<{
+    document: Record<string, string>;
+    emptyBlocks: string[];
+    sources: { notesChars: number; transcriptChars: number };
+    version: number;
+  }> {
+    const consultation = await this.prisma.consultation.findFirst({
+      where: { id: consultationId, organizationId },
+      include: {
+        patient: { select: { fullName: true, birthDate: true } },
+      },
+    });
+
+    if (!consultation) {
+      throw new ApiError("NOT_FOUND", 404, "Atendimento não encontrado.");
+    }
+
+    const isAssigned = consultation.professionalId === actorUserId;
+    const isClinicAdminProf =
+      actorRole === "ADMIN" || actorRole === "ADMIN_PROFESSIONAL";
+    if (!isAssigned && !isClinicAdminProf) {
+      throw new ApiError(
+        "PERMISSION_DENIED",
+        403,
+        "Profissional não autorizado para este atendimento.",
+      );
+    }
+
+    if (
+      consultation.anamnesisStatus === "APPROVED" ||
+      consultation.status === "COMPLETED"
+    ) {
+      throw new ApiError(
+        "DOCUMENT_STATE_CONFLICT",
+        409,
+        "Atendimento já assinado: o documento não pode mais ser gerado.",
+      );
+    }
+
+    const job = await this.prisma.transcriptionJob.findFirst({
+      where: { consultationId, text: { not: null } },
+      orderBy: { createdAt: "desc" },
+      select: { text: true },
+    });
+
+    const notes = (consultation.notesText ?? "").trim();
+    const transcript = (job?.text ?? "").trim();
+
+    if (!notes && !transcript) {
+      throw new ApiError(
+        "NOTES_EMPTY",
+        400,
+        "Escreva no registro ou grave o atendimento antes de gerar o documento.",
+      );
+    }
+
+    const age = consultation.patient?.birthDate
+      ? Math.floor(
+          (Date.now() - consultation.patient.birthDate.getTime()) /
+            (365.25 * 24 * 60 * 60 * 1000),
+        )
+      : null;
+
+    const generated = await structure({
+      notes,
+      transcript,
+      patientName: consultation.patient?.fullName ?? null,
+      patientContext: age !== null ? `${age} anos` : null,
+      blocks,
+    });
+
+    const currentDraft =
+      consultation.anamnesisDraft &&
+      typeof consultation.anamnesisDraft === "object" &&
+      !Array.isArray(consultation.anamnesisDraft)
+        ? (consultation.anamnesisDraft as Record<string, unknown>)
+        : {};
+
+    const document: Record<string, string> = {};
+    for (const block of blocks) {
+      const value = generated[block.key];
+      if (typeof value === "string" && value.trim()) {
+        document[block.key] = value.trim();
+      }
+    }
+
+    const resolved = {
+      ...currentDraft,
+      ...document,
+      __generatedAt: new Date().toISOString(),
+      __generatedSources: {
+        notesChars: notes.length,
+        transcriptChars: transcript.length,
+      },
+    };
+
+    await this.prisma.consultation.update({
+      where: { id: consultationId },
+      data: {
+        anamnesisDraft: resolved as Prisma.InputJsonValue,
+        draftSavedAt: new Date(),
+        draftSavedById: actorUserId,
+        // A queixa estruturada acompanha o documento quando vem da IA.
+        ...(document.chief_complaint
+          ? { chiefComplaint: document.chief_complaint.slice(0, 2000) }
+          : {}),
+        version: { increment: 1 },
+      },
+    });
+
+    return {
+      document,
+      emptyBlocks: blocks
+        .filter((block) => !document[block.key])
+        .map((block) => block.label),
+      sources: { notesChars: notes.length, transcriptChars: transcript.length },
+      version: consultation.version + 1,
+    };
+  }
+
+  /**
    * Autosave do registro livre (editor rico). Não mexe na anamnese
    * estruturada: aqui é o que o profissional escreveu durante o atendimento.
    */

@@ -1,5 +1,6 @@
 import { Elysia } from "elysia";
 import type { PrismaClient } from "../../generated/prisma/client";
+import { ApiError } from "../../lib/api-error";
 import { isClinicalRole } from "../../lib/roles";
 import { authPlugin } from "../../plugins/auth";
 import {
@@ -10,12 +11,23 @@ import {
   organizationAccessPlugin,
 } from "../../plugins/organization-access";
 import type { ConsultationAudioStore } from "../../services/consultation-audio-store";
-import type { ExtractionProvider } from "../../services/extraction-provider";
+import {
+  DOCUMENT_BLOCKS,
+  type ExtractionProvider,
+} from "../../services/extraction-provider";
 import type { TranscriptionProvider } from "../../services/transcription-provider";
 import { ConsultationAudioService } from "./audio-service";
 import * as m from "./model";
 import { ConsultationsService } from "./service";
 import { ConsultationTranscriptionService } from "./transcription-service";
+
+const DOCUMENT_BLOCK_LABELS: Record<string, string> = {
+  chief_complaint: "Queixa principal",
+  hda: "História da doença atual (HDA)",
+  antecedents: "Antecedentes pessoais e familiares",
+  physical_exam: "Exame físico",
+  assessment: "Conduta e hipótese diagnóstica",
+};
 
 export function consultationsModule(deps: {
   prisma: PrismaClient;
@@ -250,6 +262,37 @@ export function consultationsModule(deps: {
             body: m.saveConsultationDraftBody,
             organizationAccess: "consultations:write",
             response: { 200: m.consultationDetailResponse },
+          },
+        )
+        .post(
+          "/consultations/:consultationId/document/generate",
+          async ({ auth, organizationAccess, params }) => {
+            if (!deps.extractionProvider?.structureDocument) {
+              throw new ApiError(
+                "PROVIDER_UNAVAILABLE",
+                503,
+                "A geração de documento não está configurada nesta instalação.",
+              );
+            }
+            const structurer = deps.extractionProvider.structureDocument.bind(
+              deps.extractionProvider,
+            );
+            return service.generateDocument(
+              organizationAccess.organizationId,
+              auth.userId,
+              organizationAccess.role,
+              params.consultationId,
+              structurer,
+              DOCUMENT_BLOCKS.map((key) => ({
+                key,
+                label: DOCUMENT_BLOCK_LABELS[key] ?? key,
+                description: null,
+              })),
+            );
+          },
+          {
+            params: m.consultationIdParams,
+            organizationAccess: "consultations:write",
           },
         )
         .put(

@@ -19,6 +19,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import {
   approveAnamnesisAction,
+  generateDocumentAction,
   getTranscriptionStatusAction,
   updateAnamnesisDraftAction,
 } from "@/app/app/[orgSlug]/consultations/actions";
@@ -131,7 +132,33 @@ export function AnamnesisReviewView({
     consultation.snapshotHash ?? null,
   );
 
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generatedAt, setGeneratedAt] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+
+  const handleGenerateDocument = async () => {
+    if (isGenerating || isApproved) return;
+    setIsGenerating(true);
+    try {
+      const result = await generateDocumentAction(orgSlug, consultation.id);
+      if (!result.success || !result.document) {
+        setConflictError(result.error ?? "Não foi possível gerar o documento.");
+        return;
+      }
+      setTopics((previous) => ({ ...previous, ...result.document }));
+      if (typeof result.version === "number") setVersion(result.version);
+      setGeneratedAt(new Date().toISOString());
+      setConflictError(null);
+      const empty = result.emptyBlocks ?? [];
+      setSaveSuccessMsg(
+        empty.length > 0
+          ? `Documento gerado. Sem informação para: ${empty.join(", ")}.`
+          : "Documento gerado a partir do registro e da transcrição.",
+      );
+    } finally {
+      setIsGenerating(false);
+    }
+  };
   const [isApproving, setIsApproving] = useState(false);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
   const [conflictError, setConflictError] = useState<string | null>(null);
@@ -527,6 +554,34 @@ export function AnamnesisReviewView({
 
       {/* 7. Structured Clinical Topics Editor */}
       <div className="space-y-5">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/20 bg-primary/5 p-3">
+          <div className="text-sm">
+            <p className="font-medium text-foreground">
+              Documento do atendimento
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Montado pela IA a partir do seu registro e da gravação. Revise e
+              ajuste o que quiser antes de assinar.
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleGenerateDocument}
+            disabled={isGenerating || isApproved}
+            className="gap-1.5"
+            data-testid="generate-document-button"
+          >
+            {isGenerating ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Sparkles className="size-4" />
+            )}
+            {isGenerating ? "Gerando…" : "Gerar com IA"}
+          </Button>
+        </div>
+
         {CLINICAL_ANAMNESIS_TOPICS.map((topic, index) => {
           const value = topics[topic.key] || "";
           const isMissing =

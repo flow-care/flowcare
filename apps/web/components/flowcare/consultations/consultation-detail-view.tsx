@@ -228,7 +228,7 @@ export function ConsultationDetailView({
           </TabsTrigger>
           <TabsTrigger value="review" className="gap-2">
             <FileText className="size-4" />
-            <span>Revisão</span>
+            <span>Documento</span>
           </TabsTrigger>
         </TabsList>
 

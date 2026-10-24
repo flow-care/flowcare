@@ -150,6 +150,66 @@ function sessionHeader(token: string): Record<string, string> {
   return { [name]: value };
 }
 
+export interface GenerateDocumentResult {
+  document: Record<string, string>;
+  emptyBlocks: string[];
+  sources: { notesChars: number; transcriptChars: number };
+  version: number;
+}
+
+/**
+ * Pede à IA o documento do atendimento: ela organiza o registro livre e a
+ * transcrição nos blocos da anamnese. Nada é inventado — o prompt proíbe.
+ */
+export async function generateConsultationDocument(
+  orgSlug: string,
+  consultationId: string,
+): Promise<GenerateDocumentResult> {
+  const token = await getSessionToken();
+  if (!token) {
+    throw new ConsultationsApiError(
+      "UNAUTHENTICATED",
+      "Sessão expirada. Faça login novamente.",
+    );
+  }
+
+  const { apiBaseUrl } = getServerConfig();
+  const url = `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/consultations/${encodeURIComponent(consultationId)}/document/generate`;
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: {
+        ...sessionHeader(token),
+        Accept: "application/json",
+      },
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(150_000),
+    });
+  } catch {
+    throw new ConsultationsApiError(
+      "UNAVAILABLE",
+      "A geração demorou demais. Tente novamente.",
+    );
+  }
+
+  if (!response.ok) {
+    let message = "Não foi possível gerar o documento.";
+    try {
+      const err = (await response.json()) as { message?: string };
+      if (err?.message) message = err.message;
+    } catch {}
+    throw new ConsultationsApiError(
+      response.status === 400 ? "VALIDATION_ERROR" : "UNAVAILABLE",
+      message,
+    );
+  }
+
+  return (await response.json()) as GenerateDocumentResult;
+}
+
 export interface SaveConsultationNotesInput {
   /** Documento do editor (ProseMirror JSON), guardado como está. */
   rich: unknown;
