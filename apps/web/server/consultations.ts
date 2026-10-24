@@ -150,6 +150,83 @@ function sessionHeader(token: string): Record<string, string> {
   return { [name]: value };
 }
 
+export interface SaveConsultationNotesInput {
+  /** Documento do editor (ProseMirror JSON), guardado como está. */
+  rich: unknown;
+  /** Texto puro do mesmo conteúdo: busca, IA e recuperação. */
+  text: string;
+}
+
+/**
+ * Autosave do registro livre do atendimento. Roda a cada poucos segundos
+ * enquanto o profissional escreve, e não toca na anamnese estruturada.
+ */
+export async function saveConsultationNotes(
+  orgSlug: string,
+  consultationId: string,
+  input: SaveConsultationNotesInput,
+): Promise<{ notesSavedAt: string }> {
+  const token = await getSessionToken();
+  if (!token) {
+    throw new ConsultationsApiError(
+      "UNAUTHENTICATED",
+      "Sessão expirada. Faça login novamente.",
+    );
+  }
+
+  const { apiBaseUrl } = getServerConfig();
+  const url = `${apiBaseUrl}/organizations/${encodeURIComponent(orgSlug)}/consultations/${encodeURIComponent(consultationId)}/notes`;
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "PUT",
+      headers: {
+        ...sessionHeader(token),
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({ rich: input.rich, text: input.text }),
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    throw new ConsultationsApiError(
+      "UNAVAILABLE",
+      "Sem conexão para salvar o registro.",
+    );
+  }
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      throw new ConsultationsApiError(
+        "UNAUTHENTICATED",
+        "Sessão expirada. Faça login novamente.",
+      );
+    }
+    if (response.status === 403) {
+      throw new ConsultationsApiError(
+        "FORBIDDEN",
+        "Seu acesso não permite editar este atendimento.",
+      );
+    }
+    if (response.status === 409) {
+      throw new ConsultationsApiError(
+        "CONFLICT",
+        "Atendimento finalizado: o registro não aceita mais alterações.",
+      );
+    }
+    throw new ConsultationsApiError(
+      "UNAVAILABLE",
+      "Não foi possível salvar o registro.",
+    );
+  }
+
+  const data = (await response.json()) as { notesSavedAt?: string };
+  return { notesSavedAt: data.notesSavedAt ?? new Date().toISOString() };
+}
+
 export interface StartConsultationInput {
   /** Um dos dois é obrigatório: o paciente direto ou o agendamento. */
   patientId?: string;
@@ -381,6 +458,9 @@ export const consultationDetailSchema = z.object({
   anamnesisTopicRevisionId: z.string().nullable().optional(),
   chiefComplaint: z.string().nullable().optional(),
   clinicalNotes: z.string().nullable().optional(),
+  notesRich: z.unknown().optional(),
+  notesText: z.string().nullable().optional(),
+  notesSavedAt: z.string().nullable().optional(),
   anamnesisDraft: z.unknown().optional(),
   draftSavedAt: z.string().nullable().optional(),
   draftSavedById: z.string().nullable().optional(),

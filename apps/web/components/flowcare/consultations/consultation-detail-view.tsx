@@ -11,6 +11,7 @@ import {
   FileCheck,
   FileText,
   Mic,
+  NotebookPen,
   ShieldAlert,
   Stethoscope,
   User,
@@ -36,6 +37,7 @@ import {
   AnamnesisStatusBadge,
   ConsultationStatusBadge,
 } from "./consultation-badges";
+import { ConsultationNotesEditor } from "./consultation-notes-editor";
 import { formatDateTime, formatScheduledAt } from "./format-date";
 
 export interface ConsultationDetailViewProps {
@@ -221,8 +223,8 @@ export function ConsultationDetailView({
             <span>Resumo</span>
           </TabsTrigger>
           <TabsTrigger value="anamnesis" className="gap-2">
-            <Mic className="size-4" />
-            <span>Gravação</span>
+            <NotebookPen className="size-4" />
+            <span>Registro</span>
           </TabsTrigger>
           <TabsTrigger value="review" className="gap-2">
             <FileText className="size-4" />
@@ -465,8 +467,28 @@ export function ConsultationDetailView({
           </div>
         </TabsContent>
 
-        {/* Tab 2: Gravação (anamnesis) */}
+        {/* Tab 2: Registro — escrever livremente e, se quiser, gravar */}
         <TabsContent value="anamnesis" className="space-y-6 outline-none">
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="text-base font-semibold text-foreground">
+                Registro do atendimento
+              </h2>
+              <p className="text-xs text-muted-foreground">
+                Escreva como num documento. Gravar é opcional e pode rodar ao
+                mesmo tempo.
+              </p>
+            </div>
+            <ConsultationNotesEditor
+              orgSlug={orgSlug}
+              consultationId={consultation.id}
+              initialRich={consultation.notesRich}
+              initialText={consultation.notesText}
+              serverSavedAt={consultation.notesSavedAt}
+              readOnly={consultation.anamnesisStatus === "APPROVED"}
+            />
+          </div>
+
           <AudioAnamnesisView
             orgSlug={orgSlug}
             consultation={consultation}

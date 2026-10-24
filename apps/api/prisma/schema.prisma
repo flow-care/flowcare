@@ -760,6 +760,12 @@ model Consultation {
   anamnesisTopicRevisionId String?            @db.Uuid
   chiefComplaint           String?
   clinicalNotes            String?
+  /** Registro livre do profissional (documento rico do editor), não estruturado. */
+  notesRich                Json?
+  /** Mesmo registro em texto puro: busca, IA e fallback. */
+  notesText                String?            @db.Text
+  notesSavedAt             DateTime?
+  notesSavedById           String?            @db.Uuid
   anamnesisDraft           Json?              @default("{}")
   draftSavedAt             DateTime?
   draftSavedById           String?            @db.Uuid

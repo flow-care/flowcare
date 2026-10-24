@@ -10,12 +10,36 @@ import {
   completeAudioUpload,
   getAudioPresignedUrl,
   getTranscriptionStatus,
+  saveConsultationNotes,
   startConsultation,
   startTranscriptionJob,
   type TranscriptionJobResponse,
   type TranscriptionStatusResult,
   updateAnamnesisDraft,
 } from "@/server/consultations";
+
+export interface SaveNotesActionResult {
+  success: boolean;
+  savedAt?: string;
+  error?: string;
+  code?: string;
+}
+
+export async function saveNotesAction(
+  orgSlug: string,
+  consultationId: string,
+  input: { rich: unknown; text: string },
+): Promise<SaveNotesActionResult> {
+  try {
+    const result = await saveConsultationNotes(orgSlug, consultationId, input);
+    return { success: true, savedAt: result.notesSavedAt };
+  } catch (error) {
+    if (error instanceof ConsultationsApiError) {
+      return { success: false, error: error.message, code: error.code };
+    }
+    return { success: false, error: "Não foi possível salvar o registro." };
+  }
+}
 
 export interface StartConsultationActionResult {
   success: boolean;

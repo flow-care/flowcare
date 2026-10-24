@@ -253,6 +253,22 @@ export function consultationsModule(deps: {
           },
         )
         .put(
+          "/consultations/:consultationId/notes",
+          async ({ auth, organizationAccess, params, body }) =>
+            service.saveNotes(
+              organizationAccess.organizationId,
+              auth.userId,
+              organizationAccess.role,
+              params.consultationId,
+              body,
+            ),
+          {
+            params: m.consultationIdParams,
+            body: m.saveConsultationNotesBody,
+            organizationAccess: "consultations:write",
+          },
+        )
+        .put(
           "/consultations/:consultationId/anamnesis/draft",
           ({ auth, organizationAccess, params, body }) =>
             service.saveDraft(

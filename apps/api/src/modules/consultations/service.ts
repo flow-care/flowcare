@@ -13,6 +13,7 @@ import type {
   ListConsultationsQuery,
   ListConsultationsResponse,
   SaveConsultationDraftBody,
+  SaveConsultationNotesBody,
   StartConsultationBody,
 } from "./model";
 
@@ -326,6 +327,10 @@ export class ConsultationsService {
       anamnesisTopicRevisionId?: string | null;
       chiefComplaint?: string | null;
       clinicalNotes?: string | null;
+      notesRich?: Prisma.JsonValue | null;
+      notesText?: string | null;
+      notesSavedAt?: Date | null;
+      notesSavedById?: string | null;
       anamnesisDraft?: Prisma.JsonValue | null;
       draftSavedAt?: Date | null;
       draftSavedById?: string | null;
@@ -366,6 +371,9 @@ export class ConsultationsService {
       anamnesisTopicRevisionId: row.anamnesisTopicRevisionId ?? null,
       chiefComplaint: row.chiefComplaint ?? null,
       clinicalNotes: row.clinicalNotes ?? null,
+      notesRich: row.notesRich ?? null,
+      notesText: row.notesText ?? null,
+      notesSavedAt: row.notesSavedAt ? row.notesSavedAt.toISOString() : null,
       anamnesisDraft: row.anamnesisDraft ?? null,
       draftSavedAt: row.draftSavedAt ? row.draftSavedAt.toISOString() : null,
       draftSavedById: row.draftSavedById ?? null,
@@ -404,6 +412,9 @@ export class ConsultationsService {
         anamnesisStatus: row.anamnesisStatus,
         chiefComplaint: row.chiefComplaint ?? null,
         clinicalNotes: row.clinicalNotes ?? null,
+        notesRich: row.notesRich ?? null,
+        notesText: row.notesText ?? null,
+        notesSavedAt: row.notesSavedAt ? row.notesSavedAt.toISOString() : null,
         anamnesisDraft: row.anamnesisDraft ?? null,
         draftSavedAt: row.draftSavedAt ? row.draftSavedAt.toISOString() : null,
         draftSavedById: row.draftSavedById ?? null,
@@ -722,6 +733,68 @@ export class ConsultationsService {
     }
 
     return this.formatConsultationDetail(consultation, timeZone);
+  }
+
+  /**
+   * Autosave do registro livre (editor rico). Não mexe na anamnese
+   * estruturada: aqui é o que o profissional escreveu durante o atendimento.
+   */
+  async saveNotes(
+    organizationId: string,
+    actorUserId: string,
+    actorRole: string,
+    consultationId: string,
+    body: SaveConsultationNotesBody,
+  ): Promise<{ notesSavedAt: string }> {
+    const consultation = await this.prisma.consultation.findFirst({
+      where: { id: consultationId, organizationId },
+      select: {
+        id: true,
+        professionalId: true,
+        anamnesisStatus: true,
+        status: true,
+      },
+    });
+
+    if (!consultation) {
+      throw new ApiError("NOT_FOUND", 404, "Atendimento não encontrado.");
+    }
+
+    const isAssigned = consultation.professionalId === actorUserId;
+    const isClinicAdminProf =
+      actorRole === "ADMIN" || actorRole === "ADMIN_PROFESSIONAL";
+    if (!isAssigned && !isClinicAdminProf) {
+      throw new ApiError(
+        "PERMISSION_DENIED",
+        403,
+        "Profissional não autorizado para este atendimento.",
+      );
+    }
+
+    if (
+      consultation.anamnesisStatus === "APPROVED" ||
+      consultation.status === "COMPLETED"
+    ) {
+      throw new ApiError(
+        "DOCUMENT_STATE_CONFLICT",
+        409,
+        "Atendimento finalizado: o registro não pode mais ser alterado.",
+        { currentStatus: consultation.status },
+      );
+    }
+
+    const savedAt = new Date();
+    await this.prisma.consultation.update({
+      where: { id: consultationId },
+      data: {
+        notesRich: body.rich as Prisma.InputJsonValue,
+        notesText: body.text,
+        notesSavedAt: savedAt,
+        notesSavedById: actorUserId,
+      },
+    });
+
+    return { notesSavedAt: savedAt.toISOString() };
   }
 
   async saveDraft(
